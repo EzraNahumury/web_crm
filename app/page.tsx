@@ -2,7 +2,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { apiLogin } from '@/lib/api';
 import { Role } from '@/lib/types';
 
 function AnimatedBackground() {
@@ -222,13 +221,11 @@ export default function LoginPage() {
     setError('');
     setSubmitting(true);
     try {
-      const res = await apiLogin(username.trim(), password.trim());
-      if (res.success && res.data) {
-        login({ username: res.data.username, role: res.data.role as Role });
-        redirectByRole(res.data.role as Role);
-      } else {
+      const res = await login(username.trim(), password.trim());
+      if (!res.success) {
         setError(res.error || 'Username atau password salah.');
       }
+      // On success, useEffect above will handle redirect when user state updates
     } catch {
       setError('Tidak dapat terhubung ke server.');
     }

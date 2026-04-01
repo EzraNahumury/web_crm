@@ -3,7 +3,11 @@
     "allow": [
       "Bash(wc:*)",
       "Bash(npm install:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(find /d/web_crm -type d -name *auth* -o -type d -name *login* -o -type d -name *session*)",
+      "Bash(xargs grep:*)",
+      "Bash(ls:*)",
+      "Bash(npx next:*)"
     ]
   }
 }

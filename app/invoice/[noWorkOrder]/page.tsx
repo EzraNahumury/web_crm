@@ -83,6 +83,7 @@ export default function InvoicePage() {
   const grandTotal = order.sallaryProduct + order.sallaryShipping;
 
   async function handleExportPDF() {
+    if (!order) return;
     const { default: jsPDF } = await import('jspdf');
     const { default: autoTable } = await import('jspdf-autotable');
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -169,7 +170,7 @@ export default function InvoicePage() {
       theme: 'grid',
     });
 
-    y = (doc as ReturnType<typeof jsPDF> & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
 
     // === PROGRESS STAGES ===
     doc.setFontSize(7); doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'bold');

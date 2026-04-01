@@ -1,42 +1,54 @@
 'use client';
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User } from './types';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { User, Role } from './types';
 
 interface AuthCtx {
   user: User | null;
   loading: boolean;
-  login: (user: User) => void;
-  logout: () => void;
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthCtx>({
   user: null,
   loading: true,
-  login: () => {},
-  logout: () => {},
+  login: async () => ({ success: false }),
+  logout: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Check session on mount
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('wp_user');
-      if (stored) setUser(JSON.parse(stored));
-    } catch {}
-    setLoading(false);
+    fetch('/api/auth/session')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.success && data.data) setUser(data.data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  const login = (u: User) => {
-    localStorage.setItem('wp_user', JSON.stringify(u));
-    setUser(u);
-  };
+  const login = useCallback(async (username: string, password: string) => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (data.success && data.data) {
+      setUser({ username: data.data.username, role: data.data.role as Role });
+      return { success: true };
+    }
+    return { success: false, error: data.error || 'Username atau password salah.' };
+  }, []);
 
-  const logout = () => {
-    localStorage.removeItem('wp_user');
+  const logout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
     setUser(null);
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>

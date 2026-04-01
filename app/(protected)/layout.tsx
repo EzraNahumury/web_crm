@@ -121,7 +121,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
                       </div>
                     </div>
                     <div className="p-1">
-                      <button onClick={() => { setOpen(false); logout(); }}
+                      <button onClick={async () => { setOpen(false); await logout(); }}
                         className="w-full text-left px-3 py-2 rounded-lg text-[13px] text-zinc-500 hover:text-red-400 hover:bg-zinc-800/50 transition-colors">
                         Keluar
                       </button>
