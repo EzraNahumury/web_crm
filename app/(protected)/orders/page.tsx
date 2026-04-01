@@ -1,11 +1,13 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { apiGetOrders, apiGetOrdersForce, apiUpdateOrder } from '@/lib/api';
 import { Order, OrderStatus } from '@/lib/types';
 import { STAGES, RISK_LABELS, STATUS_LABELS } from '@/lib/constants';
 import { formatDate, getProgressPercent, getCurrentStage } from '@/lib/utils';
+import CreateOrderDrawer from './create-order-drawer';
 
 const STATUS_STYLES_DARK: Record<string, string> = {
   OPEN: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
@@ -118,6 +120,7 @@ async function generateOrderPDF(orders: Order[], type: 'weekly' | 'monthly', par
 
 export default function OrdersPage() {
   const { user } = useAuth();
+  const orderRouter = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -129,6 +132,12 @@ export default function OrdersPage() {
   const PAGE_SIZE = 10;
   const [selected, setSelected] = useState<Order | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get('create') === '1') setCreateOpen(true);
+  }, [searchParams]);
 
   useEffect(() => { fetchOrders(false); }, []);
 
@@ -270,6 +279,13 @@ export default function OrdersPage() {
               )}
             </div>
           )}
+          {user?.role === 'admin' && (
+            <button onClick={() => setCreateOpen(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-[13px] font-medium transition-colors shadow-lg shadow-blue-600/20">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4v16m8-8H4"/></svg>
+              Order Baru
+            </button>
+          )}
           {user?.role === 'cs' && (
             <Link href="/orders/new"
               className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-[13px] font-medium transition-colors shadow-lg shadow-indigo-600/20">
@@ -328,7 +344,7 @@ export default function OrdersPage() {
                 return (
                   <tr key={order.rowIndex}
                     className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors cursor-pointer group"
-                    onClick={() => setSelected(order)}>
+                    onClick={() => orderRouter.push(`/orders/${order.rowIndex}`)}>
                     <td className="px-4 py-3.5 text-white/20 font-mono text-[11px]">{order.no}</td>
                     <td className="px-4 py-3.5">
                       <div className="font-semibold text-white/80 group-hover:text-white transition-colors">{order.customer}</div>
@@ -364,7 +380,7 @@ export default function OrdersPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3.5">
-                      <button onClick={e => { e.stopPropagation(); setSelected(order); }}
+                      <button onClick={e => { e.stopPropagation(); orderRouter.push(`/orders/${order.rowIndex}`); }}
                         className="text-white/15 hover:text-indigo-400 transition-colors">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -401,6 +417,8 @@ export default function OrdersPage() {
       {selected && (
         <OrderDetailModal order={selected} onClose={() => setSelected(null)} canEdit={user?.role === 'cs'} onSaved={fetchOrders} />
       )}
+
+      <CreateOrderDrawer open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
 }

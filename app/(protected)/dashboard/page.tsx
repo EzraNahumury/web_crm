@@ -5,21 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { apiGetDashboard, apiGetOrders, apiGetDashboardForce, apiGetOrdersForce } from '@/lib/api';
 import { DashboardStats, Order } from '@/lib/types';
-import { STAGES, RISK_LABELS, STATUS_LABELS } from '@/lib/constants';
 import { formatDate } from '@/lib/utils';
-
-const RISK_D: Record<string, string> = {
-  SAFE: 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20',
-  NORMAL: 'text-zinc-400 bg-zinc-800 border border-zinc-700',
-  NEAR: 'text-amber-400 bg-amber-500/10 border border-amber-500/20',
-  HIGH: 'text-red-400 bg-red-500/10 border border-red-500/20',
-  OVERDUE: 'text-red-400 bg-red-500/15 border border-red-500/25',
-};
-const STATUS_D: Record<string, string> = {
-  OPEN: 'text-blue-400 bg-blue-500/10 border border-blue-500/20',
-  IN_PROGRESS: 'text-amber-400 bg-amber-500/10 border border-amber-500/20',
-  DONE: 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20',
-};
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -28,9 +14,6 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState('');
-  const [orderPage, setOrderPage] = useState(1);
-  const ORDER_PAGE_SIZE = 8;
 
   useEffect(() => {
     if (user && user.role !== 'admin') {
@@ -50,187 +33,181 @@ export default function DashboardPage() {
       if (ordersRes.success && ordersRes.data) setOrders(ordersRes.data);
       if (!statsRes.success) setError(statsRes.error || 'Gagal memuat data');
       else setError('');
-    } catch { setError('Gagal terhubung. Cek konfigurasi APPS_SCRIPT_URL.'); }
+    } catch { setError('Gagal terhubung ke server.'); }
     setLoading(false);
   }
 
-  const warningOrders = orders.filter(o => o.riskLevel === 'HIGH' || o.riskLevel === 'OVERDUE' || o.riskLevel === 'NEAR');
+  const overdueOrders = orders.filter(o => o.riskLevel === 'OVERDUE' || o.riskLevel === 'HIGH');
+  const recentOrders = orders.slice(0, 5);
 
-  const parseDate = (s: string): Date | null => {
-    if (!s || s === '—') return null;
-    const parts = s.split('/');
-    if (parts.length === 3) { const d = new Date(+parts[2], +parts[1] - 1, +parts[0]); return isNaN(d.getTime()) ? null : d; }
-    const d = new Date(s); return isNaN(d.getTime()) ? null : d;
-  };
-  const dateMs = (s: string) => parseDate(s)?.getTime() ?? Infinity;
-  const monthKey = (s: string) => { const d = parseDate(s); return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : '9999-99'; };
-  const monthLabel = (key: string) => { const [y, m] = key.split('-'); const B = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des']; return `${B[+m - 1]} ${y}`; };
+  const pendingCount = stats ? stats.openOrders : 0;
+  const activeCount = stats ? stats.totalOrders - stats.doneOrders : 0;
+  const overdueCount = stats?.overdueCount ?? 0;
 
-  const monthsMap = new Map<string, Map<string, Order[]>>();
-  for (const o of orders) {
-    const dk = o.tglSelesai || o.dlCust || '—';
-    const mk = monthKey(dk);
-    if (!monthsMap.has(mk)) monthsMap.set(mk, new Map());
-    const dm = monthsMap.get(mk)!;
-    if (!dm.has(dk)) dm.set(dk, []);
-    dm.get(dk)!.push(o);
-  }
-  const sortedMonths = Array.from(monthsMap.keys()).sort();
-  const activeMonth = selectedMonth && monthsMap.has(selectedMonth) ? selectedMonth : (sortedMonths[0] ?? '');
-  const activeDateMap = monthsMap.get(activeMonth) ?? new Map<string, Order[]>();
-  const activeDates = Array.from(activeDateMap.entries()).sort(([a], [b]) => dateMs(a) - dateMs(b));
-  const activeMonthOrderCount = Array.from(activeDateMap.values()).reduce((s, arr) => s + arr.length, 0);
-  const totalPages = activeMonthOrderCount > ORDER_PAGE_SIZE ? Math.ceil(activeDates.length / ORDER_PAGE_SIZE) : 1;
-  const pagedDates = activeMonthOrderCount > ORDER_PAGE_SIZE
-    ? activeDates.slice((orderPage - 1) * ORDER_PAGE_SIZE, orderPage * ORDER_PAGE_SIZE)
-    : activeDates;
+  if (loading) return <DashboardSkeleton />;
 
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} onRetry={fetchData} />;
+  if (error) return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 grid place-items-center mb-4">
+        <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+      </div>
+      <h3 className="text-lg font-semibold text-white mb-2">Gagal Memuat Data</h3>
+      <p className="text-sm text-slate-500 mb-4 max-w-sm">{error}</p>
+      <button onClick={() => { setLoading(true); fetchData(true); }} className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-500 transition-colors">Coba Lagi</button>
+    </div>
+  );
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto">
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="Total Order Aktif" value={stats ? stats.totalOrders - stats.doneOrders : 0} sub={`${stats?.doneOrders ?? 0} selesai`} color="indigo" />
-        <StatCard label="Near Deadline" value={stats?.nearDeadlineCount ?? 0} sub="3 hari lagi" color="amber" />
-        <StatCard label="Overdue" value={stats?.overdueCount ?? 0} sub="Lewat deadline" color="red" />
-        <StatCard label="Kapasitas Hari Ini" value={stats?.dailyCapacityUsed ?? 0} sub="total hari ini" color="emerald" />
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <p className="text-sm text-slate-400 mt-1">Selamat datang, berikut ringkasan bisnis Anda.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link href="/orders?create=1"
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
+            Order Baru
+          </Link>
+          <Link href="/master"
+            className="flex items-center gap-2 border border-white/10 hover:bg-white/[0.04] text-slate-300 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" /></svg>
+            Master Data
+          </Link>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Pipeline */}
-        <div className="lg:col-span-2 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-          <h2 className="text-sm font-semibold text-zinc-200 mb-4">Progress Pipeline Produksi</h2>
-          <div className="space-y-2.5">
-            {STAGES.map(stage => {
-              const count = stats?.stageCounts?.[stage.key] ?? 0;
-              const maxCount = Math.max(1, ...Object.values(stats?.stageCounts ?? {}));
-              const pct = Math.round((count / maxCount) * 100);
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <StatCard
+          label="TOTAL PENDAPATAN"
+          value="Rp 0,00"
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+          iconBg="bg-emerald-500/15"
+          iconColor="text-emerald-400"
+        />
+        <StatCard
+          label="CUSTOMER ORDERS"
+          value={String(stats?.totalOrders ?? 0)}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>}
+          iconBg="bg-blue-500/15"
+          iconColor="text-blue-400"
+        />
+        <StatCard
+          label="PENDING ORDERS"
+          value={String(pendingCount)}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+          iconBg="bg-emerald-500/15"
+          iconColor="text-emerald-400"
+        />
+        <StatCard
+          label="WO AKTIF"
+          value={String(activeCount)}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" /></svg>}
+          iconBg="bg-cyan-500/15"
+          iconColor="text-cyan-400"
+        />
+        <StatCard
+          label="WO TERLAMBAT"
+          value={String(overdueCount)}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>}
+          iconBg="bg-amber-500/15"
+          iconColor="text-amber-400"
+          valueColor={overdueCount > 0 ? 'text-red-400' : undefined}
+        />
+      </div>
+
+      {/* Peringatan Deadline */}
+      <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-bold text-white">Peringatan Deadline</h2>
+          {overdueOrders.length > 0 && (
+            <span className="text-xs bg-teal-500/15 text-teal-400 px-3 py-1.5 rounded-full font-medium border border-teal-500/20">
+              {overdueOrders.length} Perlu Perhatian
+            </span>
+          )}
+        </div>
+        {overdueOrders.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="w-10 h-10 rounded-full bg-emerald-500/10 grid place-items-center mx-auto mb-3">
+              <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+            </div>
+            <p className="text-sm text-slate-500">Semua order berjalan sesuai jadwal</p>
+          </div>
+        ) : (
+          <div className="flex gap-4 overflow-x-auto pb-2">
+            {overdueOrders.map(order => {
+              const daysLate = order.daysLeft != null && order.daysLeft < 0 ? Math.abs(order.daysLeft) : null;
               return (
-                <div key={stage.key} className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-500 w-28 shrink-0">{stage.label}</span>
-                  <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                <div key={order.rowIndex} className="min-w-[260px] rounded-lg border-2 border-red-500/25 bg-red-500/[0.04] p-4 shrink-0">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <span className="flex items-center gap-1 text-[11px] font-semibold text-red-400 uppercase">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+                      TERLAMBAT
+                    </span>
+                    {daysLate && (
+                      <span className="text-[11px] text-orange-400 font-medium">Terlambat {daysLate} hari</span>
+                    )}
                   </div>
-                  <span className="text-xs font-medium text-zinc-400 w-6 text-right tabular-nums">{count}</span>
+                  <p className="text-sm font-bold text-white">{order.noWorkOrder || `WO-${order.no}`}</p>
+                  <p className="text-xs text-slate-400 mt-1.5">
+                    {order.paket1} {order.paket2} &middot; {formatDate(order.tglSelesai || order.dlCust)}
+                  </p>
                 </div>
               );
             })}
           </div>
-        </div>
-
-        {/* Warning */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-zinc-200">Warning Center</h2>
-            {warningOrders.length > 0 && (
-              <span className="text-[11px] bg-red-500/10 text-red-400 px-2 py-0.5 rounded-md font-medium border border-red-500/20">{warningOrders.length}</span>
-            )}
-          </div>
-
-          {warningOrders.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/20 grid place-items-center mx-auto mb-2">
-                <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-              </div>
-              <p className="text-sm text-zinc-500">Semua order aman</p>
-            </div>
-          ) : (
-            <div className="space-y-1.5 overflow-y-auto max-h-72">
-              {warningOrders.map(order => (
-                <div key={order.rowIndex} className="p-3 rounded-lg border border-zinc-800 hover:bg-zinc-800/50 transition-colors">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-zinc-200 truncate">{order.customer}</p>
-                      <p className="text-xs text-zinc-600">{order.qty} pcs · {order.paket1} {order.paket2}</p>
-                    </div>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-md font-medium shrink-0 ${RISK_D[order.riskLevel || 'NORMAL']}`}>
-                      {RISK_LABELS[order.riskLevel || 'NORMAL']}
-                    </span>
-                  </div>
-                  <p className="text-xs text-zinc-600 mt-1">
-                    DL: {formatDate(order.tglSelesai || order.dlCust)}
-                    {order.daysLeft != null && (
-                      <span className={`ml-2 font-medium ${order.daysLeft < 0 ? 'text-red-400' : 'text-amber-400'}`}>
-                        {order.daysLeft < 0 ? `${Math.abs(order.daysLeft)} hari lewat` : `${order.daysLeft} hari lagi`}
-                      </span>
-                    )}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Recent orders */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-zinc-200">Order Terbaru</h2>
-          <Link href="/orders" className="text-[13px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors">Lihat semua</Link>
+      {/* Work Order Terbaru */}
+      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+        <div className="p-6 pb-4">
+          <h2 className="text-base font-bold text-white">Work Order Terbaru</h2>
         </div>
-
-        {sortedMonths.length === 0 ? (
-          <div className="px-5 py-8 text-center text-zinc-600 text-sm">Belum ada data order</div>
+        {recentOrders.length === 0 ? (
+          <div className="px-6 pb-8 text-center text-sm text-slate-500">Belum ada data work order</div>
         ) : (
           <>
-            {/* Month tabs */}
-            <div className="px-5 pt-3 flex gap-1 overflow-x-auto border-b border-zinc-800">
-              {sortedMonths.map(mk => (
-                <button key={mk} onClick={() => { setSelectedMonth(mk); setOrderPage(1); }}
-                  className={`shrink-0 px-3 py-2 text-[13px] font-medium border-b-2 transition-colors
-                    ${mk === activeMonth ? 'border-zinc-100 text-zinc-100' : 'border-transparent text-zinc-600 hover:text-zinc-400'}`}>
-                  {monthLabel(mk)}
-                  <span className={`ml-1.5 text-xs tabular-nums ${mk === activeMonth ? 'text-zinc-400' : 'text-zinc-700'}`}>
-                    {Array.from(monthsMap.get(mk)!.values()).reduce((s, a) => s + a.length, 0)}
-                  </span>
-                </button>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[600px]">
+                <thead>
+                  <tr className="border-y border-white/[0.06]">
+                    <th className="text-[11px] text-slate-500 font-medium text-left px-6 py-3 uppercase tracking-wider">NO WO</th>
+                    <th className="text-[11px] text-slate-500 font-medium text-left px-6 py-3 uppercase tracking-wider">CUSTOMER</th>
+                    <th className="text-[11px] text-slate-500 font-medium text-left px-6 py-3 uppercase tracking-wider">PAKET</th>
+                    <th className="text-[11px] text-slate-500 font-medium text-left px-6 py-3 uppercase tracking-wider">DEADLINE</th>
+                    <th className="text-[11px] text-slate-500 font-medium text-left px-6 py-3 uppercase tracking-wider">STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentOrders.map(order => {
+                    const statusLabel = getStatusLabel(order);
+                    const statusStyle = getStatusStyle(order);
+                    return (
+                      <tr key={order.rowIndex} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                        <td className="px-6 py-4">
+                          <span className="text-sm text-blue-400 font-medium">{order.noWorkOrder || `WO-${order.no}`}</span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-300">{order.customer}</td>
+                        <td className="px-6 py-4 text-sm text-slate-400">{order.paket1} {order.paket2}</td>
+                        <td className="px-6 py-4 text-sm text-slate-400">{formatDate(order.tglSelesai || order.dlCust)}</td>
+                        <td className="px-6 py-4">
+                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusStyle}`}>{statusLabel}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-
-            {/* Date rows */}
-            <div className="divide-y divide-zinc-800/50">
-              {pagedDates.map(([dateKey, dateOrders]) => {
-                const totalQty = dateOrders.reduce((s, o) => s + o.qty, 0);
-                const RISK_RANK: Record<string, number> = { OVERDUE: 4, HIGH: 3, NEAR: 2, NORMAL: 1, SAFE: 0 };
-                const worstRisk = dateOrders.reduce<string>((w, o) => (RISK_RANK[o.riskLevel || 'NORMAL'] > RISK_RANK[w] ? (o.riskLevel || 'NORMAL') : w), 'SAFE');
-                const allDone = dateOrders.every(o => o.status === 'DONE');
-                const statusSummary = allDone ? 'Selesai' : `${dateOrders.filter(o => o.status !== 'DONE').length} aktif`;
-                return (
-                  <div key={dateKey} className="px-5 py-3 flex items-center gap-4 hover:bg-zinc-800/30 transition-colors">
-                    <div className="w-28 shrink-0 text-sm font-medium text-zinc-300">{formatDate(dateKey)}</div>
-                    <div className="flex-1 flex flex-wrap gap-1.5 min-w-0">
-                      {dateOrders.map(o => (
-                        <span key={o.rowIndex} className="text-xs bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-md border border-zinc-700/50">
-                          {o.customer} <span className="text-zinc-600">{o.qty}</span>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="shrink-0 text-sm font-medium text-zinc-400 tabular-nums w-16 text-right">{totalQty} pcs</div>
-                    <span className={`shrink-0 text-[11px] px-2 py-0.5 rounded-md font-medium ${allDone ? STATUS_D['DONE'] : STATUS_D['IN_PROGRESS']}`}>{statusSummary}</span>
-                    <span className={`shrink-0 text-[11px] px-2 py-0.5 rounded-md font-medium ${RISK_D[worstRisk]}`}>{RISK_LABELS[worstRisk]}</span>
-                  </div>
-                );
-              })}
+            <div className="px-6 py-4 text-right border-t border-white/[0.04]">
+              <Link href="/orders" className="text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors">
+                Lihat Semua Work Order &rarr;
+              </Link>
             </div>
-
-            {totalPages > 1 && (
-              <div className="px-5 py-3 border-t border-zinc-800 flex justify-center">
-                <div className="flex items-center gap-1">
-                  <button onClick={() => orderPage > 1 && setOrderPage(orderPage - 1)} disabled={orderPage === 1}
-                    className="px-2 py-1 rounded-md text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 disabled:opacity-30 transition-colors">Prev</button>
-                  {Array.from({ length: totalPages }, (_, i) => (
-                    <button key={i} onClick={() => setOrderPage(i + 1)}
-                      className={`min-w-[28px] h-7 rounded-md text-xs font-medium transition-colors ${orderPage === i + 1 ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:bg-zinc-800'}`}>
-                      {i + 1}
-                    </button>
-                  ))}
-                  <button onClick={() => orderPage < totalPages && setOrderPage(orderPage + 1)} disabled={orderPage === totalPages}
-                    className="px-2 py-1 rounded-md text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 disabled:opacity-30 transition-colors">Next</button>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>
@@ -238,48 +215,50 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ label, value, sub, color }: { label: string; value: number; sub: string; color: string }) {
-  const c: Record<string, { text: string; dot: string }> = {
-    indigo: { text: 'text-indigo-400', dot: 'bg-indigo-500' },
-    amber: { text: 'text-amber-400', dot: 'bg-amber-500' },
-    red: { text: 'text-red-400', dot: 'bg-red-500' },
-    emerald: { text: 'text-emerald-400', dot: 'bg-emerald-500' },
-  };
-  const s = c[color] || c.indigo;
+/* ── Helpers ── */
+
+function getStatusLabel(order: Order): string {
+  if (order.riskLevel === 'OVERDUE') return 'Terlambat';
+  if (order.status === 'DONE') return 'Selesai';
+  if (order.status === 'IN_PROGRESS') return 'Proses Produksi';
+  return 'Baru';
+}
+
+function getStatusStyle(order: Order): string {
+  if (order.riskLevel === 'OVERDUE') return 'text-red-400 border-red-500/30 bg-red-500/10';
+  if (order.status === 'DONE') return 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+  if (order.status === 'IN_PROGRESS') return 'text-blue-400 border-blue-500/30 bg-blue-500/10';
+  return 'text-slate-400 border-white/10 bg-white/[0.04]';
+}
+
+/* ── Components ── */
+
+function StatCard({ label, value, icon, iconBg, iconColor, valueColor }: {
+  label: string; value: string; icon: React.ReactNode;
+  iconBg: string; iconColor: string; valueColor?: string;
+}) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <div className={`w-2 h-2 rounded-full ${s.dot}`} />
-        <span className="text-xs text-zinc-500">{label}</span>
+    <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-5 flex items-center gap-4">
+      <div className={`w-11 h-11 rounded-full ${iconBg} flex items-center justify-center shrink-0 ${iconColor}`}>
+        {icon}
       </div>
-      <div className={`text-3xl font-bold ${s.text} tabular-nums`}>{value}</div>
-      <div className="text-xs text-zinc-600 mt-1">{sub}</div>
+      <div className="min-w-0">
+        <p className="text-[11px] text-slate-500 font-medium tracking-wider uppercase">{label}</p>
+        <p className={`text-xl font-bold mt-0.5 ${valueColor || 'text-white'}`}>{value}</p>
+      </div>
     </div>
   );
 }
 
-function LoadingState() {
+function DashboardSkeleton() {
   return (
-    <div className="space-y-4 max-w-7xl mx-auto">
-      <div className="grid grid-cols-4 gap-3">
-        {[1, 2, 3, 4].map(i => <div key={i} className="rounded-xl border border-zinc-800 bg-zinc-900 h-28 animate-pulse" />)}
+    <div className="space-y-6">
+      <div className="h-14 rounded-lg bg-white/[0.03] animate-pulse" />
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-[88px] rounded-xl bg-white/[0.03] animate-pulse" />)}
       </div>
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 h-64 animate-pulse" />
-    </div>
-  );
-}
-
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 grid place-items-center mb-4">
-        <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-        </svg>
-      </div>
-      <h3 className="text-lg font-semibold text-zinc-200 mb-2">Gagal Memuat Data</h3>
-      <p className="text-sm text-zinc-500 mb-4 max-w-sm">{message}</p>
-      <button onClick={onRetry} className="bg-zinc-100 text-zinc-900 px-5 py-2 rounded-lg text-sm font-medium hover:bg-white transition-colors">Coba Lagi</button>
+      <div className="h-40 rounded-xl bg-white/[0.03] animate-pulse" />
+      <div className="h-64 rounded-xl bg-white/[0.03] animate-pulse" />
     </div>
   );
 }

@@ -15,9 +15,10 @@ var DAILY_CAPACITY = 200;
 var CACHE_TTL = 25; // seconds for CacheService
 
 var USERS = {
-  'admin':    { password: 'admin',    role: 'admin' },
-  'cs':       { password: 'cs',       role: 'cs' },
-  'produksi': { password: 'produksi', role: 'produksi' }
+  'admin':              { password: 'admin',    role: 'admin' },
+  'admin@gmail.com':    { password: 'admin123', role: 'admin' },
+  'cs':                 { password: 'cs',       role: 'cs' },
+  'produksi':           { password: 'produksi', role: 'produksi' }
 };
 
 var COL = {

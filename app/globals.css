@@ -91,6 +91,24 @@ select option {
   animation: fadeIn 0.25s ease-out;
 }
 
+/* Drawer slide-in from right */
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.animate-slide-in-right {
+  animation: slideInRight 0.25s ease-out;
+}
+
+/* Date input dark styling */
+input[type="date"].date-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.5);
+  cursor: pointer;
+}
+input[type="date"].date-input {
+  color-scheme: dark;
+}
+
 /* Login - Hexagonal card clip path */
 .login-hex-clip {
   clip-path: polygon(
