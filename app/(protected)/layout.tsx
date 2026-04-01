@@ -12,11 +12,8 @@ import { Role } from '@/lib/types';
 const NAV: Record<'cs' | 'produksi', { href: string; label: string }[]> = {
   cs: [
     { href: '/orders', label: 'Order' },
-    { href: '/orders/new', label: 'Input Order' },
-    { href: '/kapasitas', label: 'Kapasitas' },
   ],
   produksi: [
-    { href: '/production', label: 'Work Board' },
     { href: '/orders', label: 'Order' },
   ],
 };

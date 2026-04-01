@@ -1,16 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setSession } from '@/lib/session';
-import { Role } from '@/lib/types';
+import { queryOne } from '@/lib/db';
 
-const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL || '';
+interface UserRow {
+  id: number;
+  nama: string;
+  email: string;
+  password: string;
+  role_id: number;
+  role_nama: string;
+  is_super_admin: number;
+}
 
-// Local users — will be replaced by DB later
-const LOCAL_USERS: Record<string, { password: string; role: Role }> = {
-  'admin@gmail.com': { password: 'admin123', role: 'admin' },
-  'admin':           { password: 'admin',    role: 'admin' },
-  'cs':              { password: 'cs',       role: 'cs' },
-  'produksi':        { password: 'produksi', role: 'produksi' },
-};
+function mapRole(row: UserRow): string {
+  if (row.is_super_admin) return 'admin';
+  const r = row.role_nama.toLowerCase();
+  if (r.includes('admin')) return 'admin';
+  if (r.includes('cs') || r.includes('customer')) return 'cs';
+  if (r.includes('produksi')) return 'produksi';
+  return 'admin';
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,36 +29,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Username dan password wajib diisi.' }, { status: 400 });
     }
 
-    // Check local users first
-    const local = LOCAL_USERS[username];
-    if (local && local.password === password) {
-      const user = { username, role: local.role };
-      await setSession(user);
-      return NextResponse.json({ success: true, data: user });
+    // Query database
+    const row = await queryOne<UserRow>(
+      `SELECT u.id, u.nama, u.email, u.password, u.role_id,
+              r.nama AS role_nama, r.is_super_admin
+       FROM users u
+       JOIN roles r ON r.id = u.role_id
+       WHERE u.email = ? AND u.status = 'aktif'
+       LIMIT 1`,
+      [username]
+    );
+
+    if (!row || row.password !== password) {
+      return NextResponse.json({ success: false, error: 'Username atau password salah.' });
     }
 
-    // Fallback to Apps Script
-    try {
-      const params = new URLSearchParams({
-        action: 'login',
-        username,
-        password,
-        body: JSON.stringify({ action: 'login', username, password }),
-      });
+    const user = { username: row.email, role: mapRole(row) as 'admin' | 'cs' | 'produksi' };
+    await setSession(user);
 
-      const url = `${APPS_SCRIPT_URL}?${params}`;
-      const response = await fetch(url, { redirect: 'follow' });
-      const result = await response.json();
-
-      if (result.success && result.data) {
-        const user = { username: result.data.username, role: result.data.role as Role };
-        await setSession(user);
-        return NextResponse.json({ success: true, data: user });
-      }
-    } catch {}
-
-    return NextResponse.json({ success: false, error: 'Username atau password salah.' });
-  } catch {
+    return NextResponse.json({ success: true, data: user });
+  } catch (err) {
+    console.error('Login error:', err);
     return NextResponse.json({ success: false, error: 'Tidak dapat terhubung ke server.' }, { status: 500 });
   }
 }

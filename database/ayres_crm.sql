@@ -421,24 +421,21 @@ CREATE TABLE `settings` (
 ) ENGINE=InnoDB;
 
 -- ============================================
--- 8. SEED DATA
+-- 8. SEED DATA (Minimal — hanya data wajib)
 -- ============================================
 
 -- Roles
 INSERT INTO `roles` (`id`, `nama`, `deskripsi`, `is_super_admin`) VALUES
-(1, 'Super Admin', 'Full access to all features', 1),
-(2, 'Admin', 'Administrator', 0),
-(3, 'Customer Service', 'CS internal', 0),
-(4, 'Produksi', 'Staff produksi', 0);
+(1, 'Super Admin', 'Full access to all features', 1);
 
 -- Menu access for Super Admin (all menus)
 INSERT INTO `role_menu_access` (`role_id`, `menu_name`) VALUES
 (1, 'Dashboard'), (1, 'Orders'), (1, 'Work Orders'), (1, 'Produksi'),
 (1, 'Laporan'), (1, 'Stok'), (1, 'Settings'), (1, 'Master Data');
 
--- Default Super Admin user (password: admin123 — hash with bcrypt in production)
+-- Default Super Admin user (password: admin123)
 INSERT INTO `users` (`nama`, `email`, `password`, `role_id`, `status`) VALUES
-('Super Admin', 'admin@gmail.com', '$2b$10$placeholder_hash_admin123', 1, 'aktif');
+('Super Admin', 'admin@gmail.com', 'admin123', 1, 'aktif');
 
 -- Production Stages
 INSERT INTO `production_stages` (`urutan`, `nama`) VALUES
@@ -454,79 +451,5 @@ INSERT INTO `production_stages` (`urutan`, `nama`) VALUES
 (10, 'QC Jersey'),
 (11, 'Finishing'),
 (12, 'Shipment');
-
--- Master Paket
-INSERT INTO `paket` (`nama`) VALUES
-('CELANA NON PRINT'),('CELANA PRINT'),('CLASSIC A'),('CLASSIC B'),
-('CLASSIC C'),('CLASSIC D'),('JAKET'),('KAOS'),('KAOS KAKI'),
-('PRO A'),('PRO B'),('STANDAR A'),('STANDAR B');
-
--- Master Tipe Barang
-INSERT INTO `tipe_barang` (`nama`, `deskripsi`) VALUES
-('AKSESORIS', NULL),
-('KAIN', NULL),
-('KERAH', 'TIPE KERAH');
-
--- Master Barang
-INSERT INTO `barang` (`nama`, `tipe_barang_id`, `satuan`) VALUES
-('AUTHENTIC PRO (JOGLO)', 1, 'PCS'),
-('AUTHENTIC WOVEN', 1, 'PCS'),
-('TAFETA SAMPING (PRO)', 1, 'PCS'),
-('TALI KOLOR CELANA', 1, 'KILOGRAM'),
-('WASHTAG (LABEL SATIN)', 1, 'PCS'),
-('WEBBING', 1, 'METER'),
-('AIRWALK', 2, 'KILOGRAM'),
-('BENZEMA', 2, 'KILOGRAM');
-
--- Stok awal (qty 0 kecuali Airwalk)
-INSERT INTO `stok` (`barang_id`, `qty`) VALUES
-(1, 0),(2, 0),(3, 0),(4, 0),(5, 0),(6, 0),(7, 6),(8, 0);
-
--- Master Ukuran
-INSERT INTO `ukuran` (`nama`, `deskripsi`) VALUES
-('2XL', '76 X 58'),('2XL BARET', '72 X 54'),('2XL WANITA SLIMFIT', '68 X 54'),
-('3XL', '78 X 60'),('3XL BARET', '74 X 56'),('3XL WANITA SLIMFIT', '69 X 56'),
-('4XL', '80 X 62'),('4XL WANITA SLIMFIT', '70 X 58'),('5XL', '82 X 64'),
-('S', '64 X 48'),('M', '67 X 50'),('L', '70 X 52'),('XL', '73 X 55');
-
--- Master Pecah Pola
-INSERT INTO `pecah_pola` (`nama`, `inisial`) VALUES
-('BADAN BELAKANG', 'BB'),('BADAN DEPAN', 'BD'),('CELANA', 'CELANA'),
-('KEMBEN', 'KEMBEN'),('KERAH', 'KERAH'),('KOMBINASI', 'KOMBINASI');
-
--- Master Jabatan
-INSERT INTO `jabatan` (`nama`, `deskripsi`) VALUES
-('Admin', 'Administrator sistem'),
-('Finishing', 'Staff bagian finishing'),
-('Operator Jahit', 'Operator mesin jahit'),
-('QC', 'Quality Control');
-
--- Master Karyawan
-INSERT INTO `karyawan` (`nama`, `jabatan_id`, `telepon`) VALUES
-('Ezra Kristanto Nahumury', 3, '55');
-
--- Master Promo
-INSERT INTO `promo` (`nama`, `periode_mulai`, `periode_selesai`, `deskripsi`) VALUES
-('PROMO MARET', '2026-03-02', '2026-04-30', 'STANDAR : FREE LOGO 3D CLASSIC : FREE LOGO 3D & 1 BOLA/JERSEY PRO : FREE LOGO 3D, 1 BOLA, 1 JERSEY WARRIOR : FREE LOGO 3D, BOLA, JERSEY TIM, SUBSIDI ONGKIR 80RB, CASHBACK 5% NEXT ORDER'),
-('CASHBACK', '2026-02-28', '2026-05-31', 'CASHBACK YANG BISA DI KLAIM SAAT ORDERAN SELESAI'),
-('PROMO FEBRUARI', '2026-02-28', '2026-04-30', 'STANDAR : FREE LOGO 3D FLOCK CLASSIC : FREE LOGO 3D FLOCK & BOLA / JERSEY TIM PRO : FREE LOGO 3D FLOCK, BOLA, JERSEY TIM WARRIOR : FREE LOGO 3D, FLOCK, BOLA, JERSEY TIM, SUBSIDI ONGKIR 80RB, CASHBACK 5% NEXT ORDER'),
-('Promo Oktober', '2025-10-16', '2026-02-28', NULL);
-
--- Master Leads
-INSERT INTO `leads` (`nama`, `no_hp`, `sumber`, `jenis_cs`, `catatan`) VALUES
-('Andi Setiawan', '081234567890', 'Instagram', 'CS Eksternal', 'Handle area Surabaya'),
-('Dewi Lestari', '082198765432', 'WhatsApp', 'Reseller', 'Fokus paket Classic'),
-('Rizky Fadillah', '085312345678', 'Referral', 'CS Eksternal', NULL);
-
--- Stok Adjustment history
-INSERT INTO `stok_adjustment` (`barang_id`, `tipe`, `qty_sebelum`, `qty_sesudah`, `selisih`, `keterangan`, `created_at`) VALUES
-(7, 'Penambahan', 0, 6, 6, 'stok awal', '2026-03-02 00:00:00');
-
--- Default Settings (WhatsApp)
-INSERT INTO `settings` (`key_name`, `value`) VALUES
-('wa_enabled', 'false'),
-('wa_api_token', ''),
-('wa_nomor_pengirim', ''),
-('wa_template_order_baru', 'Halo {nama},\n\nOrder Anda telah diterima!\n\nDetail Order:\n• No. Order: {noOrder}\n• Paket: {paket}\n• Qty: {qty} pcs\n• Status: Sedang Diproses');
 
 SET FOREIGN_KEY_CHECKS = 1;

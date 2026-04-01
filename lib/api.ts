@@ -1,100 +1,152 @@
 import { Order, DashboardStats, ApiResponse } from './types';
 import { getCached, setCached, invalidateCache } from './cache';
 
-const BASE = '/api/proxy';
-
-async function post<T>(action: string, body: Record<string, unknown> = {}): Promise<ApiResponse<T>> {
-  const res = await fetch(BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, ...body }),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-async function get<T>(action: string, params: Record<string, string> = {}): Promise<ApiResponse<T>> {
-  const query = new URLSearchParams({ action, ...params }).toString();
-  const res = await fetch(`${BASE}?${query}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
 // ─── Auth ───────────────────────────────────────────────
 export async function apiLogin(username: string, password: string) {
-  return post<{ username: string; role: string }>('login', { username, password });
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  return res.json();
 }
 
-// ─── Orders (with sessionStorage cache) ─────────────────
+// ─── Orders ─────────────────────────────────────────────
 export async function apiGetOrders(): Promise<ApiResponse<Order[]>> {
   const cached = getCached<Order[]>('wp_orders');
   if (cached) return { success: true, data: cached };
 
-  const res = await get<Order[]>('getOrders');
-  if (res.success && res.data) setCached('wp_orders', res.data);
-  return res;
+  const res = await fetch('/api/db/orders');
+  const json = await res.json();
+  if (json.success && json.data) {
+    const orders = mapOrders(json.data);
+    setCached('wp_orders', orders);
+    return { success: true, data: orders };
+  }
+  return { success: false, error: json.error || 'Gagal memuat orders' };
 }
 
 export async function apiGetOrdersForce(): Promise<ApiResponse<Order[]>> {
   invalidateCache('wp_orders');
-  const res = await get<Order[]>('getOrders');
-  if (res.success && res.data) setCached('wp_orders', res.data);
-  return res;
+  return apiGetOrders();
 }
 
-export async function apiAddOrder(data: Record<string, unknown>) {
-  const res = await post<{
-    rowIndex: number;
-    no: number;
-    noWorkOrder: string;
-    tglSelesai: string;
-    customerPhone: string;
-    sallaryProduct: number;
-    sallaryShipping: number;
-    trackingLink: string;
-  }>('addOrder', data);
-  if (res.success) invalidateCache('wp_orders', 'wp_dashboard');
-  return res;
-}
-
-export async function apiUpdateOrder(data: Record<string, unknown>) {
-  const res = await post<void>('updateOrder', data);
-  if (res.success) invalidateCache('wp_orders', 'wp_dashboard');
-  return res;
-}
-
-export async function apiUpdateProgress(data: {
-  rowIndex: number;
-  stage: string;
-  checked: boolean;
-  tglKirim?: string;
-}) {
-  const res = await post<void>('updateProgress', data);
-  if (res.success) invalidateCache('wp_orders', 'wp_dashboard');
-  return res;
-}
-
-// ─── Dashboard ───────────────────────────────────────────
+// ─── Dashboard ──────────────────────────────────────────
 export async function apiGetDashboard(): Promise<ApiResponse<DashboardStats>> {
   const cached = getCached<DashboardStats>('wp_dashboard');
   if (cached) return { success: true, data: cached };
 
-  const res = await get<DashboardStats>('getDashboard');
-  if (res.success && res.data) setCached('wp_dashboard', res.data);
-  return res;
+  const res = await fetch('/api/db/orders');
+  const json = await res.json();
+  if (json.success && json.data) {
+    const orders = mapOrders(json.data);
+    const stats = computeStats(orders);
+    setCached('wp_dashboard', stats);
+    return { success: true, data: stats };
+  }
+  return { success: false, error: json.error || 'Gagal memuat dashboard' };
 }
 
 export async function apiGetDashboardForce(): Promise<ApiResponse<DashboardStats>> {
   invalidateCache('wp_dashboard');
-  const res = await get<DashboardStats>('getDashboard');
-  if (res.success && res.data) setCached('wp_dashboard', res.data);
-  return res;
+  return apiGetDashboard();
 }
 
-export async function apiGetCapacity() {
-  return get<Record<string, number>>('getCapacity');
-}
-
+// ─── Tracking (public) ──────────────────────────────────
 export async function apiGetTracking(noWorkOrder: string): Promise<ApiResponse<Order>> {
-  return get<Order>('getTracking', { noWorkOrder });
+  const res = await fetch(`/api/db/orders?search=${encodeURIComponent(noWorkOrder)}`);
+  const json = await res.json();
+  if (json.success && json.data?.length) {
+    const orders = mapOrders(json.data);
+    const found = orders.find(o => o.noWorkOrder === noWorkOrder);
+    if (found) return { success: true, data: found };
+  }
+  return { success: false, error: 'Order tidak ditemukan' };
+}
+
+// ─── Helpers ────────────────────────────────────────────
+
+interface DbOrder {
+  id: number;
+  no_order: string;
+  customer_nama: string;
+  customer_phone: string;
+  tanggal_order: string;
+  estimasi_deadline: string;
+  keterangan: string;
+  status: string;
+  nominal_order: number;
+  dp_produksi: number;
+  tracking_link: string;
+  nama_tim: string;
+  created_at: string;
+  // joined from order_items (first item for compat)
+  paket_nama?: string;
+  bahan_kain?: string;
+  qty?: number;
+}
+
+function mapOrders(rows: DbOrder[]): Order[] {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  return rows.map((r, i) => {
+    const deadline = r.estimasi_deadline ? new Date(r.estimasi_deadline) : null;
+    const daysLeft = deadline ? Math.floor((deadline.getTime() - today.getTime()) / 86400000) : null;
+
+    const status = r.status === 'DONE' ? 'DONE' : r.status === 'IN_PROGRESS' || r.status === 'CONFIRMED' ? 'IN_PROGRESS' : 'OPEN';
+    let riskLevel: 'SAFE'|'NORMAL'|'NEAR'|'HIGH'|'OVERDUE' = 'NORMAL';
+    if (status === 'DONE') riskLevel = 'SAFE';
+    else if (daysLeft !== null) {
+      if (daysLeft < 0) riskLevel = 'OVERDUE';
+      else if (daysLeft <= 3) riskLevel = 'HIGH';
+      else if (daysLeft <= 7) riskLevel = 'NEAR';
+    }
+
+    const fmtDate = (d: string) => {
+      if (!d) return '';
+      try { const dt = new Date(d); return `${dt.getDate().toString().padStart(2,'0')}/${(dt.getMonth()+1).toString().padStart(2,'0')}/${dt.getFullYear()}`; }
+      catch { return d; }
+    };
+
+    return {
+      rowIndex: r.id,
+      no: i + 1,
+      customer: r.customer_nama || '',
+      customerPhone: r.customer_phone || '',
+      qty: r.qty || 0,
+      paket1: r.paket_nama || '',
+      paket2: '',
+      keterangan: r.keterangan || '',
+      bahan: r.bahan_kain || '',
+      dpProduksi: fmtDate(r.tanggal_order),
+      dlCust: fmtDate(r.estimasi_deadline),
+      noWorkOrder: '',
+      tglSelesai: fmtDate(r.estimasi_deadline),
+      status,
+      progress: { PROOFING: false, WAITINGLIST: false, PRINT: false, PRES: false, CUT_FABRIC: false, JAHIT: false, QC_JAHIT_STEAM: false, FINISHING: false, PENGIRIMAN: false },
+      daysLeft,
+      riskLevel,
+      sallaryProduct: Number(r.nominal_order) || 0,
+      sallaryShipping: 0,
+      trackingLink: r.tracking_link || '',
+    } as Order;
+  });
+}
+
+function computeStats(orders: Order[]): DashboardStats {
+  const open = orders.filter(o => o.status === 'OPEN').length;
+  const inProgress = orders.filter(o => o.status === 'IN_PROGRESS').length;
+  const done = orders.filter(o => o.status === 'DONE').length;
+  return {
+    totalOrders: orders.length,
+    openOrders: open,
+    inProgressOrders: inProgress,
+    doneOrders: done,
+    nearDeadlineCount: orders.filter(o => o.riskLevel === 'NEAR' || o.riskLevel === 'HIGH').length,
+    overdueCount: orders.filter(o => o.riskLevel === 'OVERDUE').length,
+    highRiskCount: orders.filter(o => o.riskLevel === 'HIGH').length,
+    todayCapacity: 200,
+    dailyCapacityUsed: 0,
+    stageCounts: {},
+  };
 }

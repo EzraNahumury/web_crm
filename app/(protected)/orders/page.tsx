@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { apiGetOrders, apiGetOrdersForce, apiUpdateOrder } from '@/lib/api';
+import { apiGetOrders, apiGetOrdersForce } from '@/lib/api';
 import { Order, OrderStatus } from '@/lib/types';
 import { STAGES, RISK_LABELS, STATUS_LABELS } from '@/lib/constants';
 import { formatDate, getProgressPercent, getCurrentStage } from '@/lib/utils';
@@ -414,10 +414,6 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {selected && (
-        <OrderDetailModal order={selected} onClose={() => setSelected(null)} canEdit={user?.role === 'cs'} onSaved={fetchOrders} />
-      )}
-
       <CreateOrderDrawer open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
@@ -451,139 +447,6 @@ function PaginationBar({ current, total, onChange }: { current: number; total: n
         className="min-w-[32px] h-7 px-2 rounded-lg text-[12px] font-medium text-white/30 hover:bg-white/[0.04] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
         Next
       </button>
-    </div>
-  );
-}
-
-function OrderDetailModal({ order, onClose, canEdit, onSaved }: {
-  order: Order; onClose: () => void; canEdit: boolean; onSaved: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ keterangan: order.keterangan, bahan: order.bahan });
-  const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  const trackingUrl = typeof window !== 'undefined' && order.trackingLink
-    ? new URL(order.trackingLink, window.location.origin).toString()
-    : order.trackingLink || '';
-
-  async function handleSave() {
-    setSaving(true);
-    await apiUpdateOrder({ rowIndex: order.rowIndex, ...form });
-    setSaving(false); setEditing(false); onSaved();
-  }
-
-  async function copyTrackingLink() {
-    if (!trackingUrl) return;
-    await navigator.clipboard.writeText(trackingUrl);
-    setCopied(true); window.setTimeout(() => setCopied(false), 1600);
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-[#12142a] border border-white/[0.06] rounded-2xl shadow-2xl shadow-black/40 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-6 border-b border-white/[0.04] flex items-start justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-white/90">{order.customer}</h3>
-            <p className="text-[13px] text-white/30">{order.noWorkOrder || `#${order.no}`}</p>
-          </div>
-          <button onClick={onClose} className="text-white/20 hover:text-white/50 transition-colors mt-1">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <InfoRow label="Qty" value={`${order.qty} pcs`} />
-            <InfoRow label="Paket" value={`${order.paket1} ${order.paket2}`} />
-            <InfoRow label="WhatsApp" value={order.customerPhone || '-'} />
-            <InfoRow label="Sallary Product" value={formatMoney(order.sallaryProduct)} />
-            <InfoRow label="Sallary Pengiriman" value={formatMoney(order.sallaryShipping)} />
-            <InfoRow label="Bahan" value={order.bahan || '-'} />
-            <InfoRow label="DP Produksi" value={formatDate(order.dpProduksi)} />
-            <InfoRow label="DL Customer" value={formatDate(order.dlCust)} />
-            <InfoRow label="Tgl Selesai" value={formatDate(order.tglSelesai)} highlight />
-            <InfoRow label="No. Work Order" value={order.noWorkOrder || '-'} />
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05]">
-            <span className="text-white/25 text-[11px] block mb-1">Keterangan</span>
-            <span className="text-white/60 text-[13px]">{order.keterangan || '-'}</span>
-          </div>
-
-          {trackingUrl && (
-            <div className="p-3.5 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/15 space-y-2">
-              <span className="text-emerald-400 text-[11px] font-semibold block">Link Tracking Customer</span>
-              <div className="rounded-lg bg-black/20 border border-emerald-500/10 px-3 py-2 text-[11px] text-white/40 break-all">{trackingUrl}</div>
-              <div className="flex gap-2">
-                <button onClick={copyTrackingLink}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 text-[11px] font-medium border border-emerald-500/20 transition-colors">
-                  {copied ? 'Tersalin' : 'Copy Link'}
-                </button>
-                <a href={trackingUrl} target="_blank" rel="noreferrer"
-                  className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white/40 text-[11px] font-medium hover:text-white/60 transition-colors">
-                  Buka Tracking
-                </a>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <p className="text-[11px] font-semibold text-white/20 uppercase tracking-wider mb-3">Progress Tahapan</p>
-            <div className="grid grid-cols-3 gap-2">
-              {STAGES.map(s => {
-                const checked = order.progress[s.key as keyof typeof order.progress];
-                return (
-                  <div key={s.key} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-medium border transition-colors
-                    ${checked ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' : 'bg-white/[0.02] border-white/[0.04] text-white/20'}`}>
-                    <svg className={`w-3.5 h-3.5 shrink-0 ${checked ? 'text-indigo-400' : 'text-white/10'}`} fill={checked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
-                    </svg>
-                    {s.label}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="flex gap-2 flex-wrap">
-            <span className={`text-[11px] px-3 py-1 rounded-lg font-semibold ${STATUS_STYLES_DARK[order.status]}`}>
-              {STATUS_LABELS[order.status]}
-            </span>
-            <span className={`text-[11px] px-3 py-1 rounded-lg font-semibold ${RISK_STYLES_DARK[order.riskLevel || 'NORMAL']}`}>
-              {RISK_LABELS[order.riskLevel || 'NORMAL']}
-            </span>
-            {order.daysLeft != null && (
-              <span className={`text-[11px] px-3 py-1 rounded-lg font-semibold ${order.daysLeft < 0 ? 'bg-red-500/15 text-red-400 border border-red-500/20' : order.daysLeft <= 3 ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20' : 'bg-white/[0.04] text-white/40 border border-white/[0.06]'}`}>
-                {order.daysLeft < 0 ? `${Math.abs(order.daysLeft)} hari lewat` : `${order.daysLeft} hari lagi`}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {canEdit && order.status === 'OPEN' && (
-          <div className="px-6 pb-6">
-            <button onClick={onClose} className="w-full bg-white/[0.04] hover:bg-white/[0.06] border border-white/[0.06] text-white/50 py-2.5 rounded-xl text-[13px] font-medium transition-colors">
-              Tutup
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value || 0);
-}
-
-function InfoRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05]">
-      <span className="text-[11px] text-white/25 block mb-0.5">{label}</span>
-      <span className={`text-[13px] font-semibold ${highlight ? 'text-indigo-400' : 'text-white/60'}`}>{value}</span>
     </div>
   );
 }
