@@ -1,6 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { PAKET1_OPTIONS, PAKET2_OPTIONS } from '@/lib/constants';
+// paket & barang now fetched from DB
+import { dbGet, dbCreate } from '@/lib/api-db';
+import { invalidateCache } from '@/lib/cache';
+import { useToast } from '@/lib/toast';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = Record<string, any>;
 
 // API Wilayah Indonesia
 const WILAYAH_API = 'https://www.emsifa.com/api-wilayah-indonesia/api';
@@ -30,28 +36,33 @@ interface OrderItem {
   bahan: string;
 }
 
-const BAHAN_OPTIONS = ['Cotton Combed 24s', 'Cotton Combed 30s', 'Dry Fit', 'Hyget', 'PE', 'TC'];
+// bahan options now fetched from DB
 
-const PROMOS = [
-  {
-    id: 'promo-maret',
-    name: 'PROMO MARET',
-    dateRange: '2 Maret 2026 - 30 April 2026',
-    description: 'STANDAR : FREE LOGO 3D CLASSIC : FREE LOGO 3D & 1 BOLA/JERSEY PRO : FREE LOGO 3D, 1 BOLA, 1 JERSEY WARRIOR : FREE LOGO 3D , BOLA, JERSEY TIM, SUBSIDI ONGKIR 80RB, CASHBACK 5% NEXT ORDER',
-  },
-  {
-    id: 'cashback',
-    name: 'CASHBACK',
-    dateRange: '28 Februari 2026 - 31 Mei 2026',
-    description: 'CASHBACK YANG BISA DI KLAIM SAAT ORDERAN SELESAI',
-  },
-  {
-    id: 'promo-februari',
-    name: 'PROMO FEBRUARI',
-    dateRange: '28 Februari 2026 - 30 April 2026',
-    description: 'STANDAR : FREE LOGO 3D FLOCK CLASSIC : FREE LOGO 3D FLOCK & BOLA / JERSEY TIM PRO : FREE LOGO 3D FLOCK, BOLA, JERSEY TIM WARRIOR : FREE LOGO 3D, FLOCK, BOLA, JERSEY TIM, SUBSIDI ONGKIR 80RB, CASHBACK 5% NEXT ORDER',
-  },
-];
+const fmtDate = (d: string) => { if (!d) return ''; try { return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }); } catch { return d; } };
+
+function fmtRp(n: number) {
+  return new Intl.NumberFormat('id-ID').format(n);
+}
+function parseRp(s: string): number {
+  return parseInt(s.replace(/\D/g, ''), 10) || 0;
+}
+
+function RupiahInput({ value, onChange, readOnly, className }: {
+  value: number; onChange?: (v: number) => void; readOnly?: boolean; className?: string;
+}) {
+  return (
+    <div className="relative">
+      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-500">Rp</span>
+      <input
+        type="text"
+        value={fmtRp(value)}
+        onChange={e => onChange?.(parseRp(e.target.value))}
+        readOnly={readOnly}
+        className={`w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors pl-10 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''} ${className || ''}`}
+      />
+    </div>
+  );
+}
 
 function today() {
   return new Date().toISOString().split('T')[0];
@@ -78,13 +89,31 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const { data: kecList, loading: kecLoading } = useWilayah('districts', kabId);
   const { data: desaList, loading: desaLoading } = useWilayah('villages', kecId);
   const [noHp, setNoHp] = useState('');
+  const [leadId, setLeadId] = useState('');
   const [namaTim, setNamaTim] = useState('');
   const [items, setItems] = useState<OrderItem[]>([{ id: 1, paket: '', bahan: '' }]);
   const [tglOrder, setTglOrder] = useState(today());
   const [deadline, setDeadline] = useState(weekLater());
   const [keterangan, setKeterangan] = useState('');
-  const [kekurangan, setKekurangan] = useState('');
+  const [nominalOrder, setNominalOrder] = useState(0);
+  const [dpDesain, setDpDesain] = useState(0);
+  const [dpProduksi, setDpProduksi] = useState(0);
+  const kekurangan = Math.max(0, nominalOrder - dpDesain - dpProduksi);
   const [selectedPromos, setSelectedPromos] = useState<string[]>([]);
+
+  // Fetch dropdown data from DB
+  const [leadsList, setLeadsList] = useState<Row[]>([]);
+  const [promoList, setPromoList] = useState<Row[]>([]);
+  const [paketList, setPaketList] = useState<Row[]>([]);
+  const [barangList, setBarangList] = useState<Row[]>([]);
+  useEffect(() => {
+    if (open) {
+      dbGet('leads').then(setLeadsList).catch(() => {});
+      dbGet('promo').then(setPromoList).catch(() => {});
+      dbGet('paket').then(setPaketList).catch(() => {});
+      dbGet('barang').then(setBarangList).catch(() => {});
+    }
+  }, [open]);
 
   function addItem() {
     setItems(prev => [...prev, { id: Date.now(), paket: '', bahan: '' }]);
@@ -103,12 +132,78 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
     setSelectedPromos(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
   }
 
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  async function handleSave() {
+    if (!customer.trim()) { toast.warning('Validasi', 'Nama Customer wajib diisi'); return; }
+    setSaving(true);
+    try {
+      // Generate no_order
+      const orders = await dbGet('orders');
+      const nextNum = orders.length + 1;
+      const noOrder = `ORD${String(nextNum).padStart(3, '0')}`;
+
+      // Create order
+      const orderId = await dbCreate('orders', {
+        no_order: noOrder,
+        customer_nama: customer,
+        customer_phone: noHp,
+        customer_alamat: alamat,
+        customer_desa: desa,
+        customer_kecamatan: kecamatan,
+        customer_kabupaten: kabupaten,
+        customer_provinsi: provinsi,
+        lead_id: leadId || null,
+        nama_tim: namaTim,
+        tanggal_order: tglOrder,
+        estimasi_deadline: deadline,
+        keterangan,
+        status: 'PENDING',
+        nominal_order: nominalOrder,
+        dp_desain: dpDesain,
+        dp_produksi: dpProduksi,
+        kekurangan,
+      });
+
+      // Create order items
+      for (const item of items) {
+        if (item.paket) {
+          await dbCreate('order_items', {
+            order_id: orderId,
+            paket_nama: item.paket,
+            bahan_kain: item.bahan,
+            qty: 0,
+          });
+        }
+      }
+
+      // Create order promos
+      for (const promoId of selectedPromos) {
+        await dbCreate('order_promos', {
+          order_id: orderId,
+          promo_id: parseInt(promoId),
+        });
+      }
+
+      invalidateCache('wp_orders', 'wp_dashboard');
+      handleReset();
+      onClose();
+      toast.success('Order Berhasil Dibuat', `Order ${noOrder} telah disimpan.`);
+      window.location.reload();
+    } catch (e) {
+      toast.error('Gagal Menyimpan', String(e));
+    }
+    setSaving(false);
+  }
+
   function handleReset() {
     setCustomer(''); setAlamat(''); setProvId(''); setProvinsi('');
     setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
-    setDesa(''); setNoHp(''); setNamaTim('');
+    setDesa(''); setNoHp(''); setLeadId(''); setNamaTim('');
     setItems([{ id: 1, paket: '', bahan: '' }]); setTglOrder(today());
-    setDeadline(weekLater()); setKeterangan(''); setKekurangan('');
+    setDeadline(weekLater()); setKeterangan('');
+    setNominalOrder(0); setDpDesain(0); setDpProduksi(0);
     setSelectedPromos([]);
   }
 
@@ -198,11 +293,11 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
               </div>
               <div>
                 <label className={labelCls}>Leads</label>
-                <select className={selectCls}>
+                <select value={leadId} onChange={e => setLeadId(e.target.value)} className={selectCls}>
                   <option value="">Pilih leads...</option>
-                  <option value="andi">Andi Setiawan - CS Eksternal</option>
-                  <option value="dewi">Dewi Lestari - Reseller</option>
-                  <option value="rizky">Rizky Fadillah - CS Eksternal</option>
+                  {leadsList.map(l => (
+                    <option key={l.id} value={l.id}>{l.nama}{l.jenis_cs ? ` - ${l.jenis_cs}` : ''}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -227,12 +322,12 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                       <select value={item.paket} onChange={e => updateItem(item.id, 'paket', e.target.value)}
                         className={`${selectCls} flex-1`}>
                         <option value="">Pilih paket</option>
-                        {PAKET1_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                        {paketList.map(p => <option key={p.id} value={p.nama}>{p.nama}</option>)}
                       </select>
                       <select value={item.bahan} onChange={e => updateItem(item.id, 'bahan', e.target.value)}
                         className={`${selectCls} flex-1`}>
                         <option value="">Pilih bahan</option>
-                        {BAHAN_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+                        {barangList.map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
                       </select>
                       <button onClick={() => removeItem(item.id)}
                         className={`shrink-0 text-slate-500 hover:text-red-400 transition-colors p-1 ${items.length <= 1 ? 'opacity-20 pointer-events-none' : ''}`}>
@@ -271,13 +366,28 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
             </div>
           </div>
 
-          {/* ── Kekurangan ── */}
+          {/* ── Pembayaran ── */}
           <div>
-            <label className={`${labelCls} text-amber-400`}>Kekurangan</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-500">Rp</span>
-              <input type="text" value={kekurangan} onChange={e => setKekurangan(e.target.value)}
-                placeholder="0,00" className={`${inputCls} pl-10`} />
+            <h3 className="text-sm font-bold text-white mb-4 uppercase">Pembayaran</h3>
+            <div className="space-y-4">
+              <div>
+                <label className={`${labelCls} text-amber-400`}>Nominal Order</label>
+                <RupiahInput value={nominalOrder} onChange={setNominalOrder} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`${labelCls} text-amber-400`}>DP Desain</label>
+                  <RupiahInput value={dpDesain} onChange={setDpDesain} />
+                </div>
+                <div>
+                  <label className={`${labelCls} text-amber-400`}>DP Produksi</label>
+                  <RupiahInput value={dpProduksi} onChange={setDpProduksi} />
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Kekurangan</label>
+                <RupiahInput value={kekurangan} readOnly />
+              </div>
             </div>
           </div>
 
@@ -285,17 +395,19 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
           <div>
             <label className={labelCls}>Promo yang Diambil (S&K berlaku)</label>
             <div className="space-y-3 mt-2">
-              {PROMOS.map(promo => (
+              {promoList.length === 0 ? (
+                <p className="text-sm text-slate-500 py-4 text-center">Belum ada promo. Tambahkan di Master Data.</p>
+              ) : promoList.map(promo => (
                 <label key={promo.id}
-                  className={`block p-4 rounded-lg border cursor-pointer transition-colors ${selectedPromos.includes(promo.id) ? 'border-blue-500/40 bg-blue-500/[0.06]' : 'border-white/[0.06] bg-white/[0.02] hover:border-white/10'}`}>
+                  className={`block p-4 rounded-lg border cursor-pointer transition-colors ${selectedPromos.includes(String(promo.id)) ? 'border-blue-500/40 bg-blue-500/[0.06]' : 'border-white/[0.06] bg-white/[0.02] hover:border-white/10'}`}>
                   <div className="flex items-start gap-3">
-                    <input type="checkbox" checked={selectedPromos.includes(promo.id)}
-                      onChange={() => togglePromo(promo.id)}
+                    <input type="checkbox" checked={selectedPromos.includes(String(promo.id))}
+                      onChange={() => togglePromo(String(promo.id))}
                       className="mt-1 w-4 h-4 rounded border-slate-600 bg-transparent text-blue-500 focus:ring-0 focus:ring-offset-0 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold text-white">{promo.name}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">{promo.dateRange}</p>
-                      <p className="text-xs text-slate-400 mt-2 leading-relaxed uppercase">{promo.description}</p>
+                      <p className="text-sm font-bold text-white">{promo.nama}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{fmtDate(promo.periode_mulai)} - {fmtDate(promo.periode_selesai)}</p>
+                      {promo.deskripsi && <p className="text-xs text-slate-400 mt-2 leading-relaxed uppercase">{promo.deskripsi}</p>}
                     </div>
                   </div>
                 </label>
@@ -310,9 +422,9 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
             className="px-5 py-2.5 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">
             Batal
           </button>
-          <button onClick={() => { /* TODO: save to DB later */ onClose(); }}
-            className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">
-            Simpan
+          <button onClick={handleSave} disabled={saving}
+            className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors">
+            {saving ? 'Menyimpan...' : 'Simpan'}
           </button>
         </div>
       </div>

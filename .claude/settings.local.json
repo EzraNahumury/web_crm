@@ -7,7 +7,24 @@
       "Bash(find /d/web_crm -type d -name *auth* -o -type d -name *login* -o -type d -name *session*)",
       "Bash(xargs grep:*)",
       "Bash(ls:*)",
-      "Bash(npx next:*)"
+      "Bash(npx next:*)",
+      "Bash(mysql -u root ayres_crm -e \"INSERT INTO paket \\(nama\\) VALUES \\(''CELANA NON PRINT''\\),\\(''CELANA PRINT''\\),\\(''CLASSIC A''\\),\\(''CLASSIC B''\\),\\(''CLASSIC C''\\),\\(''CLASSIC D''\\),\\(''JAKET''\\),\\(''KAOS''\\),\\(''KAOS KAKI''\\),\\(''PRO A''\\),\\(''PRO B''\\),\\(''PRO C''\\),\\(''ROMPI''\\),\\(''STANDAR A''\\),\\(''STANDAR B''\\),\\(''STANDAR BASIC''\\),\\(''STANDAR C''\\),\\(''WARRIOR ATASAN \\(BELLTHIS\\)''\\),\\(''WARRIOR SETELAN \\(BELLGRANS\\)''\\);\")",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"INSERT INTO paket \\(nama\\) VALUES \\('CELANA NON PRINT'\\),\\('CELANA PRINT'\\),\\('CLASSIC A'\\),\\('CLASSIC B'\\),\\('CLASSIC C'\\),\\('CLASSIC D'\\),\\('JAKET'\\),\\('KAOS'\\),\\('KAOS KAKI'\\),\\('PRO A'\\),\\('PRO B'\\),\\('PRO C'\\),\\('ROMPI'\\),\\('STANDAR A'\\),\\('STANDAR B'\\),\\('STANDAR BASIC'\\),\\('STANDAR C'\\),\\('WARRIOR ATASAN \\(BELLTHIS\\)'\\),\\('WARRIOR SETELAN \\(BELLGRANS\\)'\\);\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SELECT id, nama FROM paket ORDER BY nama;\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"INSERT INTO tipe_barang \\(nama, deskripsi\\) VALUES \\('AKSESORIS', NULL\\),\\('KAIN', NULL\\),\\('KERAH', 'TIPE KERAH'\\);\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SELECT * FROM tipe_barang;\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"\nINSERT INTO barang \\(nama, tipe_barang_id, satuan\\) VALUES\n\\('AUTHENTIC PRO \\(JOGLO\\)', 1, 'PCS'\\),\n\\('AUTHENTIC WOVEN', 1, 'PCS'\\),\n\\('TAFETA SAMPING \\(PRO\\)', 1, 'PCS'\\),\n\\('TALI KOLOR CELANA', 1, 'KILOGRAM'\\),\n\\('WASHTAG \\(LABEL SATIN\\)', 1, 'PCS'\\),\n\\('WEBBING', 1, 'METER'\\),\n\\('AIRWALK', 2, 'KILOGRAM'\\),\n\\('BENZEMA', 2, 'KILOGRAM'\\),\n\\('BRAZIL', 2, 'KILOGRAM'\\),\n\\('BRICK', 2, 'KILOGRAM'\\),\n\\('DROPNEEDLE', 2, 'KILOGRAM'\\),\n\\('EMBOS STRAW', 2, 'KILOGRAM'\\),\n\\('EMBOS TOPO', 2, 'KILOGRAM'\\),\n\\('JAGUARD DINAMITE', 2, 'KILOGRAM'\\),\n\\('JAGUARD ETNIK', 2, 'KILOGRAM'\\),\n\\('JAGUARD SPIDER', 2, 'KILOGRAM'\\),\n\\('JAGUARD TOPO', 2, 'KILOGRAM'\\),\n\\('JAGUARD UNO', 2, 'KILOGRAM'\\),\n\\('KAIN JALA AIRBIN', 2, 'KILOGRAM'\\),\n\\('KAIN RIB SUBLIM', 2, 'KILOGRAM'\\),\n\\('LACOSTE', 2, 'KILOGRAM'\\),\n\\('MILANO', 2, 'KILOGRAM'\\),\n\\('MU', 2, 'KILOGRAM'\\),\n\\('PIQUE', 2, 'KILOGRAM'\\),\n\\('PUMA', 2, 'KILOGRAM'\\),\n\\('PUMA+', 2, 'KILOGRAM'\\),\n\\('SEVILLA/MINI MINI', 2, 'KILOGRAM'\\),\n\\('KERAH JADI \\(RAJUT\\)', 3, 'PCS'\\),\n\\('KERAH KANCING', 3, 'PCS'\\),\n\\('KERAH KOMBINASI', 3, 'PCS'\\),\n\\('KERAH TALI', 3, 'PCS'\\);\n\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SELECT b.nama, tb.nama AS tipe, b.satuan FROM barang b JOIN tipe_barang tb ON tb.id = b.tipe_barang_id ORDER BY tb.nama, b.nama;\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SHOW COLUMNS FROM orders LIKE 'dp_desain';\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SHOW COLUMNS FROM orders LIKE 'kekurangan';\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SELECT * FROM order_items;\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SELECT o.id, o.no_order, oi.id as item_id, oi.paket_nama, oi.bahan_kain FROM orders o LEFT JOIN order_items oi ON oi.order_id = o.id;\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SELECT id, no_order, status FROM orders;\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"UPDATE orders SET status = 'IN_PROGRESS' WHERE id = 1;\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"UPDATE work_orders SET status = 'PROSES_PRODUKSI' WHERE status = 'PENDING';\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SELECT no_wo, paket, bahan FROM work_orders;\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"\nSELECT w.id, w.no_wo, w.order_id, w.paket, w.bahan,\n  GROUP_CONCAT\\(oi.paket_nama SEPARATOR ', '\\) AS all_paket,\n  GROUP_CONCAT\\(oi.bahan_kain SEPARATOR ', '\\) AS all_bahan\nFROM work_orders w\nLEFT JOIN order_items oi ON oi.order_id = w.order_id\nGROUP BY w.id;\n\" 2>&1)",
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"\nUPDATE work_orders w\nSET w.paket = \\(SELECT GROUP_CONCAT\\(oi.paket_nama SEPARATOR ', '\\) FROM order_items oi WHERE oi.order_id = w.order_id\\),\n    w.bahan = \\(SELECT GROUP_CONCAT\\(oi.bahan_kain SEPARATOR ', '\\) FROM order_items oi WHERE oi.order_id = w.order_id\\);\n\" 2>&1)"
     ]
   }
 }

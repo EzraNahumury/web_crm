@@ -1,56 +1,28 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { dbGet, dbCreate } from '@/lib/api-db';
+import { useToast } from '@/lib/toast';
 
-/* ═══ Mock Data ═══ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = Record<string, any>;
+
 const PROD_STAGES = [
   'Proofing','Layout Printing','Approval Layout','Proses Printing','Sublim Press',
   'QC Panel','Potong Kain','QC Cutting','Jahit','QC Jersey','Finishing','Pengiriman',
 ];
 
-const MOCK_WO = {
-  noWo: 'WO001', customer: 'M. Farikh Khaqiqi', status: 'Proses Produksi',
-  noOrder: 'ORD001', tglOrder: '10/03/2026', paket: 'PRO A', bahan: 'JAGUARD TOPO',
-  upProduksi: '12/03/2026', deadline: '09/04/2026', currentStage: 1,
-  keterangan: 'Bahan utama embos topo Bahan kombinasi pecah pola bahu jala airbin LOGO PRINTING',
+function fmtD(d: string) {
+  if (!d) return '-';
+  try { return new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return d; }
+}
+
+const STATUS_MAP: Record<string, { label: string; cls: string }> = {
+  PENDING: { label: 'Pending', cls: 'text-slate-400 border-slate-500/30 bg-slate-500/10' },
+  PROSES_PRODUKSI: { label: 'Proses Produksi', cls: 'text-blue-400 border-blue-500/30 bg-blue-500/10' },
+  SELESAI: { label: 'Selesai', cls: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' },
+  TERLAMBAT: { label: 'Terlambat', cls: 'text-red-400 border-red-500/30 bg-red-500/10' },
 };
-
-const MOCK_GUDANG = [
-  { bagian: 'BADAN DEPAN', bahan: 'BRICK', warna: '', qty: 0 },
-  { bagian: 'BADAN BELAKANG', bahan: 'BRICK', warna: '', qty: 0 },
-  { bagian: 'LENGAN', bahan: 'BRICK', warna: '', qty: 0 },
-  { bagian: 'KERAH', bahan: 'KAIN RIB SUBLIM', warna: '', qty: 0 },
-];
-const MOCK_AKSESORIS = [
-  { bagian: 'Tagline', bahan: 'Ayres', warna: '', qty: 0 },
-  { bagian: 'Keaslian', bahan: 'Ayress woven', warna: '', qty: 0 },
-  { bagian: 'Info Ukuran', bahan: 'Ayres', warna: '', qty: 0 },
-  { bagian: 'Info Logo', bahan: 'PRINT', warna: '', qty: 0 },
-  { bagian: 'Info Packing', bahan: 'Ayres', warna: '', qty: 0 },
-  { bagian: 'Font & Nomor', bahan: 'ARIAL', warna: '', qty: 0 },
-];
-
-const MOCK_PLAYERS = [
-  { nama:'A.KAUSAR', np:'NP', size:'XL', ket:'-' },
-  { nama:'AGR', np:'NP', size:'XL', ket:'-' },
-  { nama:'AMHA', np:'NP', size:'3XL', ket:'L. PANJANG BRAZIL' },
-  { nama:'EQ', np:'NP', size:'2XL', ket:'-' },
-  { nama:'EWANG KITE', np:'NP', size:'M', ket:'-' },
-  { nama:'JAMS', np:'NP', size:'L', ket:'-' },
-  { nama:'KAKA', np:'NP', size:'XL', ket:'SIZE OVERSIZE - (CELANA 2XL)' },
-  { nama:'LUPITO', np:'NP', size:'L', ket:'L. PANJANG BRAZIL' },
-  { nama:'MONI S', np:'NP', size:'XL', ket:'-' },
-  { nama:'MONTY', np:'NP', size:'2XL', ket:'-' },
-  { nama:'OCKTHARA', np:'NP', size:'2XL', ket:'-' },
-  { nama:'RAMBARA', np:'NP', size:'L', ket:'-' },
-  { nama:'RICKY', np:'NP', size:'M', ket:'-' },
-  { nama:'RPS', np:'NP', size:'XL', ket:'-' },
-  { nama:'RVH', np:'NP', size:'L', ket:'-' },
-  { nama:'RZR', np:'NP', size:'L', ket:'-' },
-  { nama:'SAE', np:'NP', size:'L', ket:'L. PANJANG BRAZIL' },
-  { nama:'SGL', np:'NP', size:'XL', ket:'L. PANJANG BRAZIL' },
-  { nama:'THOMAS', np:'NP', size:'L', ket:'-' },
-];
 
 type Tab = 'detail'|'wo1'|'wo2'|'wo3'|'wo4';
 
@@ -58,7 +30,74 @@ export default function WorkOrderDetailPage() {
   const router = useRouter();
   const params = useParams();
   const [tab, setTab] = useState<Tab>('detail');
-  const wo = MOCK_WO;
+  const [wo, setWo] = useState<Row | null>(null);
+  const [order, setOrder] = useState<Row | null>(null);
+  const [gudangItems, setGudangItems] = useState<Row[]>([]);
+  const [detailItems, setDetailItems] = useState<Row[]>([]);
+  const [specs, setSpecs] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const wos = await dbGet('work_orders');
+        const found = wos.find((w: Row) => String(w.id) === String(params.id));
+        if (found) {
+          // Fetch related order + items for real-time paket/bahan
+          const [orders, allItems] = await Promise.all([dbGet('orders'), dbGet('order_items')]);
+          const ord = orders.find((o: Row) => String(o.id) === String(found.order_id)) || null;
+          setOrder(ord);
+          // Merge paket/bahan from order_items
+          const oi = allItems.filter((i: Row) => String(i.order_id) === String(found.order_id));
+          if (oi.length > 0) {
+            found.paket = oi.map((i: Row) => String(i.paket_nama || '')).filter(Boolean).join(', ') || found.paket;
+            found.bahan = oi.map((i: Row) => String(i.bahan_kain || '')).filter(Boolean).join(', ') || found.bahan;
+          }
+          setWo(found);
+          // Fetch WO sub-data
+          try {
+            const g = await dbGet('wo_permintaan_gudang');
+            setGudangItems(g.filter((r: Row) => String(r.work_order_id) === String(found.id)));
+          } catch {}
+          try {
+            const d = await dbGet('wo_detail_items');
+            setDetailItems(d.filter((r: Row) => String(r.work_order_id) === String(found.id)));
+          } catch {}
+          try {
+            const s = await dbGet('wo_spesifikasi');
+            setSpecs(s.filter((r: Row) => String(r.work_order_id) === String(found.id)));
+          } catch {}
+        }
+      } catch {}
+      setLoading(false);
+    })();
+  }, [params.id]);
+
+  if (loading) return <div className="space-y-4">{[1,2].map(i => <div key={i} className="h-32 bg-white/[0.03] rounded-xl animate-pulse" />)}</div>;
+  if (!wo) return (
+    <div className="text-center py-20">
+      <p className="text-slate-500">Work Order tidak ditemukan</p>
+      <button onClick={() => router.push('/work-orders')} className="mt-4 text-blue-400 text-sm">Kembali</button>
+    </div>
+  );
+
+  const st = STATUS_MAP[wo.status] || STATUS_MAP.PENDING;
+
+  // Build a compat object for tabs
+  const woData = {
+    noWo: wo.no_wo,
+    customer: wo.customer_nama,
+    status: st.label,
+    noOrder: order?.no_order || '-',
+    tglOrder: fmtD(order?.tanggal_order || wo.created_at),
+    paket: wo.paket || '-',
+    bahan: wo.bahan || '-',
+    upProduksi: fmtD(wo.up_produksi || order?.tanggal_order || wo.created_at),
+    deadline: fmtD(order?.estimasi_deadline || wo.deadline),
+    currentStage: 0,
+    keterangan: wo.keterangan || order?.keterangan || '-',
+    id: wo.id,
+  };
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'detail', label: 'Detail' },
@@ -77,11 +116,11 @@ export default function WorkOrderDetailPage() {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-white">WO {wo.noWo}</h1>
-            <p className="text-sm text-slate-400">{wo.customer}</p>
+            <h1 className="text-2xl font-bold text-white">WO {wo.no_wo}</h1>
+            <p className="text-sm text-slate-400">{wo.customer_nama}</p>
           </div>
         </div>
-        <span className="text-xs font-medium text-blue-400 border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 rounded-full">{wo.status}</span>
+        <span className={`text-xs font-medium border px-3 py-1.5 rounded-full ${st.cls}`}>{st.label}</span>
       </div>
 
       {/* Tabs */}
@@ -97,17 +136,17 @@ export default function WorkOrderDetailPage() {
       </div>
 
       {/* Tab Content */}
-      {tab === 'detail' && <TabDetail wo={wo} />}
-      {tab === 'wo1' && <TabWO1 wo={wo} />}
-      {tab === 'wo2' && <TabWO2 wo={wo} />}
-      {tab === 'wo3' && <TabWO3 wo={wo} />}
-      {tab === 'wo4' && <TabWO4 wo={wo} />}
+      {tab === 'detail' && <TabDetail wo={woData} />}
+      {tab === 'wo1' && <TabWO1 wo={woData} specs={specs} />}
+      {tab === 'wo2' && <TabWO2 wo={woData} gudangItems={gudangItems} />}
+      {tab === 'wo3' && <TabWO3 wo={woData} detailItems={detailItems} />}
+      {tab === 'wo4' && <TabWO4 wo={woData} detailItems={detailItems} />}
     </div>
   );
 }
 
 /* ═══ Tab Detail ═══ */
-function TabDetail({ wo }: { wo: typeof MOCK_WO }) {
+function TabDetail({ wo }: { wo: Row }) {
   const pct = Math.round(((wo.currentStage + 1) / PROD_STAGES.length) * 100);
   return (
     <div className="space-y-6">
@@ -176,9 +215,63 @@ function TabDetail({ wo }: { wo: typeof MOCK_WO }) {
 }
 
 /* ═══ Tab WO 1 — Lembar Spesifikasi ═══ */
-function TabWO1({ wo }: { wo: typeof MOCK_WO }) {
+function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const [specs, setSpecs] = useState(initialSpecs);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  // Form state
+  const [namaSpec, setNamaSpec] = useState('');
+  const [jumlah, setJumlah] = useState('10');
+  const [tagline, setTagline] = useState('');
+  const [authentic, setAuthentic] = useState('');
+  const [infoUkuran, setInfoUkuran] = useState('');
+  const [infoLogo, setInfoLogo] = useState('');
+  const [infoPacking, setInfoPacking] = useState('');
+  const [webbing, setWebbing] = useState('');
+  const [fontNomor, setFontNomor] = useState('');
+  const [keterangan, setKeterangan] = useState('');
+  const [keteranganJahit, setKeteranganJahit] = useState('');
+  const [approvalAdmin, setApprovalAdmin] = useState('');
   const [bahanRows, setBahanRows] = useState([{ id: 1, bagian: 'FRONT BODY', bahan: '' }]);
+
+  async function handleSaveSpec() {
+    if (!namaSpec.trim()) { toast.warning('Validasi', 'Nama Spesifikasi wajib diisi'); return; }
+    setSaving(true);
+    try {
+      const specId = await dbCreate('wo_spesifikasi', {
+        work_order_id: wo.id,
+        nama_spesifikasi: namaSpec,
+        jumlah: Number(jumlah) || 0,
+        deadline: wo.deadline,
+        tagline, authentic, info_ukuran: infoUkuran, info_logo: infoLogo,
+        info_packing: infoPacking, webbing, font_nomor: fontNomor,
+        keterangan, keterangan_jahit: keteranganJahit,
+        approval_admin: approvalAdmin, export_icc: 'JPEG-RGB 3 PASS',
+      });
+      // Save bahan rows
+      for (const row of bahanRows) {
+        if (row.bagian.trim()) {
+          await dbCreate('wo_spesifikasi_bahan', {
+            spesifikasi_id: specId, bagian: row.bagian, bahan: row.bahan, urutan: 0,
+          });
+        }
+      }
+      // Refresh specs
+      const allSpecs = await dbGet('wo_spesifikasi');
+      setSpecs(allSpecs.filter((s: Row) => String(s.work_order_id) === String(wo.id)));
+      setCreateOpen(false);
+      toast.success('Lembar Spesifikasi Dibuat', namaSpec);
+      // Reset form
+      setNamaSpec(''); setJumlah('10'); setTagline(''); setAuthentic('');
+      setInfoUkuran(''); setInfoLogo(''); setInfoPacking(''); setWebbing('');
+      setFontNomor(''); setKeterangan(''); setKeteranganJahit(''); setApprovalAdmin('');
+      setBahanRows([{ id: 1, bagian: 'FRONT BODY', bahan: '' }]);
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
   const iCls = 'w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors';
   const sCls = `${iCls} appearance-none cursor-pointer`;
   const lCls = 'block text-sm font-medium text-white mb-1.5';
@@ -210,12 +303,12 @@ function TabWO1({ wo }: { wo: typeof MOCK_WO }) {
                 <h3 className="text-sm font-bold text-white mb-4">Informasi Dasar</h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Nama Spesifikasi</label><input className={iCls} placeholder="mis. Jersey Home" defaultValue="Jersey Home" /></div>
+                    <div><label className={lCls}>Nama Spesifikasi</label><input value={namaSpec} onChange={e => setNamaSpec(e.target.value)} className={iCls} placeholder="mis. Jersey Home" /></div>
                     <div><label className={lCls}>Nama Customer</label><input className={iCls} defaultValue={wo.customer} readOnly /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className={lCls}>Paket</label><input className={iCls} defaultValue={wo.paket} readOnly /></div>
-                    <div><label className={lCls}>Jumlah</label><input type="number" className={iCls} defaultValue={10} readOnly /></div>
+                    <div><label className={lCls}>Jumlah</label><input value={jumlah} onChange={e => setJumlah(e.target.value)} className={iCls} readOnly /></div>
                   </div>
                   <div><label className={lCls}>Deadline</label><input className={iCls} defaultValue={wo.deadline} readOnly /></div>
                 </div>
@@ -249,20 +342,20 @@ function TabWO1({ wo }: { wo: typeof MOCK_WO }) {
                 <h3 className="text-sm font-bold text-white mb-4">Aksesoris & Detail</h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Tagline</label><select className={sCls}><option>Pilih...</option><option>Ayres</option></select></div>
-                    <div><label className={lCls}>Authentic</label><select className={sCls}><option>Pilih...</option><option>Ayress woven</option></select></div>
+                    <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option></select></div>
+                    <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress woven</option></select></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Info Ukuran</label><select className={sCls}><option>Pilih...</option><option>Ayres</option></select></div>
-                    <div><label className={lCls}>Info Logo</label><input className={iCls} placeholder="PRINT" /></div>
+                    <div><label className={lCls}>Info Ukuran</label><select value={infoUkuran} onChange={e => setInfoUkuran(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option></select></div>
+                    <div><label className={lCls}>Info Logo</label><input value={infoLogo} onChange={e => setInfoLogo(e.target.value)} className={iCls} placeholder="PRINT" /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Info Packing</label><select className={sCls}><option>Pilih...</option><option>Ayres</option></select></div>
-                    <div><label className={lCls}>Webbing</label><select className={sCls}><option>Pilih...</option></select></div>
+                    <div><label className={lCls}>Info Packing</label><select value={infoPacking} onChange={e => setInfoPacking(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option></select></div>
+                    <div><label className={lCls}>Webbing</label><select value={webbing} onChange={e => setWebbing(e.target.value)} className={sCls}><option value="">Pilih...</option></select></div>
                   </div>
-                  <div><label className={lCls}>Font & Nomor</label><input className={iCls} placeholder="ARIAL" /></div>
-                  <div><label className={lCls}>Keterangan</label><textarea rows={3} className={`${iCls} resize-none`} /></div>
-                  <div><label className={lCls}>Keterangan Jahit</label><textarea rows={3} className={`${iCls} resize-none`} /></div>
+                  <div><label className={lCls}>Font & Nomor</label><input value={fontNomor} onChange={e => setFontNomor(e.target.value)} className={iCls} placeholder="ARIAL" /></div>
+                  <div><label className={lCls}>Keterangan</label><textarea value={keterangan} onChange={e => setKeterangan(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
+                  <div><label className={lCls}>Keterangan Jahit</label><textarea value={keteranganJahit} onChange={e => setKeteranganJahit(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
                 </div>
               </div>
 
@@ -276,8 +369,8 @@ function TabWO1({ wo }: { wo: typeof MOCK_WO }) {
                 <div className="space-y-2">
                   {bahanRows.map(r => (
                     <div key={r.id} className="grid grid-cols-2 gap-2">
-                      <input className={iCls} placeholder="Nama bagian" defaultValue={r.bagian} />
-                      <input className={iCls} placeholder="Pilih atau ketik nama bahan" defaultValue={r.bahan} />
+                      <input className={iCls} placeholder="Nama bagian" value={r.bagian} onChange={e => setBahanRows(prev => prev.map(p => p.id === r.id ? { ...p, bagian: e.target.value } : p))} />
+                      <input className={iCls} placeholder="Pilih atau ketik nama bahan" value={r.bahan} onChange={e => setBahanRows(prev => prev.map(p => p.id === r.id ? { ...p, bahan: e.target.value } : p))} />
                     </div>
                   ))}
                 </div>
@@ -287,143 +380,123 @@ function TabWO1({ wo }: { wo: typeof MOCK_WO }) {
               <div className="border-t border-white/[0.06] pt-5">
                 <h3 className="text-sm font-bold text-white mb-3">Persetujuan</h3>
                 <label className={lCls}>Data Persetujuan Admin</label>
-                <input className={iCls} />
+                <input value={approvalAdmin} onChange={e => setApprovalAdmin(e.target.value)} className={iCls} />
               </div>
             </div>
 
             {/* Footer */}
             <div className="px-6 py-4 border-t border-white/[0.06] flex items-center justify-end gap-3 shrink-0">
               <button onClick={() => setCreateOpen(false)} className="px-5 py-2.5 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">Batal</button>
-              <button onClick={() => setCreateOpen(false)} className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">Buat Lembar Spesifikasi</button>
+              <button onClick={handleSaveSpec} disabled={saving} className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors">{saving ? 'Menyimpan...' : 'Buat Lembar Spesifikasi'}</button>
             </div>
           </div>
         </>
       )}
 
-      {/* Player tab */}
-      <div className="border-b border-white/[0.06]">
-        <button className="px-4 py-3 text-sm font-medium text-white border-b-2 border-blue-500">PLAYER</button>
-      </div>
-
-      {/* Spec card */}
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-        <div className="px-6 py-3 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.02]">
-          <span className="text-xs text-slate-500">ID: 18 &nbsp; Diperbarui: 3/12/2026</span>
-          <div className="flex items-center gap-2">
-            {['Download PDF','Cetak','Edit'].map(a => (
-              <button key={a} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">{a}</button>
-            ))}
-            <button className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/20 bg-red-500/10 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-colors">Hapus</button>
-          </div>
+      {/* Content — empty state or spec cards */}
+      {specs.length === 0 ? (
+        <div className="rounded-xl border-2 border-dashed border-white/[0.08] py-14 text-center">
+          <svg className="w-10 h-10 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+          <p className="text-sm font-semibold text-white mb-1">Belum ada lembar spesifikasi</p>
+          <p className="text-xs text-slate-500 mb-4">Buat lembar spesifikasi untuk mendefinisikan detail produksi.</p>
+          <button onClick={() => setCreateOpen(true)} className="inline-flex items-center gap-2 border border-white/10 hover:bg-white/[0.04] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+            Buat Lembar Spesifikasi
+          </button>
         </div>
-
-        {/* Spec document preview */}
-        <div className="p-6">
-          <div className="bg-white rounded-lg p-6 text-black max-w-4xl mx-auto">
-            {/* Header */}
-            <div className="flex items-start justify-between border-b-2 border-black pb-3 mb-4">
-              <div className="flex items-center gap-3">
-                <img src="/logo/new logo.png" alt="AYRES" className="h-8" style={{ filter: 'brightness(0)' }} />
-                <h3 className="text-xl font-bold">AYRES APPAREL</h3>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] text-slate-500">WORK ORDER NO.</p>
-                <p className="text-base font-bold border border-black px-3 py-1 rounded">{wo.noWo}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              {/* Left: Mock up area */}
-              <div className="col-span-2">
-                <div className="bg-blue-900 text-white text-center text-xs font-bold py-1 mb-2">DESAIN MOCK UP & PATTERN</div>
-                <div className="h-48 bg-slate-100 rounded grid place-items-center text-slate-400 text-sm border border-slate-200">
-                  Preview Desain Jersey
-                </div>
-                <div className="grid grid-cols-2 gap-2 mt-3">
-                  <div className="border border-black rounded p-2">
-                    <p className="text-[10px] font-bold text-red-600 bg-red-50 px-1">KETERANGAN JAHIT</p>
-                    <p className="text-xs mt-1">-</p>
-                  </div>
-                  <div className="border border-black rounded p-2">
-                    <p className="text-[10px] font-bold text-center bg-blue-900 text-white px-1">FONT & NUMBER</p>
-                    <p className="text-xs mt-1">ARIAL</p>
-                  </div>
-                </div>
-                <div className="mt-2 bg-green-100 text-black text-xs font-bold px-2 py-1 inline-block border border-black">
-                  DEADLINE : 09 April 2026
-                </div>
-              </div>
-
-              {/* Right: Info */}
-              <div className="space-y-2 text-xs">
-                <div className="border border-black overflow-hidden">
-                  {[['NAMA', wo.customer, false],['PAKET', wo.paket, true],['JUMLAH', '10 PCS', true]].map(([k,v,red]) => (
-                    <div key={k as string} className="grid grid-cols-2 border-b border-black last:border-0">
-                      <span className="font-bold px-2 py-1 border-r border-black">{k}</span>
-                      <span className={`px-2 py-1 ${red ? 'text-red-600' : ''}`}>{v}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="border border-black overflow-hidden">
-                  <p className="text-center font-bold bg-black text-white py-1 border-b border-black">Accessories</p>
-                  {[['TAGLINE','Ayres'],['AUTHENTIC','Ayress woven'],['SIZE','Ayres'],['LOGO','PRINT'],['PACKING','Ayres']].map(([k,v]) => (
-                    <div key={k} className="grid grid-cols-2 border-b border-black last:border-0">
-                      <span className="font-bold px-2 py-0.5 border-r border-black">{k}</span>
-                      <span className="px-2 py-0.5">{v}</span>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[9px] text-slate-500">WLWLEWLEWELWELWEL</p>
-                <div className="border border-black overflow-hidden">
-                  <p className="text-center font-bold bg-black text-white py-1 border-b border-black">PENANGGUNG JAWAB</p>
-                  <div className="p-1.5 space-y-0">
-                    {['Approval Design','Approval Pattern',...PROD_STAGES].map((s, i) => (
-                      <p key={s} className="text-[10px] border-b border-black py-0.5 px-1 last:border-0"><span className="text-blue-600">{i + 1}. {s}</span></p>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom section: Bahan + Approval + Export */}
-            <div className="grid grid-cols-3 gap-3 mt-4">
-              {/* Detail Bahan */}
-              <div className="border border-black overflow-hidden text-xs">
-                {[['BADAN DEPAN','BRICK'],['BADAN BELAKANG','BRICK'],['LENGAN','BRICK'],['KERAH','KAIN RIB SUBLIM']].map(([bagian, bahan]) => (
-                  <div key={bagian} className="grid grid-cols-2 border-b border-black last:border-0">
-                    <span className="font-bold px-2 py-1 border-r border-black">{bagian}</span>
-                    <span className="px-2 py-1 text-red-600 font-medium">{bahan}</span>
-                  </div>
-                ))}
-              </div>
-              {/* Approval Admin */}
-              <div className="border border-black overflow-hidden text-xs">
-                <p className="text-center font-bold bg-black text-white py-1 border-b border-black">APPROVAL ADMIN / DATA</p>
-                <div className="p-2 h-16">
-                  <span className="text-slate-400">-</span>
-                </div>
-              </div>
-              {/* Export & ICC */}
-              <div className="border border-black overflow-hidden text-xs">
-                <p className="text-center font-bold bg-black text-white py-1 border-b border-black">EXPORT & ICC</p>
-                <div className="p-2 h-16 flex items-center justify-center">
-                  <span className="font-medium">JPEG-RGB 3 PASS</span>
-                </div>
-              </div>
-            </div>
+      ) : (
+        <>
+          {/* Player tab */}
+          <div className="border-b border-white/[0.06]">
+            <button className="px-4 py-3 text-sm font-medium text-white border-b-2 border-blue-500">PLAYER</button>
           </div>
-        </div>
-      </div>
+          {/* Spec cards from DB */}
+          {specs.map((spec: Row) => (
+            <div key={spec.id} className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+              <div className="px-6 py-3 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.02]">
+                <span className="text-xs text-slate-500">ID: {spec.id} &nbsp; {spec.nama_spesifikasi}</span>
+                <div className="flex items-center gap-2">
+                  {['Download PDF','Cetak','Edit'].map(a => (
+                    <button key={a} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">{a}</button>
+                  ))}
+                  <button className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/20 bg-red-500/10 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-colors">Hapus</button>
+                </div>
+              </div>
+              <div className="p-6">
+                <div className="bg-white rounded-lg p-6 text-black max-w-4xl mx-auto">
+                  <div className="flex items-start justify-between border-b-2 border-black pb-3 mb-4">
+                    <div className="flex items-center gap-3">
+                      <img src="/logo/new logo.png" alt="AYRES" className="h-8" style={{ filter: 'brightness(0)' }} />
+                      <h3 className="text-xl font-bold">AYRES APPAREL</h3>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-slate-500">WORK ORDER NO.</p>
+                      <p className="text-base font-bold border border-black px-3 py-1 rounded">{wo.noWo}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="col-span-2">
+                      <div className="bg-blue-900 text-white text-center text-xs font-bold py-1 mb-2">DESAIN MOCK UP & PATTERN</div>
+                      <div className="h-48 bg-slate-100 rounded grid place-items-center text-slate-400 text-sm border border-slate-200">Preview Desain Jersey</div>
+                      <div className="grid grid-cols-2 gap-2 mt-3">
+                        <div className="border border-black rounded p-2">
+                          <p className="text-[10px] font-bold text-red-600 bg-red-50 px-1">KETERANGAN JAHIT</p>
+                          <p className="text-xs mt-1">{spec.keterangan_jahit || '-'}</p>
+                        </div>
+                        <div className="border border-black rounded p-2">
+                          <p className="text-[10px] font-bold text-center bg-blue-900 text-white px-1">FONT & NUMBER</p>
+                          <p className="text-xs mt-1">{spec.font_nomor || '-'}</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 bg-green-100 text-black text-xs font-bold px-2 py-1 inline-block border border-black">
+                        DEADLINE : {wo.deadline}
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="border border-black overflow-hidden">
+                        {[['NAMA', wo.customer],['PAKET', wo.paket],['JUMLAH', `${spec.jumlah || 0} PCS`]].map(([k,v]) => (
+                          <div key={k} className="grid grid-cols-2 border-b border-black last:border-0">
+                            <span className="font-bold px-2 py-1 border-r border-black">{k}</span>
+                            <span className="px-2 py-1 text-red-600">{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border border-black overflow-hidden">
+                        <p className="text-center font-bold bg-black text-white py-1 border-b border-black">Accessories</p>
+                        {[['TAGLINE',spec.tagline],['AUTHENTIC',spec.authentic],['SIZE',spec.info_ukuran],['LOGO',spec.info_logo],['PACKING',spec.info_packing]].map(([k,v]) => (
+                          <div key={k} className="grid grid-cols-2 border-b border-black last:border-0">
+                            <span className="font-bold px-2 py-0.5 border-r border-black">{k}</span>
+                            <span className="px-2 py-0.5">{v || '-'}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border border-black overflow-hidden">
+                        <p className="text-center font-bold bg-black text-white py-1 border-b border-black">PENANGGUNG JAWAB</p>
+                        <div className="p-1.5 space-y-0">
+                          {['Approval Design','Approval Pattern',...PROD_STAGES].map((s, i) => (
+                            <p key={s} className="text-[10px] border-b border-black py-0.5 px-1 last:border-0"><span className="text-blue-600">{i + 1}. {s}</span></p>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
 
 /* ═══ Tab WO 2 — Form Permintaan Gudang ═══ */
-function TabWO2({ wo }: { wo: typeof MOCK_WO }) {
+function TabWO2({ wo, gudangItems }: { wo: Row; gudangItems: Row[] }) {
   const [extraAks, setExtraAks] = useState<{ id: number }[]>([]);
   const [extraMat, setExtraMat] = useState<{ id: number }[]>([{ id: 1 }]);
+  const gudangBahan = gudangItems.filter((r: Row) => r.kategori === 'BAHAN_UTAMA');
+  const gudangAksesoris = gudangItems.filter((r: Row) => r.kategori === 'AKSESORIS');
   const delIcon = <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>;
-  const totalFixed = MOCK_GUDANG.length + MOCK_AKSESORIS.length;
+  const totalFixed = gudangBahan.length + gudangAksesoris.length;
 
   return (
     <div className="space-y-5">
@@ -446,8 +519,11 @@ function TabWO2({ wo }: { wo: typeof MOCK_WO }) {
               ))}
             </tr></thead>
             <tbody>
+              {gudangItems.length === 0 && extraAks.length === 0 && extraMat.length <= 1 && (
+                <tr><td colSpan={6} className="px-5 py-10 text-center text-sm text-slate-500">Isi WO 1 Lembar Spesifikasi terlebih dahulu</td></tr>
+              )}
               {/* Bahan utama */}
-              {MOCK_GUDANG.map((r, i) => (
+              {gudangBahan.map((r, i) => (
                 <tr key={i} className="border-b border-white/[0.04]">
                   <td className="px-5 py-3.5 text-sm text-blue-400">{i + 1}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-emerald-400">{r.bagian}</td>
@@ -466,9 +542,9 @@ function TabWO2({ wo }: { wo: typeof MOCK_WO }) {
               </td></tr>
 
               {/* Aksesoris fixed */}
-              {MOCK_AKSESORIS.map((r, i) => (
+              {gudangAksesoris.map((r, i) => (
                 <tr key={`a-${i}`} className="border-b border-white/[0.04]">
-                  <td className="px-5 py-3.5 text-sm text-blue-400">{MOCK_GUDANG.length + i + 1}</td>
+                  <td className="px-5 py-3.5 text-sm text-blue-400">{gudangBahan.length + i + 1}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-emerald-400">{r.bagian}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-white">{r.bahan}</td>
                   <td className="px-5 py-3.5 text-sm text-slate-500">Warna...</td>
@@ -532,14 +608,22 @@ function TabWO2({ wo }: { wo: typeof MOCK_WO }) {
 }
 
 /* ═══ Tab WO 3 — Detail Order Items ═══ */
-function TabWO3({ wo }: { wo: typeof MOCK_WO }) {
+function TabWO3({ wo, detailItems }: { wo: Row; detailItems: Row[] }) {
+  const [localRows, setLocalRows] = useState(() => detailItems.length > 0 ? detailItems : Array.from({ length: 5 }, (_, i) => ({ id: i + 1, nama: '', np: '', ukuran: '', keterangan: '' })));
+
+  function addRow() {
+    setLocalRows(prev => [...prev, { id: Date.now(), nama: '', np: '', ukuran: '', keterangan: '' }]);
+  }
+  function removeRow(id: number) {
+    setLocalRows(prev => prev.filter(r => r.id !== id));
+  }
+
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4 text-sm">
           <span className="text-slate-400">Customer: <strong className="text-white">{wo.customer}</strong></span>
-          <span className="text-slate-400">Team: <strong className="text-white">3TheReal</strong></span>
         </div>
         <div className="text-lg font-bold text-white">DETAIL ORDER ITEMS</div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -558,25 +642,21 @@ function TabWO3({ wo }: { wo: typeof MOCK_WO }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px]">
             <thead><tr className="border-b border-white/[0.06]">
-              {['NO','NAMA','NP','SIZE','KET','BD','BB','LENGAN','KERAH','PENJAHIT',''].map(h => (
+              {['NO','NAMA','NP','SIZE','KET','PENJAHIT',''].map(h => (
                 <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">{h}</th>
               ))}
             </tr></thead>
             <tbody>
-              {MOCK_PLAYERS.map((p, i) => (
-                <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+              {localRows.map((p, i) => (
+                <tr key={p.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                   <td className="px-4 py-3 text-sm text-blue-400">{i + 1}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-emerald-400">{p.nama}</td>
-                  <td className="px-4 py-3 text-sm text-slate-400">{p.np}</td>
-                  <td className="px-4 py-3 text-sm font-bold text-white">{p.size}</td>
-                  <td className="px-4 py-3 text-sm text-slate-400">{p.ket === '-' ? <span className="text-slate-600">Keterangan</span> : p.ket}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600" />
-                  <td className="px-4 py-3 text-sm text-slate-600" />
-                  <td className="px-4 py-3 text-sm text-slate-600" />
-                  <td className="px-4 py-3 text-sm text-slate-600" />
-                  <td className="px-4 py-3 text-sm text-slate-500">Penjahit</td>
+                  <td className="px-4 py-3"><input defaultValue={p.nama} placeholder="Nama" className="bg-transparent text-sm text-emerald-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input defaultValue={p.np} placeholder="NP" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input defaultValue={p.ukuran} placeholder="Size" className="bg-transparent text-sm font-bold text-white placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input defaultValue={p.keterangan} placeholder="Keterangan" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input placeholder="Penjahit" className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
                   <td className="px-4 py-3">
-                    <button className="text-slate-600 hover:text-red-400 transition-colors">
+                    <button onClick={() => removeRow(p.id)} className="text-slate-600 hover:text-red-400 transition-colors">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                     </button>
                   </td>
@@ -585,16 +665,30 @@ function TabWO3({ wo }: { wo: typeof MOCK_WO }) {
             </tbody>
           </table>
         </div>
+        <div className="px-5 py-4 flex items-center justify-between">
+          <button onClick={addRow} className="flex items-center gap-2 border border-white/10 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg hover:bg-white/[0.04] transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+            Tambah Baris
+          </button>
+          <span className="text-xs text-slate-500">Total: {localRows.length} items</span>
+        </div>
       </div>
     </div>
   );
 }
 
 /* ═══ Tab WO 4 — Form Pengiriman ═══ */
-function TabWO4({ wo }: { wo: typeof MOCK_WO }) {
+function TabWO4({ wo, detailItems }: { wo: Row; detailItems: Row[] }) {
+  if (detailItems.length === 0) {
+    return (
+      <div className="rounded-xl bg-[#111827] border border-white/[0.06] px-6 py-12 text-center">
+        <p className="text-sm text-slate-400">Belum ada item detail (WO 3) untuk ditampilkan.</p>
+        <p className="text-xs text-slate-500 mt-1">Silakan isi data di tab WO 3 terlebih dahulu.</p>
+      </div>
+    );
+  }
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-white">Form Pengiriman</h2>
@@ -606,11 +700,9 @@ function TabWO4({ wo }: { wo: typeof MOCK_WO }) {
           ))}
         </div>
       </div>
-
-      {/* Shipping form */}
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="px-6 py-4 text-center border-b border-white/[0.06]">
-          <h3 className="text-base font-bold text-white">FORM PENGIRIMAN {wo.customer.toUpperCase()} ({wo.paket})</h3>
+          <h3 className="text-base font-bold text-white">FORM PENGIRIMAN {wo.customer?.toUpperCase()} ({wo.paket})</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px]">
@@ -620,13 +712,13 @@ function TabWO4({ wo }: { wo: typeof MOCK_WO }) {
               ))}
             </tr></thead>
             <tbody>
-              {MOCK_PLAYERS.map((p, i) => (
+              {detailItems.map((p, i) => (
                 <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                   <td className="px-4 py-2.5 text-sm text-blue-400">{i + 1}</td>
                   <td className="px-4 py-2.5 text-sm text-emerald-400 font-medium">{p.nama}</td>
-                  <td className="px-4 py-2.5 text-sm text-slate-500">-</td>
-                  <td className="px-4 py-2.5 text-sm font-bold text-white">{p.size}</td>
-                  <td className="px-4 py-2.5 text-sm text-slate-400">{p.ket === '-' ? '-' : p.ket}</td>
+                  <td className="px-4 py-2.5 text-sm text-slate-500">{p.np || '-'}</td>
+                  <td className="px-4 py-2.5 text-sm font-bold text-white">{p.ukuran}</td>
+                  <td className="px-4 py-2.5 text-sm text-slate-400">{p.keterangan || '-'}</td>
                   <td className="px-4 py-2.5">
                     <input type="text" placeholder="Bonus..." className="w-full bg-transparent text-sm text-slate-300 focus:outline-none placeholder-slate-600" />
                   </td>

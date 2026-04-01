@@ -37,7 +37,7 @@ export const RISK_LABELS: Record<string, string> = {
 };
 
 export const STATUS_LABELS: Record<string, string> = {
-  OPEN: 'Baru',
+  OPEN: 'Pending',
   IN_PROGRESS: 'Proses',
   DONE: 'Selesai',
 };

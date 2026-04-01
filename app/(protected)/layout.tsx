@@ -102,9 +102,8 @@ function AdminLayout({ user, logout, children }: {
       {/* ── Sidebar ── */}
       <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-[230px] bg-[#0c1120] border-r border-white/[0.06] flex flex-col shrink-0 transform transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         {/* Logo */}
-        <div className="px-5 h-16 flex items-center gap-2 border-b border-white/[0.06] shrink-0">
-          <img src="/logo/new logo.png" alt="AYRES" className="h-6 brightness-0 invert" />
-          <span className="text-[13px] font-semibold text-slate-400 tracking-wide">SISTEM</span>
+        <div className="px-5 h-20 flex items-center justify-center border-b border-white/[0.06] shrink-0">
+          <img src="/logo/new logo.png" alt="AYRES" className="h-14 brightness-0 invert" />
         </div>
 
         {/* Navigation */}

@@ -16,14 +16,17 @@ export async function apiGetOrders(): Promise<ApiResponse<Order[]>> {
   const cached = getCached<Order[]>('wp_orders');
   if (cached) return { success: true, data: cached };
 
-  const res = await fetch('/api/db/orders');
-  const json = await res.json();
-  if (json.success && json.data) {
-    const orders = mapOrders(json.data);
+  const [ordersRes, itemsRes] = await Promise.all([
+    fetch('/api/db/orders').then(r => r.json()),
+    fetch('/api/db/order_items').then(r => r.json()),
+  ]);
+  if (ordersRes.success && ordersRes.data) {
+    const items = itemsRes.success ? itemsRes.data : [];
+    const orders = mapOrders(ordersRes.data, items);
     setCached('wp_orders', orders);
     return { success: true, data: orders };
   }
-  return { success: false, error: json.error || 'Gagal memuat orders' };
+  return { success: false, error: ordersRes.error || 'Gagal memuat orders' };
 }
 
 export async function apiGetOrdersForce(): Promise<ApiResponse<Order[]>> {
@@ -36,15 +39,17 @@ export async function apiGetDashboard(): Promise<ApiResponse<DashboardStats>> {
   const cached = getCached<DashboardStats>('wp_dashboard');
   if (cached) return { success: true, data: cached };
 
-  const res = await fetch('/api/db/orders');
-  const json = await res.json();
-  if (json.success && json.data) {
-    const orders = mapOrders(json.data);
+  const [oRes, iRes] = await Promise.all([
+    fetch('/api/db/orders').then(r => r.json()),
+    fetch('/api/db/order_items').then(r => r.json()),
+  ]);
+  if (oRes.success && oRes.data) {
+    const orders = mapOrders(oRes.data, iRes.success ? iRes.data : []);
     const stats = computeStats(orders);
     setCached('wp_dashboard', stats);
     return { success: true, data: stats };
   }
-  return { success: false, error: json.error || 'Gagal memuat dashboard' };
+  return { success: false, error: oRes.error || 'Gagal memuat dashboard' };
 }
 
 export async function apiGetDashboardForce(): Promise<ApiResponse<DashboardStats>> {
@@ -86,10 +91,28 @@ interface DbOrder {
   qty?: number;
 }
 
-function mapOrders(rows: DbOrder[]): Order[] {
+interface DbItem {
+  order_id: number;
+  paket_nama: string;
+  bahan_kain: string;
+  qty: number;
+}
+
+function mapOrders(rows: DbOrder[], items: DbItem[] = []): Order[] {
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
+  // Group items by order_id (collect all)
+  const itemsMap: Record<number, DbItem[]> = {};
+  for (const item of items) {
+    if (!itemsMap[item.order_id]) itemsMap[item.order_id] = [];
+    itemsMap[item.order_id].push(item);
+  }
+
   return rows.map((r, i) => {
+    const orderItems = itemsMap[r.id] || [];
+    const paketNames = orderItems.map(it => it.paket_nama).filter(Boolean).join(', ');
+    const bahanNames = orderItems.map(it => it.bahan_kain).filter(Boolean).join(', ');
+    const totalQty = orderItems.reduce((s, it) => s + (it.qty || 0), 0);
     const deadline = r.estimasi_deadline ? new Date(r.estimasi_deadline) : null;
     const daysLeft = deadline ? Math.floor((deadline.getTime() - today.getTime()) / 86400000) : null;
 
@@ -113,11 +136,11 @@ function mapOrders(rows: DbOrder[]): Order[] {
       no: i + 1,
       customer: r.customer_nama || '',
       customerPhone: r.customer_phone || '',
-      qty: r.qty || 0,
-      paket1: r.paket_nama || '',
+      qty: totalQty || r.qty || 0,
+      paket1: paketNames || r.paket_nama || '',
       paket2: '',
       keterangan: r.keterangan || '',
-      bahan: r.bahan_kain || '',
+      bahan: bahanNames || r.bahan_kain || '',
       dpProduksi: fmtDate(r.tanggal_order),
       dlCust: fmtDate(r.estimasi_deadline),
       noWorkOrder: '',

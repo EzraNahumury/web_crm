@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { apiGetOrders, apiGetOrdersForce } from '@/lib/api';
+import { invalidateCache } from '@/lib/cache';
+import { useToast } from '@/lib/toast';
 import { Order, OrderStatus } from '@/lib/types';
 import { STAGES, RISK_LABELS, STATUS_LABELS } from '@/lib/constants';
 import { formatDate, getProgressPercent, getCurrentStage } from '@/lib/utils';
@@ -121,6 +123,7 @@ async function generateOrderPDF(orders: Order[], type: 'weekly' | 'monthly', par
 export default function OrdersPage() {
   const { user } = useAuth();
   const orderRouter = useRouter();
+  const toast = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -139,11 +142,11 @@ export default function OrdersPage() {
     if (searchParams.get('create') === '1') setCreateOpen(true);
   }, [searchParams]);
 
-  useEffect(() => { fetchOrders(false); }, []);
+  useEffect(() => { fetchOrders(); }, []);
 
-  async function fetchOrders(force = false) {
+  async function fetchOrders() {
     try {
-      const res = force ? await apiGetOrdersForce() : await apiGetOrders();
+      const res = await apiGetOrdersForce();
       if (res.success && res.data) { setOrders(res.data); setError(''); }
       else setError(res.error || 'Gagal memuat order');
     } catch { setError('Gagal terhubung ke server'); }
@@ -173,9 +176,8 @@ export default function OrdersPage() {
         o.noWorkOrder?.toLowerCase().includes(search.toLowerCase()) ||
         o.keterangan?.toLowerCase().includes(search.toLowerCase());
       const matchStatus = statusFilter === 'ALL' || o.status === statusFilter;
-      const matchRisk = riskFilter === 'ALL' || o.riskLevel === riskFilter;
       const matchMonth = !monthFilter || parseMonthKey(o.tglSelesai || o.dlCust || '') === monthFilter;
-      return matchSearch && matchStatus && matchRisk && matchMonth;
+      return matchSearch && matchStatus && matchMonth;
     });
   }, [orders, search, statusFilter, riskFilter, monthFilter]);
 
@@ -188,7 +190,7 @@ export default function OrdersPage() {
   if (error) return (
     <div className="flex flex-col items-center py-20 text-center">
       <p className="text-white/40 mb-4">{error}</p>
-      <button onClick={() => fetchOrders(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm">Coba Lagi</button>
+      <button onClick={() => fetchOrders()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm">Coba Lagi</button>
     </div>
   );
 
@@ -202,10 +204,9 @@ export default function OrdersPage() {
       {/* Summary stat cards */}
       <div className="grid grid-cols-4 gap-3">
         {[
-          { label: 'Baru', count: countOpen, color: 'from-blue-500/20 to-blue-500/5', border: 'border-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-400' },
+          { label: 'Pending', count: countOpen, color: 'from-blue-500/20 to-blue-500/5', border: 'border-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-400' },
           { label: 'Proses', count: countProgress, color: 'from-amber-500/20 to-amber-500/5', border: 'border-amber-500/10', text: 'text-amber-400', dot: 'bg-amber-400' },
           { label: 'Selesai', count: countDone, color: 'from-emerald-500/20 to-emerald-500/5', border: 'border-emerald-500/10', text: 'text-emerald-400', dot: 'bg-emerald-400' },
-          { label: 'Overdue', count: countOverdue, color: 'from-red-500/20 to-red-500/5', border: 'border-red-500/10', text: 'text-red-400', dot: 'bg-red-400' },
         ].map(s => (
           <div key={s.label} className={`relative rounded-xl bg-gradient-to-br ${s.color} border ${s.border} p-4 overflow-hidden`}>
             <div className="flex items-center gap-2 mb-1">
@@ -242,14 +243,6 @@ export default function OrdersPage() {
             <option value="DONE">Selesai</option>
           </select>
 
-          <select value={riskFilter} onChange={e => setRiskFilter(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-white/[0.06] bg-white/[0.03] text-[13px] text-white/60 focus:outline-none focus:border-indigo-500/40 transition-all appearance-none cursor-pointer">
-            <option value="ALL">Semua Risk</option>
-            <option value="HIGH">High Risk</option>
-            <option value="NEAR">Near Deadline</option>
-            <option value="OVERDUE">Overdue</option>
-            <option value="NORMAL">Normal</option>
-          </select>
         </div>
 
         <div className="flex items-center gap-2">
@@ -326,7 +319,6 @@ export default function OrdersPage() {
               <tr className="border-b border-white/[0.04]">
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">No</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Customer</th>
-                <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Qty</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Paket</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Bahan</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">DP Produksi</th>
@@ -334,8 +326,7 @@ export default function OrdersPage() {
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Tgl Selesai</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Progress</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Status</th>
-                <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Risk</th>
-                <th className="px-4 py-3"></th>
+                <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Aksi</th>
               </tr>
             </thead>
             <tbody>
@@ -350,10 +341,8 @@ export default function OrdersPage() {
                       <div className="font-semibold text-white/80 group-hover:text-white transition-colors">{order.customer}</div>
                       {order.noWorkOrder && <div className="text-[11px] text-white/25 mt-0.5">{order.noWorkOrder}</div>}
                     </td>
-                    <td className="px-4 py-3.5 font-medium text-white/50">{order.qty}</td>
                     <td className="px-4 py-3.5">
                       <span className="text-white/60 font-medium">{order.paket1}</span>
-                      <span className="ml-1.5 text-[11px] bg-white/[0.05] text-white/30 px-1.5 py-0.5 rounded">{order.paket2}</span>
                     </td>
                     <td className="px-4 py-3.5 text-white/35">{order.bahan || '-'}</td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.dpProduksi)}</td>
@@ -375,18 +364,20 @@ export default function OrdersPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className={`text-[11px] px-2.5 py-1 rounded-lg font-medium ${RISK_STYLES_DARK[order.riskLevel || 'NORMAL']}`}>
-                        {RISK_LABELS[order.riskLevel || 'NORMAL']}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <button onClick={e => { e.stopPropagation(); orderRouter.push(`/orders/${order.rowIndex}`); }}
-                        className="text-white/15 hover:text-indigo-400 transition-colors">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                        </svg>
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={e => { e.stopPropagation(); orderRouter.push(`/orders/${order.rowIndex}`); }}
+                          className="text-white/15 hover:text-blue-400 transition-colors p-1" title="Lihat">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); orderRouter.push(`/orders/${order.rowIndex}`); }}
+                          className="text-white/15 hover:text-amber-400 transition-colors p-1" title="Edit">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+                        </button>
+                        <button onClick={async e => { e.stopPropagation(); const yes = await toast.confirm({ title: 'Hapus Order?', message: 'Order ini akan dihapus permanen.', type: 'danger', confirmText: 'Ya, Hapus' }); if(!yes) return; try { const { dbDelete: del } = await import('@/lib/api-db'); await del('orders', order.rowIndex); invalidateCache('wp_orders','wp_dashboard'); toast.deleted('Order Dihapus'); fetchOrders(); } catch {} }}
+                          className="text-white/15 hover:text-red-400 transition-colors p-1" title="Hapus">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

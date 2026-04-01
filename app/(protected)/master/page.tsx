@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, ReactNode } from 'react';
 import { dbGet, dbCreate, dbDelete } from '@/lib/api-db';
+import { useToast } from '@/lib/toast';
 
 /* ═══ Tab config ═══ */
 type TabKey = 'customer'|'paket'|'barang'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads';
@@ -100,6 +101,7 @@ export default function MasterPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const toast = useToast();
   // Extra data for dropdowns
   const [jabatanList, setJabatanList] = useState<Row[]>([]);
   const [tipeBarangList, setTipeBarangList] = useState<Row[]>([]);
@@ -126,15 +128,17 @@ export default function MasterPage() {
   const switchTab = (t: TabKey) => { setTab(t); setSearch(''); };
 
   async function handleDelete(id: number) {
-    if (!confirm('Yakin hapus data ini?')) return;
+    const yes = await toast.confirm({ title: 'Hapus Data?', message: 'Data ini akan dihapus permanen.', type: 'danger', confirmText: 'Ya, Hapus' });
+    if (!yes) return;
     await dbDelete(tableName, id);
+    toast.deleted('Data Dihapus');
     fetchData();
   }
 
   async function handleCreate(data: Row) {
     setSaving(true);
-    try { await dbCreate(tableName, data); setModal(false); fetchData(); }
-    catch (e) { alert('Gagal menyimpan: ' + e); }
+    try { await dbCreate(tableName, data); setModal(false); toast.success('Data Ditambahkan', 'Data berhasil disimpan.'); fetchData(); }
+    catch (e) { toast.error('Gagal Menyimpan', String(e)); }
     setSaving(false);
   }
 

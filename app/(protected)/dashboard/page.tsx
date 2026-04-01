@@ -26,8 +26,8 @@ export default function DashboardPage() {
   async function fetchData(force = false) {
     try {
       const [statsRes, ordersRes] = await Promise.all([
-        force ? apiGetDashboardForce() : apiGetDashboard(),
-        force ? apiGetOrdersForce() : apiGetOrders(),
+        apiGetDashboardForce(),
+        apiGetOrdersForce(),
       ]);
       if (statsRes.success && statsRes.data) setStats(statsRes.data);
       if (ordersRes.success && ordersRes.data) setOrders(ordersRes.data);
