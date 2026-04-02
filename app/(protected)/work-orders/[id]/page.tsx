@@ -269,82 +269,109 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     const bRows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
     const stages = ['Approval Design','Approval Pattern',...PROD_STAGES];
     const acc = [['TAGLINE',spec.tagline],['AUTHENTIC',spec.authentic],['SIZE',spec.info_ukuran],['LOGO',spec.info_logo],['PACKING',spec.info_packing]];
-    const desainImg = spec.dokumen_desain ? `<img src="${spec.dokumen_desain}" style="width:100%;height:auto;display:block"/>` : `<div style="height:250px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px">Desain & Pola</div>`;
-    const patternImg = spec.dokumen_pattern ? `<img src="${spec.dokumen_pattern}" style="width:100%;height:auto;display:block"/>` : `<div style="height:250px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px">Pattern</div>`;
-    const c = 'border:1px solid #000;';
-    return `<div style="background:#fff;padding:30px;font-family:Arial,Helvetica,sans-serif;color:#000;width:900px;margin:0 auto">
-<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:16px">
-  <div style="display:flex;align-items:center;gap:10px">
-    <img src="${location.origin}/logo/new logo.png" style="height:30px" onerror="this.style.display='none'"/>
-    <span style="font-size:22px;font-weight:bold;letter-spacing:0.5px">AYRES APPAREL</span>
-  </div>
-  <div style="text-align:right">
-    <div style="font-size:9px;color:#888;margin-bottom:2px">WORK ORDER NO.</div>
-    <div style="font-size:18px;font-weight:bold;${c}padding:6px 18px;display:inline-block">${wo.noWo}</div>
-  </div>
-</div>
-<div style="display:flex;gap:12px">
-  <div style="width:64%">
-    <div style="background:#1e3a5f;color:#fff;text-align:center;font-size:11px;font-weight:bold;padding:5px 0;letter-spacing:1px">DESAIN MOCK UP & PATTERN</div>
-    <div style="display:flex;gap:6px;margin:6px 0">
-      <div style="flex:1;${c}overflow:hidden">${desainImg}</div>
-      <div style="flex:1;${c}overflow:hidden">${patternImg}</div>
+    const desainImg = spec.dokumen_desain ? `<img src="${spec.dokumen_desain}" style="width:100%;height:100%;object-fit:cover;display:block"/>` : `<div style="height:100%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:12px">Desain</div>`;
+    const patternImg = spec.dokumen_pattern ? `<img src="${spec.dokumen_pattern}" style="width:100%;height:100%;object-fit:cover;display:block"/>` : `<div style="height:100%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:12px">Pattern</div>`;
+    // Style tokens
+    const bdr = '#d1d5db';
+    const B = `border:1px solid ${bdr};`;
+    const hdr = `${B}background:#1e293b;color:#fff;font-weight:700;padding:1px 10px 11px;font-size:10px;text-align:center;vertical-align:middle;letter-spacing:0.3px;`;
+    const lbl = `${B}font-weight:700;padding:1px 10px 11px;font-size:10px;background:#f8fafc;`;
+    const val = `${B}padding:1px 10px 11px;font-size:10px;`;
+    return `<div style="background:#fff;padding:32px 40px;font-family:'Segoe UI',system-ui,Arial,sans-serif;color:#1e293b;width:1200px;line-height:1.45;-webkit-font-smoothing:antialiased">
+<!-- ═══ HEADER ═══ -->
+<table style="width:100%;margin-bottom:18px"><tr>
+  <td style="vertical-align:bottom">
+    <div style="display:flex;align-items:center;gap:10px">
+      <img src="${location.origin}/logo/new logo.png" style="height:26px" onerror="this.style.display='none'"/>
+      <span style="font-size:20px;font-weight:800;color:#0f172a;letter-spacing:-0.3px">AYRES APPAREL</span>
     </div>
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+    <div style="height:2px;background:#1e293b;margin-top:10px"></div>
+  </td>
+  <td style="vertical-align:bottom;text-align:right;width:180px">
+    <div style="font-size:8px;color:#64748b;font-weight:600;letter-spacing:1px;text-transform:uppercase">Work Order No.</div>
+    <div style="font-size:17px;font-weight:800;color:#0f172a;border:2px solid #1e293b;padding:1px 18px 11px;display:inline-block;margin-top:4px">${wo.noWo}</div>
+  </td>
+</tr></table>
+
+<!-- ═══ MAIN 2-COL ═══ -->
+<table style="width:100%;border-collapse:separate;border-spacing:12px 0"><tr>
+
+  <!-- LEFT 58% -->
+  <td style="width:58%;vertical-align:top;padding:0">
+    <div style="background:#1e293b;color:#fff;text-align:center;font-size:10px;font-weight:700;padding:1px 0 11px;letter-spacing:1.5px;text-transform:uppercase">Desain Mock Up & Pattern</div>
+    <div style="display:flex;gap:8px;height:300px;margin-top:6px">
+      <div style="flex:1;border:1px solid ${bdr};overflow:hidden">${desainImg}</div>
+      <div style="flex:1;border:1px solid ${bdr};overflow:hidden">${patternImg}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-top:8px">
       <tr>
-        <td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:4px;width:50%">Nama Customer</td>
-        <td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:4px">Nama Spesifikasi</td>
+        <td style="${hdr}width:50%">Nama Customer</td>
+        <td style="${hdr}">Nama Spesifikasi</td>
       </tr>
       <tr>
-        <td style="${c}text-align:center;padding:5px">${wo.customer}</td>
-        <td style="${c}text-align:center;padding:5px">${spec.nama_spesifikasi}</td>
+        <td style="${B}text-align:center;padding:1px 10px 11px;font-weight:600">${wo.customer}</td>
+        <td style="${B}text-align:center;padding:1px 10px 11px;font-weight:600">${spec.nama_spesifikasi}</td>
       </tr>
     </table>
-  </div>
-  <div style="width:36%">
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px">
-      <tr><td style="${c}font-weight:bold;padding:5px 8px;width:35%">NAMA</td><td style="${c}padding:5px 8px;color:#dc2626">${wo.customer}</td></tr>
-      <tr><td style="${c}font-weight:bold;padding:5px 8px">PAKET</td><td style="${c}padding:5px 8px;color:#dc2626">${wo.paket}</td></tr>
-      <tr><td style="${c}font-weight:bold;padding:5px 8px">JUMLAH</td><td style="${c}padding:5px 8px;color:#dc2626">${spec.jumlah || 0} PCS</td></tr>
+    <!-- Keterangan Jahit + Font & Number -->
+    <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin-top:8px"><tr>
+      <td style="width:50%;vertical-align:top;padding:0">
+        <div style="${B}overflow:hidden">
+          <div style="padding:1px 10px 11px;font-weight:700;color:#dc2626;font-size:10px;letter-spacing:0.3px;border-bottom:1px solid ${bdr};background:#fef2f2;text-align:center">KETERANGAN JAHIT</div>
+          <div style="padding:1px 10px 11px;font-size:10px">${spec.keterangan_jahit || '-'}</div>
+        </div>
+      </td>
+      <td style="width:50%;vertical-align:top;padding:0">
+        <div style="${B}overflow:hidden">
+          <div style="background:#1e293b;color:#fff;font-weight:700;text-align:center;padding:1px 10px 11px;font-size:10px;letter-spacing:0.3px">FONT & NUMBER</div>
+          <div style="padding:1px 10px 11px;font-size:10px">${spec.font_nomor || '-'}</div>
+        </div>
+      </td>
+    </tr></table>
+  </td>
+
+  <!-- RIGHT 42% -->
+  <td style="width:42%;vertical-align:top;padding:0">
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:8px">
+      <tr><td style="${lbl}width:32%">NAMA</td><td style="${val}color:#dc2626;font-weight:600">${wo.customer}</td></tr>
+      <tr><td style="${lbl}">PAKET</td><td style="${val}color:#dc2626;font-weight:600">${wo.paket}</td></tr>
+      <tr><td style="${lbl}">JUMLAH</td><td style="${val}color:#dc2626;font-weight:600">${spec.jumlah || 0} PCS</td></tr>
     </table>
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px">
-      <tr><td colspan="2" style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:4px">Accessories</td></tr>
-      ${acc.map(([k,v]) => `<tr><td style="${c}font-weight:bold;padding:3px 8px;width:40%">${k}</td><td style="${c}padding:3px 8px">${v || '-'}</td></tr>`).join('')}
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:8px">
+      <tr><td colspan="2" style="${hdr}">Accessories</td></tr>
+      ${acc.map(([k,v]) => `<tr><td style="${lbl}width:34%">${k}</td><td style="${val}">${v || '-'}</td></tr>`).join('')}
     </table>
-    ${spec.webbing ? `<div style="${c}padding:3px 8px;font-size:11px;margin-bottom:6px">${spec.webbing}</div>` : ''}
     <table style="width:100%;border-collapse:collapse;font-size:10px">
-      <tr><td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:4px">PENANGGUNG JAWAB</td></tr>
-      <tr><td style="${c}padding:6px 8px">
-        ${stages.map((s, i) => `<p style="border-bottom:1px solid #000;padding:2px 0;margin:0;color:#2563eb;text-decoration:none!important;font-size:10px">${i+1}. ${s}</p>`).join('')}
+      <tr><td style="${hdr}">Penanggung Jawab</td></tr>
+      <tr><td style="${B}padding:6px 10px">
+        ${stages.map((s, i) => `<div style="border-bottom:1px solid ${bdr};padding:1px 0 11px;color:#2563eb;font-size:10px">${i+1}. ${s}</div>`).join('')}
       </td></tr>
     </table>
-  </div>
-</div>
-<div style="display:flex;gap:8px;margin-top:10px">
-  <div style="flex:1;${c}padding:8px">
-    <div style="font-size:10px;font-weight:bold;color:#dc2626;background:#fef2f2;display:inline-block;padding:1px 4px;margin-bottom:4px">KETERANGAN JAHIT</div>
-    <div style="font-size:12px">${spec.keterangan_jahit || '-'}</div>
-  </div>
-  <div style="flex:1;${c}overflow:hidden">
-    <div style="font-size:10px;font-weight:bold;text-align:center;background:#1e3a5f;color:#fff;padding:5px">FONT & NUMBER</div>
-    <div style="font-size:12px;padding:8px">${spec.font_nomor || '-'}</div>
-  </div>
-</div>
-<div style="background:#dcfce7;color:#000;font-size:12px;font-weight:bold;padding:5px 12px;display:inline-block;${c}margin-top:10px">DEADLINE : ${wo.deadline}</div>
-<div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start">
-  <table style="border-collapse:collapse;font-size:11px">
-    ${bRows.length > 0 ? bRows.map((r: Row) => `<tr><td style="${c}font-weight:bold;padding:4px 10px">${r.bagian}</td><td style="${c}padding:4px 10px;color:#dc2626">${r.bahan || '-'}</td></tr>`).join('') : `<tr><td style="${c}padding:8px;color:#94a3b8;text-align:center">-</td></tr>`}
-  </table>
-  <div style="flex:1"></div>
-  <table style="border-collapse:collapse;font-size:11px">
-    <tr><td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:5px 20px">APPROVAL ADMIN / DATA</td></tr>
-    <tr><td style="${c}padding:10px">${spec.approval_admin || '-'}</td></tr>
-  </table>
-  <table style="border-collapse:collapse;font-size:11px">
-    <tr><td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:5px 20px">EXPORT & ICC</td></tr>
-    <tr><td style="${c}padding:10px">${spec.export_icc || '-'}</td></tr>
-  </table>
-</div>
+  </td>
+
+</tr></table>
+
+
+<!-- ═══ FOOTER ═══ -->
+<table style="width:100%;border-collapse:separate;border-spacing:12px 0;margin-top:14px"><tr>
+  <td style="vertical-align:top;width:30%;padding:0">
+    ${bRows.length > 0 ? `<table style="width:100%;border-collapse:collapse;font-size:10px">
+      ${bRows.map((r: Row) => `<tr><td style="${lbl}width:50%">${r.bagian}</td><td style="${val}color:#dc2626;font-weight:600">${r.bahan || '-'}</td></tr>`).join('')}
+    </table>` : ''}
+  </td>
+  <td style="vertical-align:top;width:35%;padding:0">
+    <table style="width:100%;border-collapse:collapse;font-size:10px">
+      <tr><td style="${hdr}">APPROVAL ADMIN / DATA</td></tr>
+      <tr><td style="${B}padding:1px 10px 11px;font-size:10px">${spec.approval_admin || '-'}</td></tr>
+    </table>
+  </td>
+  <td style="vertical-align:top;width:35%;padding:0">
+    <table style="width:100%;border-collapse:collapse;font-size:10px">
+      <tr><td style="${hdr}">EXPORT & ICC</td></tr>
+      <tr><td style="${B}padding:1px 10px 11px;font-size:10px">${spec.export_icc || '-'}</td></tr>
+    </table>
+  </td>
+</tr></table>
 </div>`;
   }
 
@@ -355,22 +382,36 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       const html2canvas = (await import('html2canvas')).default;
       const { jsPDF } = await import('jspdf');
       const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;left:-9999px;width:920px;height:1400px;border:none';
+      iframe.style.cssText = 'position:fixed;left:-9999px;width:1200px;border:none';
       document.body.appendChild(iframe);
       const doc = iframe.contentDocument!;
       doc.open();
-      doc.write(`<html><head><style>*{box-sizing:border-box;margin:0;padding:0;text-decoration:none!important;font-style:normal!important}a{color:inherit;text-decoration:none!important}</style></head><body>${buildSpecHtml(spec)}</body></html>`);
+      doc.write(`<html><head><style>*{box-sizing:border-box;margin:0;padding:0;text-decoration:none!important;font-style:normal!important}body{background:#fff}</style></head><body>${buildSpecHtml(spec)}</body></html>`);
       doc.close();
-      await new Promise(r => setTimeout(r, 1000));
-      const canvas = await html2canvas(doc.body, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+      await new Promise(r => setTimeout(r, 1200));
+      const canvas = await html2canvas(doc.body, { scale: 3, useCORS: true, backgroundColor: '#ffffff', windowWidth: 1200 });
       document.body.removeChild(iframe);
       const imgData = canvas.toDataURL('image/png');
-      const pdfW = canvas.width;
-      const pdfH = canvas.height;
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [pdfW, pdfH] });
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH);
-      pdf.save(`Spesifikasi-${wo.noWo}.pdf`);
-      toast.success('PDF Berhasil', `Spesifikasi-${wo.noWo}.pdf telah didownload.`);
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageW = 210;
+      const pageH = 297;
+      const margin = 5;
+      const contentW = pageW - margin * 2;
+      const imgRatio = canvas.height / canvas.width;
+      const contentH = Math.min(contentW * imgRatio, pageH - margin * 2);
+      pdf.addImage(imgData, 'PNG', margin, margin, contentW, contentH);
+
+      const fileName = `Spesifikasi-${wo.noWo}.pdf`;
+      const blob = pdf.output('blob');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('PDF Berhasil', `${fileName} telah didownload.`);
     } catch (e) { toast.error('Gagal Download PDF', String(e)); }
   }
 
