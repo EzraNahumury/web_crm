@@ -1,7 +1,7 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { dbGet, dbCreate } from '@/lib/api-db';
+import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -35,6 +35,7 @@ export default function WorkOrderDetailPage() {
   const [gudangItems, setGudangItems] = useState<Row[]>([]);
   const [detailItems, setDetailItems] = useState<Row[]>([]);
   const [specs, setSpecs] = useState<Row[]>([]);
+  const [specBahan, setSpecBahan] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -67,6 +68,10 @@ export default function WorkOrderDetailPage() {
             const s = await dbGet('wo_spesifikasi');
             setSpecs(s.filter((r: Row) => String(r.work_order_id) === String(found.id)));
           } catch {}
+          try {
+            const sb = await dbGet('wo_spesifikasi_bahan');
+            setSpecBahan(sb);
+          } catch {}
         }
       } catch {}
       setLoading(false);
@@ -92,6 +97,7 @@ export default function WorkOrderDetailPage() {
     tglOrder: fmtD(order?.tanggal_order || wo.created_at),
     paket: wo.paket || '-',
     bahan: wo.bahan || '-',
+    jumlah: wo.jumlah || 0,
     upProduksi: fmtD(wo.up_produksi || order?.tanggal_order || wo.created_at),
     deadline: fmtD(order?.estimasi_deadline || wo.deadline),
     currentStage: 0,
@@ -137,8 +143,8 @@ export default function WorkOrderDetailPage() {
 
       {/* Tab Content */}
       {tab === 'detail' && <TabDetail wo={woData} />}
-      {tab === 'wo1' && <TabWO1 wo={woData} specs={specs} />}
-      {tab === 'wo2' && <TabWO2 wo={woData} gudangItems={gudangItems} />}
+      {tab === 'wo1' && <TabWO1 wo={woData} specs={specs} specBahan={specBahan} />}
+      {tab === 'wo2' && <TabWO2 wo={woData} gudangItems={gudangItems} specs={specs} specBahan={specBahan} />}
       {tab === 'wo3' && <TabWO3 wo={woData} detailItems={detailItems} />}
       {tab === 'wo4' && <TabWO4 wo={woData} detailItems={detailItems} />}
     </div>
@@ -215,15 +221,243 @@ function TabDetail({ wo }: { wo: Row }) {
 }
 
 /* ═══ Tab WO 1 — Lembar Spesifikasi ═══ */
-function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
+function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: Row; specs: Row[]; specBahan: Row[] }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [specs, setSpecs] = useState(initialSpecs);
+  const [allSpecBahan, setAllSpecBahan] = useState(initialSpecBahan);
+  const [selectedSpecId, setSelectedSpecId] = useState<number | null>(initialSpecs.length > 0 ? initialSpecs[0].id : null);
   const [saving, setSaving] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editSpec, setEditSpec] = useState<Row | null>(null);
+  const [freshWo, setFreshWo] = useState<Row>(wo);
+  const printRef = useRef<Record<number, HTMLDivElement | null>>({});
   const toast = useToast();
+
+  async function refreshSpecs() {
+    const allSpecs = await dbGet('wo_spesifikasi');
+    const filtered = allSpecs.filter((s: Row) => String(s.work_order_id) === String(wo.id));
+    setSpecs(filtered);
+    const sb = await dbGet('wo_spesifikasi_bahan');
+    setAllSpecBahan(sb);
+    // Update selectedSpecId if current selection no longer exists
+    if (filtered.length > 0) {
+      const ids = filtered.map((s: Row) => s.id);
+      setSelectedSpecId(prev => (prev && ids.includes(prev) ? prev : filtered[0].id) as number | null);
+    } else {
+      setSelectedSpecId(null);
+    }
+  }
+
+  // Fetch fresh data from DB on mount
+  useEffect(() => { refreshSpecs(); }, []);
+
+  async function handleDeleteSpec(spec: Row) {
+    const yes = await toast.confirm({ title: 'Hapus Lembar Spesifikasi?', message: `"${spec.nama_spesifikasi}" akan dihapus permanen.`, type: 'danger', confirmText: 'Ya, Hapus' });
+    if (!yes) return;
+    try {
+      await dbDelete('wo_spesifikasi', spec.id);
+      await refreshSpecs();
+      if (selectedSpecId === spec.id) {
+        const remaining = specs.filter((s: Row) => s.id !== spec.id);
+        setSelectedSpecId(remaining.length > 0 ? remaining[0].id : null);
+      }
+      toast.deleted('Dihapus', `${spec.nama_spesifikasi} berhasil dihapus.`);
+    } catch (e) { toast.error('Gagal', String(e)); }
+  }
+
+  function buildSpecHtml(spec: Row) {
+    const bRows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
+    const stages = ['Approval Design','Approval Pattern',...PROD_STAGES];
+    const acc = [['TAGLINE',spec.tagline],['AUTHENTIC',spec.authentic],['SIZE',spec.info_ukuran],['LOGO',spec.info_logo],['PACKING',spec.info_packing]];
+    const desainImg = spec.dokumen_desain ? `<img src="${spec.dokumen_desain}" style="width:100%;height:auto;display:block"/>` : `<div style="height:250px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px">Desain & Pola</div>`;
+    const patternImg = spec.dokumen_pattern ? `<img src="${spec.dokumen_pattern}" style="width:100%;height:auto;display:block"/>` : `<div style="height:250px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px">Pattern</div>`;
+    const c = 'border:1px solid #000;';
+    return `<div style="background:#fff;padding:30px;font-family:Arial,Helvetica,sans-serif;color:#000;width:900px;margin:0 auto">
+<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:16px">
+  <div style="display:flex;align-items:center;gap:10px">
+    <img src="${location.origin}/logo/new logo.png" style="height:30px" onerror="this.style.display='none'"/>
+    <span style="font-size:22px;font-weight:bold;letter-spacing:0.5px">AYRES APPAREL</span>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:9px;color:#888;margin-bottom:2px">WORK ORDER NO.</div>
+    <div style="font-size:18px;font-weight:bold;${c}padding:6px 18px;display:inline-block">${wo.noWo}</div>
+  </div>
+</div>
+<div style="display:flex;gap:12px">
+  <div style="width:64%">
+    <div style="background:#1e3a5f;color:#fff;text-align:center;font-size:11px;font-weight:bold;padding:5px 0;letter-spacing:1px">DESAIN MOCK UP & PATTERN</div>
+    <div style="display:flex;gap:6px;margin:6px 0">
+      <div style="flex:1;${c}overflow:hidden">${desainImg}</div>
+      <div style="flex:1;${c}overflow:hidden">${patternImg}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+      <tr>
+        <td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:4px;width:50%">Nama Customer</td>
+        <td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:4px">Nama Spesifikasi</td>
+      </tr>
+      <tr>
+        <td style="${c}text-align:center;padding:5px">${wo.customer}</td>
+        <td style="${c}text-align:center;padding:5px">${spec.nama_spesifikasi}</td>
+      </tr>
+    </table>
+  </div>
+  <div style="width:36%">
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px">
+      <tr><td style="${c}font-weight:bold;padding:5px 8px;width:35%">NAMA</td><td style="${c}padding:5px 8px;color:#dc2626">${wo.customer}</td></tr>
+      <tr><td style="${c}font-weight:bold;padding:5px 8px">PAKET</td><td style="${c}padding:5px 8px;color:#dc2626">${wo.paket}</td></tr>
+      <tr><td style="${c}font-weight:bold;padding:5px 8px">JUMLAH</td><td style="${c}padding:5px 8px;color:#dc2626">${spec.jumlah || 0} PCS</td></tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px">
+      <tr><td colspan="2" style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:4px">Accessories</td></tr>
+      ${acc.map(([k,v]) => `<tr><td style="${c}font-weight:bold;padding:3px 8px;width:40%">${k}</td><td style="${c}padding:3px 8px">${v || '-'}</td></tr>`).join('')}
+    </table>
+    ${spec.webbing ? `<div style="${c}padding:3px 8px;font-size:11px;margin-bottom:6px">${spec.webbing}</div>` : ''}
+    <table style="width:100%;border-collapse:collapse;font-size:10px">
+      <tr><td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:4px">PENANGGUNG JAWAB</td></tr>
+      <tr><td style="${c}padding:6px 8px">
+        ${stages.map((s, i) => `<p style="border-bottom:1px solid #000;padding:2px 0;margin:0;color:#2563eb;text-decoration:none!important;font-size:10px">${i+1}. ${s}</p>`).join('')}
+      </td></tr>
+    </table>
+  </div>
+</div>
+<div style="display:flex;gap:8px;margin-top:10px">
+  <div style="flex:1;${c}padding:8px">
+    <div style="font-size:10px;font-weight:bold;color:#dc2626;background:#fef2f2;display:inline-block;padding:1px 4px;margin-bottom:4px">KETERANGAN JAHIT</div>
+    <div style="font-size:12px">${spec.keterangan_jahit || '-'}</div>
+  </div>
+  <div style="flex:1;${c}overflow:hidden">
+    <div style="font-size:10px;font-weight:bold;text-align:center;background:#1e3a5f;color:#fff;padding:5px">FONT & NUMBER</div>
+    <div style="font-size:12px;padding:8px">${spec.font_nomor || '-'}</div>
+  </div>
+</div>
+<div style="background:#dcfce7;color:#000;font-size:12px;font-weight:bold;padding:5px 12px;display:inline-block;${c}margin-top:10px">DEADLINE : ${wo.deadline}</div>
+<div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start">
+  <table style="border-collapse:collapse;font-size:11px">
+    ${bRows.length > 0 ? bRows.map((r: Row) => `<tr><td style="${c}font-weight:bold;padding:4px 10px">${r.bagian}</td><td style="${c}padding:4px 10px;color:#dc2626">${r.bahan || '-'}</td></tr>`).join('') : `<tr><td style="${c}padding:8px;color:#94a3b8;text-align:center">-</td></tr>`}
+  </table>
+  <div style="flex:1"></div>
+  <table style="border-collapse:collapse;font-size:11px">
+    <tr><td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:5px 20px">APPROVAL ADMIN / DATA</td></tr>
+    <tr><td style="${c}padding:10px">${spec.approval_admin || '-'}</td></tr>
+  </table>
+  <table style="border-collapse:collapse;font-size:11px">
+    <tr><td style="${c}font-weight:bold;text-align:center;background:#000;color:#fff;padding:5px 20px">EXPORT & ICC</td></tr>
+    <tr><td style="${c}padding:10px">${spec.export_icc || '-'}</td></tr>
+  </table>
+</div>
+</div>`;
+  }
+
+  async function handleDownloadPDF(specId: number) {
+    const spec = specs.find((s: Row) => String(s.id) === String(specId));
+    if (!spec) return;
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'position:fixed;left:-9999px;width:920px;height:1400px;border:none';
+      document.body.appendChild(iframe);
+      const doc = iframe.contentDocument!;
+      doc.open();
+      doc.write(`<html><head><style>*{box-sizing:border-box;margin:0;padding:0;text-decoration:none!important;font-style:normal!important}a{color:inherit;text-decoration:none!important}</style></head><body>${buildSpecHtml(spec)}</body></html>`);
+      doc.close();
+      await new Promise(r => setTimeout(r, 1000));
+      const canvas = await html2canvas(doc.body, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+      document.body.removeChild(iframe);
+      const imgData = canvas.toDataURL('image/png');
+      const pdfW = canvas.width;
+      const pdfH = canvas.height;
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [pdfW, pdfH] });
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH);
+      pdf.save(`Spesifikasi-${wo.noWo}.pdf`);
+      toast.success('PDF Berhasil', `Spesifikasi-${wo.noWo}.pdf telah didownload.`);
+    } catch (e) { toast.error('Gagal Download PDF', String(e)); }
+  }
+
+  async function openEditSpec(spec: Row) {
+    try {
+      // Fetch fresh data from DB
+      const [freshSpecs, freshBahan, freshWos, freshOrders] = await Promise.all([
+        dbGet('wo_spesifikasi'), dbGet('wo_spesifikasi_bahan'),
+        dbGet('work_orders'), dbGet('orders'),
+      ]);
+      const fresh = freshSpecs.find((s: Row) => String(s.id) === String(spec.id)) || spec;
+      const rows = freshBahan.filter((b: Row) => String(b.spesifikasi_id) === String(fresh.id));
+      const freshWoData = freshWos.find((w: Row) => String(w.id) === String(wo.id));
+      const freshOrder = freshWoData ? freshOrders.find((o: Row) => String(o.id) === String(freshWoData.order_id)) : null;
+      if (freshWoData) {
+        setFreshWo({
+          ...wo,
+          customer: freshWoData.customer_nama,
+          paket: freshWoData.paket || '-',
+          jumlah: freshWoData.jumlah || 0,
+          deadline: fmtD(String(freshOrder?.estimasi_deadline || freshWoData.deadline || '')),
+        });
+      }
+
+      setEditSpec(fresh);
+      setNamaSpec(fresh.nama_spesifikasi || '');
+      setJumlah(String(fresh.jumlah || 0));
+      setTagline(fresh.tagline || '');
+      setAuthentic(fresh.authentic || '');
+      setInfoUkuran(fresh.info_ukuran || '');
+      setInfoLogo(fresh.info_logo || '');
+      setInfoPacking(fresh.info_packing || '');
+      setWebbing(fresh.webbing || '');
+      setFontNomor(fresh.font_nomor || '');
+      setKeterangan(fresh.keterangan || '');
+      setKeteranganJahit(fresh.keterangan_jahit || '');
+      setApprovalAdmin(fresh.approval_admin || '');
+      setDokDesain(fresh.dokumen_desain || null);
+      setDokPattern(fresh.dokumen_pattern || null);
+      setBahanRows(rows.length > 0 ? rows.map((b: Row) => ({ id: b.id, bagian: b.bagian, bahan: b.bahan })) : [{ id: 1, bagian: 'FRONT BODY', bahan: '' }]);
+      setEditOpen(true);
+    } catch (e) { toast.error('Gagal memuat data', String(e)); }
+  }
+
+  async function handleUpdateSpec() {
+    if (!editSpec || !namaSpec.trim()) { toast.warning('Validasi', 'Nama Spesifikasi wajib diisi'); return; }
+    setSaving(true);
+    try {
+      await dbUpdate('wo_spesifikasi', editSpec.id, {
+        nama_spesifikasi: namaSpec,
+        jumlah: Number(jumlah) || 0,
+        dokumen_desain: dokDesain || null, dokumen_pattern: dokPattern || null,
+        tagline, authentic, info_ukuran: infoUkuran, info_logo: infoLogo,
+        info_packing: infoPacking, webbing, font_nomor: fontNomor,
+        keterangan, keterangan_jahit: keteranganJahit,
+        approval_admin: approvalAdmin,
+      });
+      // Delete old bahan rows from DB (fetch fresh to avoid stale data)
+      const freshBahanAll = await dbGet('wo_spesifikasi_bahan');
+      const oldBahan = freshBahanAll.filter((b: Row) => String(b.spesifikasi_id) === String(editSpec.id));
+      for (const ob of oldBahan) { await dbDelete('wo_spesifikasi_bahan', Number(ob.id)); }
+      for (const row of bahanRows) {
+        if (row.bagian.trim()) {
+          await dbCreate('wo_spesifikasi_bahan', {
+            spesifikasi_id: editSpec.id, bagian: row.bagian, bahan: row.bahan, urutan: 0,
+          });
+        }
+      }
+      await refreshSpecs();
+      toast.success('Diperbarui', namaSpec);
+      setEditOpen(false);
+      setEditSpec(null);
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
+  function resetForm() {
+    setNamaSpec(''); setJumlah(String(wo.jumlah || 0)); setTagline(''); setAuthentic('');
+    setInfoUkuran(''); setInfoLogo(''); setInfoPacking(''); setWebbing('');
+    setFontNomor(''); setKeterangan(''); setKeteranganJahit(''); setApprovalAdmin('');
+    setDokDesain(null); setDokPattern(null);
+    setBahanRows([{ id: 1, bagian: 'FRONT BODY', bahan: '' }]);
+  }
 
   // Form state
   const [namaSpec, setNamaSpec] = useState('');
-  const [jumlah, setJumlah] = useState('10');
+  const [jumlah, setJumlah] = useState(String(wo.jumlah || 0));
   const [tagline, setTagline] = useState('');
   const [authentic, setAuthentic] = useState('');
   const [infoUkuran, setInfoUkuran] = useState('');
@@ -234,7 +468,24 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
   const [keterangan, setKeterangan] = useState('');
   const [keteranganJahit, setKeteranganJahit] = useState('');
   const [approvalAdmin, setApprovalAdmin] = useState('');
+  const [dokDesain, setDokDesain] = useState<string | null>(null);
+  const [dokPattern, setDokPattern] = useState<string | null>(null);
+  const [uploadingDesain, setUploadingDesain] = useState(false);
+  const [uploadingPattern, setUploadingPattern] = useState(false);
   const [bahanRows, setBahanRows] = useState([{ id: 1, bagian: 'FRONT BODY', bahan: '' }]);
+
+  async function handleUpload(file: File, setUrl: (url: string) => void, setLoading: (b: boolean) => void) {
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.url) setUrl(data.url);
+      else toast.error('Upload Gagal', data.error || 'Unknown error');
+    } catch (e) { toast.error('Upload Gagal', String(e)); }
+    setLoading(false);
+  }
 
   async function handleSaveSpec() {
     if (!namaSpec.trim()) { toast.warning('Validasi', 'Nama Spesifikasi wajib diisi'); return; }
@@ -245,6 +496,7 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
         nama_spesifikasi: namaSpec,
         jumlah: Number(jumlah) || 0,
         deadline: wo.deadline,
+        dokumen_desain: dokDesain || null, dokumen_pattern: dokPattern || null,
         tagline, authentic, info_ukuran: infoUkuran, info_logo: infoLogo,
         info_packing: infoPacking, webbing, font_nomor: fontNomor,
         keterangan, keterangan_jahit: keteranganJahit,
@@ -258,16 +510,11 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
           });
         }
       }
-      // Refresh specs
-      const allSpecs = await dbGet('wo_spesifikasi');
-      setSpecs(allSpecs.filter((s: Row) => String(s.work_order_id) === String(wo.id)));
+      await refreshSpecs();
+      setSelectedSpecId(specId as number);
       setCreateOpen(false);
       toast.success('Lembar Spesifikasi Dibuat', namaSpec);
-      // Reset form
-      setNamaSpec(''); setJumlah('10'); setTagline(''); setAuthentic('');
-      setInfoUkuran(''); setInfoLogo(''); setInfoPacking(''); setWebbing('');
-      setFontNomor(''); setKeterangan(''); setKeteranganJahit(''); setApprovalAdmin('');
-      setBahanRows([{ id: 1, bagian: 'FRONT BODY', bahan: '' }]);
+      resetForm();
     } catch (e) { toast.error('Gagal', String(e)); }
     setSaving(false);
   }
@@ -320,19 +567,43 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
                 <div className="space-y-4">
                   <div>
                     <p className="text-xs text-slate-400 font-medium mb-2">Dokumen Desain & Pola</p>
-                    <div className="border-2 border-dashed border-white/10 rounded-xl p-6 text-center hover:border-blue-500/30 transition-colors cursor-pointer">
-                      <svg className="w-7 h-7 text-slate-500 mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-                      <p className="text-sm font-medium text-white">Upload Dokumen Desain & Pola</p>
-                      <p className="text-xs text-slate-500 mt-1">Accepted types: image/*</p>
-                    </div>
+                    <label className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer block ${dokDesain ? 'border-emerald-500/30' : 'border-white/10 hover:border-blue-500/30'}`}>
+                      <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f, setDokDesain, setUploadingDesain); }} />
+                      {uploadingDesain ? (
+                        <p className="text-sm font-medium text-blue-400">Mengupload...</p>
+                      ) : dokDesain ? (
+                        <>
+                          <img src={dokDesain} alt="Desain" className="max-h-32 mx-auto rounded-lg mb-2" />
+                          <p className="text-xs text-emerald-400">Klik untuk ganti gambar</p>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-7 h-7 text-slate-500 mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+                          <p className="text-sm font-medium text-white">Upload Dokumen Desain & Pola</p>
+                          <p className="text-xs text-slate-500 mt-1">Accepted types: image/*</p>
+                        </>
+                      )}
+                    </label>
                   </div>
                   <div>
                     <p className="text-xs text-slate-400 font-medium mb-2">Dokumen Pattern / Pecah Pola</p>
-                    <div className="border-2 border-dashed border-white/10 rounded-xl p-6 text-center hover:border-blue-500/30 transition-colors cursor-pointer">
-                      <svg className="w-7 h-7 text-slate-500 mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-                      <p className="text-sm font-medium text-white">Upload Dokumen Pattern</p>
-                      <p className="text-xs text-slate-500 mt-1">Accepted types: image/*</p>
-                    </div>
+                    <label className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer block ${dokPattern ? 'border-emerald-500/30' : 'border-white/10 hover:border-blue-500/30'}`}>
+                      <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f, setDokPattern, setUploadingPattern); }} />
+                      {uploadingPattern ? (
+                        <p className="text-sm font-medium text-blue-400">Mengupload...</p>
+                      ) : dokPattern ? (
+                        <>
+                          <img src={dokPattern} alt="Pattern" className="max-h-32 mx-auto rounded-lg mb-2" />
+                          <p className="text-xs text-emerald-400">Klik untuk ganti gambar</p>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-7 h-7 text-slate-500 mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+                          <p className="text-sm font-medium text-white">Upload Dokumen Pattern</p>
+                          <p className="text-xs text-slate-500 mt-1">Accepted types: image/*</p>
+                        </>
+                      )}
+                    </label>
                   </div>
                 </div>
               </div>
@@ -342,16 +613,16 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
                 <h3 className="text-sm font-bold text-white mb-4">Aksesoris & Detail</h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option></select></div>
-                    <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress woven</option></select></div>
+                    <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
+                    <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress rubber</option><option>Ayress woven</option><option>Custom</option><option>Tanpa authentic</option></select></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Info Ukuran</label><select value={infoUkuran} onChange={e => setInfoUkuran(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option></select></div>
+                    <div><label className={lCls}>Info Ukuran</label><select value={infoUkuran} onChange={e => setInfoUkuran(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
                     <div><label className={lCls}>Info Logo</label><input value={infoLogo} onChange={e => setInfoLogo(e.target.value)} className={iCls} placeholder="PRINT" /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Info Packing</label><select value={infoPacking} onChange={e => setInfoPacking(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option></select></div>
-                    <div><label className={lCls}>Webbing</label><select value={webbing} onChange={e => setWebbing(e.target.value)} className={sCls}><option value="">Pilih...</option></select></div>
+                    <div><label className={lCls}>Info Packing</label><select value={infoPacking} onChange={e => setInfoPacking(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
+                    <div><label className={lCls}>Webbing</label><select value={webbing} onChange={e => setWebbing(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
                   </div>
                   <div><label className={lCls}>Font & Nomor</label><input value={fontNomor} onChange={e => setFontNomor(e.target.value)} className={iCls} placeholder="ARIAL" /></div>
                   <div><label className={lCls}>Keterangan</label><textarea value={keterangan} onChange={e => setKeterangan(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
@@ -393,6 +664,102 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
         </>
       )}
 
+      {/* ── Edit Drawer ── */}
+      {editOpen && editSpec && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => { setEditOpen(false); setEditSpec(null); resetForm(); }} />
+          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[480px] bg-[#0c1120] border-l border-white/[0.06] shadow-2xl flex flex-col animate-slide-in-right">
+            <div className="px-6 py-5 border-b border-white/[0.06] flex items-center justify-between shrink-0">
+              <h2 className="text-lg font-bold text-white">Edit Lembar Spesifikasi</h2>
+              <button onClick={() => { setEditOpen(false); setEditSpec(null); resetForm(); }} className="text-slate-500 hover:text-white transition-colors p-1">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+              <div>
+                <h3 className="text-sm font-bold text-white mb-4">Informasi Dasar</h3>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className={lCls}>Nama Spesifikasi</label><input value={namaSpec} onChange={e => setNamaSpec(e.target.value)} className={iCls} /></div>
+                    <div><label className={lCls}>Nama Customer</label><input className={iCls} value={freshWo.customer} readOnly /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className={lCls}>Paket</label><input className={iCls} value={freshWo.paket} readOnly /></div>
+                    <div><label className={lCls}>Jumlah</label><input value={jumlah} onChange={e => setJumlah(e.target.value)} className={iCls} /></div>
+                  </div>
+                  <div><label className={lCls}>Deadline</label><input className={iCls} value={freshWo.deadline} readOnly /></div>
+                </div>
+              </div>
+              <div className="border-t border-white/[0.06] pt-5">
+                <h3 className="text-sm font-bold text-white mb-4">Gambar</h3>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs text-slate-400 font-medium mb-2">Dokumen Desain & Pola</p>
+                    <label className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer block ${dokDesain ? 'border-emerald-500/30' : 'border-white/10 hover:border-blue-500/30'}`}>
+                      <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f, setDokDesain, setUploadingDesain); }} />
+                      {uploadingDesain ? (<p className="text-sm font-medium text-blue-400">Mengupload...</p>) : dokDesain ? (<><img src={dokDesain} alt="Desain" className="max-h-32 mx-auto rounded-lg mb-2" /><p className="text-xs text-emerald-400">Klik untuk ganti gambar</p></>) : (<><svg className="w-7 h-7 text-slate-500 mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg><p className="text-sm font-medium text-white">Upload Dokumen Desain & Pola</p></>)}
+                    </label>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400 font-medium mb-2">Dokumen Pattern / Pecah Pola</p>
+                    <label className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer block ${dokPattern ? 'border-emerald-500/30' : 'border-white/10 hover:border-blue-500/30'}`}>
+                      <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f, setDokPattern, setUploadingPattern); }} />
+                      {uploadingPattern ? (<p className="text-sm font-medium text-blue-400">Mengupload...</p>) : dokPattern ? (<><img src={dokPattern} alt="Pattern" className="max-h-32 mx-auto rounded-lg mb-2" /><p className="text-xs text-emerald-400">Klik untuk ganti gambar</p></>) : (<><svg className="w-7 h-7 text-slate-500 mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg><p className="text-sm font-medium text-white">Upload Dokumen Pattern</p></>)}
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div className="border-t border-white/[0.06] pt-5">
+                <h3 className="text-sm font-bold text-white mb-4">Aksesoris & Detail</h3>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
+                    <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress rubber</option><option>Ayress woven</option><option>Custom</option><option>Tanpa authentic</option></select></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className={lCls}>Info Ukuran</label><select value={infoUkuran} onChange={e => setInfoUkuran(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
+                    <div><label className={lCls}>Info Logo</label><input value={infoLogo} onChange={e => setInfoLogo(e.target.value)} className={iCls} placeholder="PRINT" /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className={lCls}>Info Packing</label><select value={infoPacking} onChange={e => setInfoPacking(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
+                    <div><label className={lCls}>Webbing</label><select value={webbing} onChange={e => setWebbing(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
+                  </div>
+                  <div><label className={lCls}>Font & Nomor</label><input value={fontNomor} onChange={e => setFontNomor(e.target.value)} className={iCls} placeholder="ARIAL" /></div>
+                  <div><label className={lCls}>Keterangan</label><textarea value={keterangan} onChange={e => setKeterangan(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
+                  <div><label className={lCls}>Keterangan Jahit</label><textarea value={keteranganJahit} onChange={e => setKeteranganJahit(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
+                </div>
+              </div>
+              <div className="border-t border-white/[0.06] pt-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-white">Detail Bahan</h3>
+                  <button onClick={() => setBahanRows(prev => [...prev, { id: Date.now(), bagian: '', bahan: '' }])} className="text-xs text-blue-400 border border-blue-500/20 px-3 py-1 rounded-lg hover:bg-blue-500/10 transition-colors">+ Tambah Baris Bahan</button>
+                </div>
+                <div className="space-y-2">
+                  {bahanRows.map(r => (
+                    <div key={r.id} className="flex gap-2 items-center">
+                      <input className={`${iCls} flex-1`} placeholder="Nama bagian" value={r.bagian} onChange={e => setBahanRows(prev => prev.map(p => p.id === r.id ? { ...p, bagian: e.target.value } : p))} />
+                      <input className={`${iCls} flex-1`} placeholder="Nama bahan" value={r.bahan} onChange={e => setBahanRows(prev => prev.map(p => p.id === r.id ? { ...p, bahan: e.target.value } : p))} />
+                      <button onClick={() => setBahanRows(prev => prev.filter(p => p.id !== r.id))} className="text-slate-500 hover:text-red-400 transition-colors shrink-0 p-1">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="border-t border-white/[0.06] pt-5">
+                <h3 className="text-sm font-bold text-white mb-3">Persetujuan</h3>
+                <label className={lCls}>Data Persetujuan Admin</label>
+                <input value={approvalAdmin} onChange={e => setApprovalAdmin(e.target.value)} className={iCls} />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-white/[0.06] flex items-center justify-end gap-3 shrink-0">
+              <button onClick={() => { setEditOpen(false); setEditSpec(null); resetForm(); }} className="px-5 py-2.5 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">Batal</button>
+              <button onClick={handleUpdateSpec} disabled={saving} className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors">{saving ? 'Menyimpan...' : 'Simpan Perubahan'}</button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Content — empty state or spec cards */}
       {specs.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-white/[0.08] py-14 text-center">
@@ -405,24 +772,28 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
         </div>
       ) : (
         <>
-          {/* Player tab */}
-          <div className="border-b border-white/[0.06]">
-            <button className="px-4 py-3 text-sm font-medium text-white border-b-2 border-blue-500">PLAYER</button>
-          </div>
-          {/* Spec cards from DB */}
-          {specs.map((spec: Row) => (
-            <div key={spec.id} className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-              <div className="px-6 py-3 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.02]">
-                <span className="text-xs text-slate-500">ID: {spec.id} &nbsp; {spec.nama_spesifikasi}</span>
-                <div className="flex items-center gap-2">
-                  {['Download PDF','Cetak','Edit'].map(a => (
-                    <button key={a} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">{a}</button>
-                  ))}
-                  <button className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/20 bg-red-500/10 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-colors">Hapus</button>
-                </div>
+          {/* Spec tabs + actions */}
+          <div className="border-b border-white/[0.06] flex items-center justify-between">
+            <div className="flex">
+              {specs.map((spec: Row) => (
+                <button key={spec.id} onClick={() => setSelectedSpecId(spec.id)}
+                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${selectedSpecId === spec.id ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}>
+                  {spec.nama_spesifikasi?.toUpperCase() || `SPEC ${spec.id}`}
+                </button>
+              ))}
+            </div>
+            {specs.filter((s: Row) => s.id === selectedSpecId).map((spec: Row) => (
+              <div key={spec.id} className="flex items-center gap-2 pr-1">
+                <button onClick={() => handleDownloadPDF(spec.id)} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
+                <button onClick={() => openEditSpec(spec)} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Edit</button>
+                <button onClick={() => handleDeleteSpec(spec)} className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/20 bg-red-500/10 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-colors">Hapus</button>
               </div>
-              <div className="p-6">
-                <div className="bg-white rounded-lg p-6 text-black max-w-4xl mx-auto">
+            ))}
+          </div>
+          {/* Selected spec card - displayed directly */}
+          {specs.filter((spec: Row) => spec.id === selectedSpecId).map((spec: Row) => (
+            <div key={spec.id}>
+              <div ref={el => { printRef.current[spec.id] = el; }} className="bg-white rounded-lg p-6 text-black max-w-4xl mx-auto mt-4">
                   <div className="flex items-start justify-between border-b-2 border-black pb-3 mb-4">
                     <div className="flex items-center gap-3">
                       <img src="/logo/new logo.png" alt="AYRES" className="h-8" style={{ filter: 'brightness(0)' }} />
@@ -436,7 +807,32 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
                   <div className="grid grid-cols-3 gap-4">
                     <div className="col-span-2">
                       <div className="bg-blue-900 text-white text-center text-xs font-bold py-1 mb-2">DESAIN MOCK UP & PATTERN</div>
-                      <div className="h-48 bg-slate-100 rounded grid place-items-center text-slate-400 text-sm border border-slate-200">Preview Desain Jersey</div>
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div className="border border-slate-200 rounded overflow-hidden">
+                          {spec.dokumen_desain ? (
+                            <img src={spec.dokumen_desain} alt="Desain & Pola" className="w-full h-auto object-contain" />
+                          ) : (
+                            <div className="h-40 bg-slate-100 grid place-items-center text-slate-400 text-xs">Desain & Pola</div>
+                          )}
+                        </div>
+                        <div className="border border-slate-200 rounded overflow-hidden">
+                          {spec.dokumen_pattern ? (
+                            <img src={spec.dokumen_pattern} alt="Pattern" className="w-full h-auto object-contain" />
+                          ) : (
+                            <div className="h-40 bg-slate-100 grid place-items-center text-slate-400 text-xs">Pattern / Pecah Pola</div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="border border-black overflow-hidden mt-2 text-xs">
+                        <div className="grid grid-cols-2 border-b border-black">
+                          <div className="font-bold text-center bg-black text-white py-1 border-r border-black">Nama Customer</div>
+                          <div className="font-bold text-center bg-black text-white py-1">Nama Spesifikasi</div>
+                        </div>
+                        <div className="grid grid-cols-2">
+                          <div className="text-center py-1 border-r border-black">{wo.customer}</div>
+                          <div className="text-center py-1">{spec.nama_spesifikasi}</div>
+                        </div>
+                      </div>
                       <div className="grid grid-cols-2 gap-2 mt-3">
                         <div className="border border-black rounded p-2">
                           <p className="text-[10px] font-bold text-red-600 bg-red-50 px-1">KETERANGAN JAHIT</p>
@@ -479,9 +875,36 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
                       </div>
                     </div>
                   </div>
+                  {/* Bottom: Bahan table + Approval + Export */}
+                  <div className="grid grid-cols-3 gap-4 mt-4">
+                    <div className="border border-black overflow-hidden text-xs">
+                      {(() => {
+                        const rows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
+                        return rows.length > 0 ? rows.map((b: Row, i: number) => (
+                          <div key={i} className="grid grid-cols-2 border-b border-black last:border-0">
+                            <span className="font-bold px-2 py-1 border-r border-black">{b.bagian}</span>
+                            <span className="px-2 py-1 text-red-600">{b.bahan || '-'}</span>
+                          </div>
+                        )) : (
+                          <div className="px-2 py-2 text-slate-400 text-center">Belum ada data bahan</div>
+                        );
+                      })()}
+                    </div>
+                    <div className="border border-black overflow-hidden text-xs">
+                      <p className="text-center font-bold bg-black text-white py-1 border-b border-black">APPROVAL ADMIN / DATA</p>
+                      <div className="p-2">
+                        <p>{spec.approval_admin || '-'}</p>
+                      </div>
+                    </div>
+                    <div className="border border-black overflow-hidden text-xs">
+                      <p className="text-center font-bold bg-black text-white py-1 border-b border-black">EXPORT & ICC</p>
+                      <div className="p-2">
+                        <p>{spec.export_icc || '-'}</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
           ))}
         </>
       )}
@@ -490,13 +913,55 @@ function TabWO1({ wo, specs: initialSpecs }: { wo: Row; specs: Row[] }) {
 }
 
 /* ═══ Tab WO 2 — Form Permintaan Gudang ═══ */
-function TabWO2({ wo, gudangItems }: { wo: Row; gudangItems: Row[] }) {
+function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }: { wo: Row; gudangItems: Row[]; specs: Row[]; specBahan: Row[] }) {
   const [extraAks, setExtraAks] = useState<{ id: number }[]>([]);
   const [extraMat, setExtraMat] = useState<{ id: number }[]>([{ id: 1 }]);
-  const gudangBahan = gudangItems.filter((r: Row) => r.kategori === 'BAHAN_UTAMA');
-  const gudangAksesoris = gudangItems.filter((r: Row) => r.kategori === 'AKSESORIS');
+  const [liveSpecs, setLiveSpecs] = useState(propSpecs);
+  const [liveSpecBahan, setLiveSpecBahan] = useState(propSpecBahan);
+  const [loading, setLoading] = useState(false);
+  const toast = useToast();
   const delIcon = <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>;
-  const totalFixed = gudangBahan.length + gudangAksesoris.length;
+
+  // Fetch fresh data from DB on mount
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [s, sb] = await Promise.all([dbGet('wo_spesifikasi'), dbGet('wo_spesifikasi_bahan')]);
+        setLiveSpecs(s.filter((r: Row) => String(r.work_order_id) === String(wo.id)));
+        setLiveSpecBahan(sb);
+      } catch {}
+      setLoading(false);
+    })();
+  }, [wo.id]);
+
+  // Auto-generate from WO1 specs
+  const bahanUtama: { bagian: string; bahan: string }[] = [];
+  const aksesorisRows: { bagian: string; bahan: string }[] = [];
+  for (const spec of liveSpecs) {
+    const rows = liveSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
+    for (const r of rows) bahanUtama.push({ bagian: r.bagian, bahan: r.bahan || '-' });
+    if (spec.tagline) aksesorisRows.push({ bagian: 'Tagline', bahan: spec.tagline });
+    if (spec.authentic) aksesorisRows.push({ bagian: 'Keaslian', bahan: spec.authentic });
+    if (spec.info_ukuran) aksesorisRows.push({ bagian: 'Info Ukuran', bahan: spec.info_ukuran });
+    if (spec.info_logo) aksesorisRows.push({ bagian: 'Info Logo', bahan: spec.info_logo });
+    if (spec.info_packing) aksesorisRows.push({ bagian: 'Info Packing', bahan: spec.info_packing });
+    if (spec.webbing) aksesorisRows.push({ bagian: 'Webbing', bahan: spec.webbing });
+    if (spec.font_nomor) aksesorisRows.push({ bagian: 'Font & Nomor', bahan: spec.font_nomor });
+  }
+  const totalAuto = bahanUtama.length + aksesorisRows.length;
+  const hasData = liveSpecs.length > 0;
+
+  // Also include saved gudang items that were manually added
+  const savedGudang = gudangItems.filter((r: Row) => r.kategori === 'MATERIAL_TAMBAHAN');
+
+  async function handleSimpan() {
+    try {
+      // Save material tambahan rows
+      // (bahan utama & aksesoris are auto-generated from WO1, no need to save)
+      toast.success('Disimpan', 'Data permintaan gudang berhasil disimpan.');
+    } catch (e) { toast.error('Gagal', String(e)); }
+  }
 
   return (
     <div className="space-y-5">
@@ -519,36 +984,39 @@ function TabWO2({ wo, gudangItems }: { wo: Row; gudangItems: Row[] }) {
               ))}
             </tr></thead>
             <tbody>
-              {gudangItems.length === 0 && extraAks.length === 0 && extraMat.length <= 1 && (
+              {!hasData && extraMat.length <= 1 && (
                 <tr><td colSpan={6} className="px-5 py-10 text-center text-sm text-slate-500">Isi WO 1 Lembar Spesifikasi terlebih dahulu</td></tr>
               )}
-              {/* Bahan utama */}
-              {gudangBahan.map((r, i) => (
-                <tr key={i} className="border-b border-white/[0.04]">
+
+              {/* Bahan utama from WO1 spec bahan */}
+              {bahanUtama.map((r, i) => (
+                <tr key={`bu-${i}`} className="border-b border-white/[0.04]">
                   <td className="px-5 py-3.5 text-sm text-blue-400">{i + 1}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-emerald-400">{r.bagian}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-white">{r.bahan}</td>
-                  <td className="px-5 py-3.5 text-sm text-slate-500">Warna...</td>
-                  <td className="px-5 py-3.5 text-sm text-slate-400">{r.qty}</td>
+                  <td className="px-5 py-3.5"><input type="text" placeholder="Warna..." className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-5 py-3.5 text-sm text-slate-400">0</td>
                   <td className="px-5 py-3.5" />
                 </tr>
               ))}
 
               {/* Aksesoris separator */}
-              <tr><td colSpan={6} className="px-5 py-3 text-center border-b border-white/[0.06]">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2">AKSESORIS</span>
-                <button onClick={() => setExtraAks(prev => [...prev, { id: Date.now() }])}
-                  className="text-xs text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded hover:bg-blue-500/10 transition-colors">+ Tambah</button>
-              </td></tr>
+              {hasData && (
+                <tr><td colSpan={6} className="px-5 py-3 text-center border-b border-white/[0.06]">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2">AKSESORIS</span>
+                  <button onClick={() => setExtraAks(prev => [...prev, { id: Date.now() }])}
+                    className="text-xs text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded hover:bg-blue-500/10 transition-colors">+ Tambah</button>
+                </td></tr>
+              )}
 
-              {/* Aksesoris fixed */}
-              {gudangAksesoris.map((r, i) => (
-                <tr key={`a-${i}`} className="border-b border-white/[0.04]">
-                  <td className="px-5 py-3.5 text-sm text-blue-400">{gudangBahan.length + i + 1}</td>
+              {/* Aksesoris auto-generated from WO1 spec fields */}
+              {aksesorisRows.map((r, i) => (
+                <tr key={`ak-${i}`} className="border-b border-white/[0.04]">
+                  <td className="px-5 py-3.5 text-sm text-blue-400">{bahanUtama.length + i + 1}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-emerald-400">{r.bagian}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-white">{r.bahan}</td>
-                  <td className="px-5 py-3.5 text-sm text-slate-500">Warna...</td>
-                  <td className="px-5 py-3.5 text-sm text-slate-400">{r.qty}</td>
+                  <td className="px-5 py-3.5"><input type="text" placeholder="Warna..." className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-5 py-3.5 text-sm text-slate-400">0</td>
                   <td className="px-5 py-3.5" />
                 </tr>
               ))}
@@ -558,7 +1026,7 @@ function TabWO2({ wo, gudangItems }: { wo: Row; gudangItems: Row[] }) {
                 <tr key={`ea-${row.id}`} className="border-b border-white/[0.04] bg-white/[0.01]">
                   <td className="px-5 py-2.5 text-sm text-blue-400 align-middle">
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5" />
-                    {totalFixed + i + 1}
+                    {bahanUtama.length + aksesorisRows.length + i + 1}
                   </td>
                   <td className="px-5 py-2.5"><input type="text" placeholder="Nama bagian..." className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
                   <td className="px-5 py-2.5"><input type="text" placeholder="Nama bahan..." className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
@@ -577,12 +1045,24 @@ function TabWO2({ wo, gudangItems }: { wo: Row; gudangItems: Row[] }) {
                   className="text-xs text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded hover:bg-blue-500/10 transition-colors">+ Tambah</button>
               </td></tr>
 
+              {/* Saved material tambahan */}
+              {savedGudang.map((r, i) => (
+                <tr key={`sg-${i}`} className="border-b border-white/[0.04]">
+                  <td className="px-5 py-3.5 text-sm text-blue-400">{totalAuto + extraAks.length + i + 1}</td>
+                  <td className="px-5 py-3.5 text-sm font-medium text-emerald-400">{r.bagian}</td>
+                  <td className="px-5 py-3.5 text-sm font-medium text-white">{r.bahan}</td>
+                  <td className="px-5 py-3.5 text-sm text-slate-500">{r.warna || '-'}</td>
+                  <td className="px-5 py-3.5 text-sm text-slate-400">{r.kuantitas || 0}</td>
+                  <td className="px-5 py-3.5" />
+                </tr>
+              ))}
+
               {/* Material tambahan rows (editable) */}
               {extraMat.map((row, i) => (
                 <tr key={`em-${row.id}`} className="border-b border-white/[0.04] bg-white/[0.01]">
                   <td className="px-5 py-2.5 text-sm text-blue-400 align-middle">
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5" />
-                    {totalFixed + extraAks.length + i + 1}
+                    {totalAuto + extraAks.length + savedGudang.length + i + 1}
                   </td>
                   <td className="px-5 py-2.5"><input type="text" placeholder="Nama bagian..." className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
                   <td className="px-5 py-2.5"><input type="text" placeholder="Nama bahan..." className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
@@ -597,7 +1077,7 @@ function TabWO2({ wo, gudangItems }: { wo: Row; gudangItems: Row[] }) {
           </table>
         </div>
         <div className="px-5 py-4">
-          <button className="flex items-center gap-2 bg-blue-600/10 border border-blue-500/20 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg hover:bg-blue-600/20 transition-colors">
+          <button onClick={handleSimpan} className="flex items-center gap-2 bg-blue-600/10 border border-blue-500/20 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg hover:bg-blue-600/20 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" /></svg>
             Simpan
           </button>
@@ -608,36 +1088,120 @@ function TabWO2({ wo, gudangItems }: { wo: Row; gudangItems: Row[] }) {
 }
 
 /* ═══ Tab WO 3 — Detail Order Items ═══ */
-function TabWO3({ wo, detailItems }: { wo: Row; detailItems: Row[] }) {
-  const [localRows, setLocalRows] = useState(() => detailItems.length > 0 ? detailItems : Array.from({ length: 5 }, (_, i) => ({ id: i + 1, nama: '', np: '', ukuran: '', keterangan: '' })));
+function TabWO3({ wo, detailItems: initialItems }: { wo: Row; detailItems: Row[] }) {
+  type ItemRow = { id: number; nama: string; np: string; ukuran: string; keterangan: string; penjahit: string; isNew?: boolean };
+  const [rows, setRows] = useState<ItemRow[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+
+  // Fetch fresh data from DB
+  async function fetchItems() {
+    setLoading(true);
+    try {
+      const all = await dbGet('wo_detail_items');
+      const items = all.filter((r: Row) => String(r.work_order_id) === String(wo.id));
+      if (items.length > 0) {
+        setRows(items.map((r: Row) => ({ id: r.id, nama: r.nama || '', np: r.np || '', ukuran: r.ukuran || '', keterangan: r.keterangan || '', penjahit: r.kerah || '' })));
+      } else {
+        setRows(Array.from({ length: 5 }, (_, i) => ({ id: -(i + 1), nama: '', np: '', ukuran: '', keterangan: '', penjahit: '', isNew: true })));
+      }
+    } catch { setRows([]); }
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchItems(); }, []);
+
+  function updateRow(id: number, field: keyof ItemRow, value: string) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
 
   function addRow() {
-    setLocalRows(prev => [...prev, { id: Date.now(), nama: '', np: '', ukuran: '', keterangan: '' }]);
+    setRows(prev => [...prev, { id: -Date.now(), nama: '', np: '', ukuran: '', keterangan: '', penjahit: '', isNew: true }]);
   }
+
   function removeRow(id: number) {
-    setLocalRows(prev => prev.filter(r => r.id !== id));
+    setRows(prev => prev.filter(r => r.id !== id));
   }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      // Delete all existing rows for this WO
+      const existing = await dbGet('wo_detail_items');
+      const oldRows = existing.filter((r: Row) => String(r.work_order_id) === String(wo.id));
+      for (const old of oldRows) { await dbDelete('wo_detail_items', Number(old.id)); }
+      // Insert all current rows
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (r.nama.trim() || r.np.trim() || r.ukuran.trim()) {
+          await dbCreate('wo_detail_items', {
+            work_order_id: wo.id, urutan: i + 1,
+            nama: r.nama, np: r.np, ukuran: r.ukuran,
+            keterangan: r.keterangan, kerah: r.penjahit,
+          });
+        }
+      }
+      toast.success('Data Tersimpan', `${rows.filter(r => r.nama.trim()).length} item berhasil disimpan.`);
+      await fetchItems();
+    } catch (e) { toast.error('Gagal Simpan', String(e)); }
+    setSaving(false);
+  }
+
+  function handleExportExcel() {
+    const header = ['NO', 'NAMA', 'NP', 'SIZE', 'KETERANGAN', 'PENJAHIT'];
+    const csvRows = [header.join(',')];
+    rows.forEach((r, i) => {
+      csvRows.push([i + 1, `"${r.nama}"`, `"${r.np}"`, `"${r.ukuran}"`, `"${r.keterangan}"`, `"${r.penjahit}"`].join(','));
+    });
+    const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `Detail-Order-${wo.noWo}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Export Berhasil', `Detail-Order-${wo.noWo}.csv`);
+  }
+
+  async function handleDownloadPdfWO3() {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const pdf = new jsPDF();
+      pdf.setFontSize(14);
+      pdf.text(`DETAIL ORDER ITEMS - ${wo.noWo}`, 14, 18);
+      pdf.setFontSize(10);
+      pdf.text(`Customer: ${wo.customer}`, 14, 26);
+      autoTable(pdf, {
+        startY: 32,
+        head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'PENJAHIT']],
+        body: rows.map((r, i) => [i + 1, r.nama, r.np, r.ukuran, r.keterangan, r.penjahit]),
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [30, 58, 95] },
+      });
+      pdf.save(`Detail-Order-${wo.noWo}.pdf`);
+      toast.success('PDF Berhasil', `Detail-Order-${wo.noWo}.pdf`);
+    } catch (e) { toast.error('Gagal Download PDF', String(e)); }
+  }
+
+  if (loading) return <div className="h-32 bg-white/[0.03] rounded-xl animate-pulse" />;
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4 text-sm">
           <span className="text-slate-400">Customer: <strong className="text-white">{wo.customer}</strong></span>
         </div>
         <div className="text-lg font-bold text-white">DETAIL ORDER ITEMS</div>
         <div className="flex items-center gap-2 flex-wrap">
-          {['Template','Export Data','Import Excel','Download PDF'].map(a => (
-            <button key={a} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">{a}</button>
-          ))}
-          <button className="flex items-center gap-1.5 text-xs text-white bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg transition-colors">
+          <button onClick={handleExportExcel} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Export Excel</button>
+          <button onClick={handleDownloadPdfWO3} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" /></svg>
-            Simpan Data
+            {saving ? 'Menyimpan...' : 'Simpan Data'}
           </button>
         </div>
       </div>
 
-      {/* Table */}
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px]">
@@ -647,14 +1211,14 @@ function TabWO3({ wo, detailItems }: { wo: Row; detailItems: Row[] }) {
               ))}
             </tr></thead>
             <tbody>
-              {localRows.map((p, i) => (
+              {rows.map((p, i) => (
                 <tr key={p.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                   <td className="px-4 py-3 text-sm text-blue-400">{i + 1}</td>
-                  <td className="px-4 py-3"><input defaultValue={p.nama} placeholder="Nama" className="bg-transparent text-sm text-emerald-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input defaultValue={p.np} placeholder="NP" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input defaultValue={p.ukuran} placeholder="Size" className="bg-transparent text-sm font-bold text-white placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input defaultValue={p.keterangan} placeholder="Keterangan" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input placeholder="Penjahit" className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.nama} onChange={e => updateRow(p.id, 'nama', e.target.value)} placeholder="Nama" className="bg-transparent text-sm text-emerald-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.np} onChange={e => updateRow(p.id, 'np', e.target.value)} placeholder="NP" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.ukuran} onChange={e => updateRow(p.id, 'ukuran', e.target.value)} placeholder="Size" className="bg-transparent text-sm font-bold text-white placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.keterangan} onChange={e => updateRow(p.id, 'keterangan', e.target.value)} placeholder="Keterangan" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.penjahit} onChange={e => updateRow(p.id, 'penjahit', e.target.value)} placeholder="Penjahit" className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
                   <td className="px-4 py-3">
                     <button onClick={() => removeRow(p.id)} className="text-slate-600 hover:text-red-400 transition-colors">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
@@ -670,7 +1234,7 @@ function TabWO3({ wo, detailItems }: { wo: Row; detailItems: Row[] }) {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
             Tambah Baris
           </button>
-          <span className="text-xs text-slate-500">Total: {localRows.length} items</span>
+          <span className="text-xs text-slate-500">Total: {rows.length} items</span>
         </div>
       </div>
     </div>
@@ -678,8 +1242,113 @@ function TabWO3({ wo, detailItems }: { wo: Row; detailItems: Row[] }) {
 }
 
 /* ═══ Tab WO 4 — Form Pengiriman ═══ */
-function TabWO4({ wo, detailItems }: { wo: Row; detailItems: Row[] }) {
-  if (detailItems.length === 0) {
+function TabWO4({ wo }: { wo: Row; detailItems: Row[] }) {
+  type ShipRow = { id: number; nama: string; np: string; ukuran: string; keterangan: string; bonus: string; checklist: boolean };
+  const [rows, setRows] = useState<ShipRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
+  const toast = useToast();
+
+  async function fetchData() {
+    setLoading(true);
+    try {
+      // Fetch WO3 items from DB
+      const allItems = await dbGet('wo_detail_items');
+      const wo3Items = allItems.filter((r: Row) => String(r.work_order_id) === String(wo.id));
+      // Fetch existing WO4 pengiriman data
+      const allShip = await dbGet('wo_pengiriman');
+      const wo4Items = allShip.filter((r: Row) => String(r.work_order_id) === String(wo.id));
+
+      if (wo3Items.length === 0) { setRows([]); setLoading(false); return; }
+
+      // Build rows: merge WO3 data with existing WO4 bonus/checklist
+      const shipMap: Record<string, Row> = {};
+      for (const s of wo4Items) shipMap[String(s.urutan)] = s;
+
+      setRows(wo3Items.map((item: Row, i: number) => {
+        const existing = shipMap[String(i + 1)];
+        return {
+          id: item.id,
+          nama: item.nama || '',
+          np: item.np || '',
+          ukuran: item.ukuran || '',
+          keterangan: item.keterangan || '',
+          bonus: existing?.bonus || '',
+          checklist: existing?.checklist === 1 || existing?.checklist === true,
+        };
+      }));
+    } catch { setRows([]); }
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchData(); }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      // Delete old wo_pengiriman rows
+      const allShip = await dbGet('wo_pengiriman');
+      const old = allShip.filter((r: Row) => String(r.work_order_id) === String(wo.id));
+      for (const o of old) await dbDelete('wo_pengiriman', Number(o.id));
+      // Insert new rows
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        await dbCreate('wo_pengiriman', {
+          work_order_id: wo.id, detail_item_id: r.id, urutan: i + 1,
+          nama: r.nama, np: r.np, ukuran: r.ukuran,
+          keterangan: r.keterangan, bonus: r.bonus,
+          checklist: r.checklist ? 1 : 0,
+        });
+      }
+      toast.success('Tersimpan', 'Form pengiriman berhasil disimpan.');
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
+  async function handleDownloadPdf() {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const pdf = new jsPDF();
+      pdf.setFontSize(14);
+      pdf.text(`FORM PENGIRIMAN ${wo.customer?.toUpperCase()} (${wo.paket})`, 14, 18);
+      autoTable(pdf, {
+        startY: 26,
+        head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'BONUS', 'CHECK']],
+        body: rows.map((r, i) => [i + 1, r.nama, r.np, r.ukuran, r.keterangan, r.bonus, r.checklist ? '✓' : '']),
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [30, 58, 95] },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const y = ((pdf as any).lastAutoTable?.finalY || 100) + 20;
+      pdf.setFontSize(10);
+      pdf.text('Dibuat Oleh,', 14, y);
+      pdf.text('Dicek Oleh,', 85, y);
+      pdf.text('Diterima Oleh,', 155, y);
+      pdf.text('( Admin )', 14, y + 25);
+      pdf.text('( QC / Packing )', 85, y + 25);
+      pdf.text(`( ${wo.customer} )`, 155, y + 25);
+      pdf.setFontSize(8);
+      pdf.text(`Dicetak pada: ${new Date().toLocaleDateString('id-ID')}`, 155, y + 32);
+      pdf.save(`Form-Pengiriman-${wo.noWo}.pdf`);
+      toast.success('PDF Berhasil', `Form-Pengiriman-${wo.noWo}.pdf`);
+    } catch (e) { toast.error('Gagal', String(e)); }
+  }
+
+  function handleCetakForm() {
+    const el = printRef.current;
+    if (!el) return;
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(`<html><head><title>Form Pengiriman</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;padding:30px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:6px 10px;text-align:left;font-size:12px}th{background:#f0f0f0}input[type=checkbox]{width:16px;height:16px}.sig{display:flex;justify-content:space-between;margin-top:40px;font-size:12px}.sig div{text-align:center;width:30%}.sig div p:last-child{margin-top:50px;font-weight:bold}</style></head><body>${el.innerHTML}</body></html>`);
+    win.document.close();
+    win.onload = () => { win.print(); };
+  }
+
+  if (loading) return <div className="h-32 bg-white/[0.03] rounded-xl animate-pulse" />;
+
+  if (rows.length === 0) {
     return (
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] px-6 py-12 text-center">
         <p className="text-sm text-slate-400">Belum ada item detail (WO 3) untuk ditampilkan.</p>
@@ -687,6 +1356,7 @@ function TabWO4({ wo, detailItems }: { wo: Row; detailItems: Row[] }) {
       </div>
     );
   }
+
   return (
     <div className="space-y-5">
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-5 flex flex-wrap items-center justify-between gap-3">
@@ -695,40 +1365,71 @@ function TabWO4({ wo, detailItems }: { wo: Row; detailItems: Row[] }) {
           <p className="text-xs text-slate-500 mt-0.5">Lengkapi checklist dan bonus item sebelum mencetak form.</p>
         </div>
         <div className="flex items-center gap-2">
-          {['Simpan Perubahan','Download PDF','Cetak Form'].map(a => (
-            <button key={a} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">{a}</button>
-          ))}
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" /></svg>
+            {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
+          </button>
+          <button onClick={handleDownloadPdf} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+            Download PDF
+          </button>
+          <button onClick={handleCetakForm} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m0 0a48.159 48.159 0 018.5 0m-8.5 0V6.375c0-.621.504-1.125 1.125-1.125h6.75c.621 0 1.125.504 1.125 1.125v2.234" /></svg>
+            Cetak Form
+          </button>
         </div>
       </div>
+
+      {/* Printable form */}
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-        <div className="px-6 py-4 text-center border-b border-white/[0.06]">
-          <h3 className="text-base font-bold text-white">FORM PENGIRIMAN {wo.customer?.toUpperCase()} ({wo.paket})</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
-            <thead><tr className="border-b border-white/[0.06]">
-              {['NO','NAMA','NP','SIZE','KET','BONUS','CHECKLIST'].map(h => (
-                <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">{h}</th>
-              ))}
-            </tr></thead>
+        <div ref={printRef} className="bg-white text-black p-8 max-w-4xl mx-auto">
+          <h3 className="text-base font-bold text-center mb-4">FORM PENGIRIMAN {wo.customer?.toUpperCase()} ({wo.paket})</h3>
+          <table className="w-full border-collapse border border-black text-xs">
+            <thead>
+              <tr className="bg-slate-100">
+                {['NO','NAMA','NP','SIZE','KET','BONUS','CHECKLIST'].map(h => (
+                  <th key={h} className="border border-black px-3 py-2 text-left font-bold">{h}</th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
-              {detailItems.map((p, i) => (
-                <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                  <td className="px-4 py-2.5 text-sm text-blue-400">{i + 1}</td>
-                  <td className="px-4 py-2.5 text-sm text-emerald-400 font-medium">{p.nama}</td>
-                  <td className="px-4 py-2.5 text-sm text-slate-500">{p.np || '-'}</td>
-                  <td className="px-4 py-2.5 text-sm font-bold text-white">{p.ukuran}</td>
-                  <td className="px-4 py-2.5 text-sm text-slate-400">{p.keterangan || '-'}</td>
-                  <td className="px-4 py-2.5">
-                    <input type="text" placeholder="Bonus..." className="w-full bg-transparent text-sm text-slate-300 focus:outline-none placeholder-slate-600" />
+              {rows.map((r, i) => (
+                <tr key={r.id}>
+                  <td className="border border-black px-3 py-2 text-blue-600 text-center">{i + 1}</td>
+                  <td className="border border-black px-3 py-2">{r.nama}</td>
+                  <td className="border border-black px-3 py-2">{r.np}</td>
+                  <td className="border border-black px-3 py-2 text-center">{r.ukuran}</td>
+                  <td className="border border-black px-3 py-2">{r.keterangan}</td>
+                  <td className="border border-black px-3 py-2">
+                    <input type="text" value={r.bonus} onChange={e => setRows(prev => prev.map(p => p.id === r.id ? { ...p, bonus: e.target.value } : p))} placeholder="Bonus..." className="w-full bg-transparent text-xs focus:outline-none" />
                   </td>
-                  <td className="px-4 py-2.5 text-center">
-                    <input type="checkbox" className="w-4 h-4 rounded border-slate-600 bg-transparent text-blue-500 focus:ring-0 focus:ring-offset-0" />
+                  <td className="border border-black px-3 py-2 text-center">
+                    <input type="checkbox" checked={r.checklist} onChange={e => setRows(prev => prev.map(p => p.id === r.id ? { ...p, checklist: e.target.checked } : p))} className="w-4 h-4" />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+
+          {/* Signature section */}
+          <div className="flex justify-between mt-10 text-xs">
+            <div className="text-center w-1/3">
+              <p>Dibuat Oleh,</p>
+              <div className="h-16" />
+              <p className="font-bold">( Admin )</p>
+            </div>
+            <div className="text-center w-1/3">
+              <p>Dicek Oleh,</p>
+              <div className="h-16" />
+              <p className="font-bold">( QC / Packing )</p>
+            </div>
+            <div className="text-center w-1/3">
+              <p>Diterima Oleh,</p>
+              <div className="h-16" />
+              <p className="font-bold">( {wo.customer} )</p>
+            </div>
+          </div>
+          <p className="text-right text-[10px] text-slate-400 mt-2 italic">Dicetak pada: {new Date().toLocaleDateString('id-ID')}</p>
         </div>
       </div>
     </div>

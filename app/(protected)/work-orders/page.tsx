@@ -23,6 +23,15 @@ export default function WorkOrdersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [creating, setCreating] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editWo, setEditWo] = useState<Row | null>(null);
+  const [editCustomer, setEditCustomer] = useState('');
+  const [editJumlah, setEditJumlah] = useState('');
+  const [editPaket, setEditPaket] = useState('');
+  const [editBahan, setEditBahan] = useState('');
+  const [editDeadline, setEditDeadline] = useState('');
+  const [editKeterangan, setEditKeterangan] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   const router = useRouter();
   const toast = useToast();
 
@@ -102,8 +111,13 @@ export default function WorkOrdersPage() {
         }
       } catch {}
 
+      // Fetch production stages
+      const stages = await dbGet('production_stages');
+      const sortedStages = stages.sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0));
+      const firstStageId = sortedStages.length > 0 ? sortedStages[0].id : null;
+
       // Create work order
-      await dbCreate('work_orders', {
+      const woId = await dbCreate('work_orders', {
         no_wo: noWo,
         order_id: order.id,
         customer_nama: order.customer_nama,
@@ -113,7 +127,17 @@ export default function WorkOrdersPage() {
         deadline: order.estimasi_deadline,
         keterangan: order.keterangan || '',
         status: 'PROSES_PRODUKSI',
+        current_stage_id: firstStageId,
       });
+
+      // Create wo_progress for all stages (first stage = TERSEDIA, rest = BELUM)
+      for (const stage of sortedStages) {
+        await dbCreate('wo_progress', {
+          work_order_id: woId,
+          stage_id: stage.id,
+          status: stage.id === firstStageId ? 'TERSEDIA' : 'BELUM',
+        });
+      }
 
       // Set tracking link + status proses on order
       await dbUpdate('orders', order.id, {
@@ -128,6 +152,38 @@ export default function WorkOrdersPage() {
       fetchData();
     } catch (e) { toast.error('Gagal Membuat WO', String(e)); }
     setCreating(false);
+  }
+
+  function openEditModal(wo: Row) {
+    setEditWo(wo);
+    setEditCustomer(wo.customer_nama || '');
+    setEditJumlah(String(wo.jumlah || 0));
+    setEditPaket(wo.paket || '');
+    setEditBahan(wo.bahan || '');
+    setEditDeadline(wo.deadline ? new Date(wo.deadline).toISOString().split('T')[0] : '');
+    setEditKeterangan(wo.keterangan || '');
+    setEditModalOpen(true);
+  }
+
+  async function handleSaveEdit() {
+    if (!editWo) return;
+    setEditSaving(true);
+    try {
+      await dbUpdate('work_orders', editWo.id, {
+        customer_nama: editCustomer,
+        jumlah: Number(editJumlah) || 0,
+        paket: editPaket,
+        bahan: editBahan,
+        deadline: editDeadline,
+        keterangan: editKeterangan,
+      });
+      invalidateCache('wp_orders', 'wp_dashboard');
+      toast.success('Work Order Diperbarui', `${editWo.no_wo} berhasil diperbarui.`);
+      setEditModalOpen(false);
+      setEditWo(null);
+      fetchData();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setEditSaving(false);
   }
 
   const customers = useMemo(() => {
@@ -235,7 +291,7 @@ export default function WorkOrdersPage() {
                           <button onClick={() => router.push(`/work-orders/${wo.id}`)} className="text-slate-500 hover:text-blue-400 transition-colors p-1" title="Lihat">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                           </button>
-                          <button onClick={() => router.push(`/work-orders/${wo.id}`)} className="text-slate-500 hover:text-amber-400 transition-colors p-1" title="Edit">
+                          <button onClick={() => openEditModal(wo)} className="text-slate-500 hover:text-amber-400 transition-colors p-1" title="Edit">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                           </button>
                           <button onClick={async () => {
@@ -263,7 +319,7 @@ export default function WorkOrdersPage() {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Modal Buat WO */}
       {modalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setModalOpen(false)}>
           <div className="bg-[#141a2e] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-xl p-6" onClick={e => e.stopPropagation()}>
@@ -298,6 +354,56 @@ export default function WorkOrdersPage() {
               <button onClick={handleCreateWO} disabled={creating || !selectedOrderId}
                 className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {creating ? 'Membuat...' : 'Buat Work Order'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Edit WO */}
+      {editModalOpen && editWo && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setEditModalOpen(false)}>
+          <div className="bg-[#141a2e] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-xl p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-6">
+              <h3 className="text-lg font-bold text-white">Edit Work Order</h3>
+              <button onClick={() => setEditModalOpen(false)} className="text-slate-500 hover:text-white transition-colors p-1">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-white mb-1.5">Customer Name</label>
+                <input className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors" value={editCustomer} onChange={e => setEditCustomer(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1.5">Jumlah</label>
+                <input type="number" className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors" value={editJumlah} onChange={e => setEditJumlah(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1.5">Paket</label>
+                <input className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors" value={editPaket} onChange={e => setEditPaket(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1.5">Bahan</label>
+                <input className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors" value={editBahan} onChange={e => setEditBahan(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1.5">Deadline</label>
+                <input type="date" className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors" value={editDeadline} onChange={e => setEditDeadline(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1.5">Keterangan (Optional)</label>
+                <textarea className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors resize-none" rows={3} value={editKeterangan} onChange={e => setEditKeterangan(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button onClick={() => setEditModalOpen(false)}
+                className="px-5 py-2.5 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleSaveEdit} disabled={editSaving}
+                className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                {editSaving ? 'Menyimpan...' : 'Save Changes'}
               </button>
             </div>
           </div>

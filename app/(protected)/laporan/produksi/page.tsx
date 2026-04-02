@@ -1,6 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { dbGet } from '@/lib/api-db';
 import DateRangePicker, { today, formatPeriod } from '../date-range-picker';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = Record<string, any>;
 
 const TAHAP_PRODUKSI = [
   'Proofing', 'Printing Layout', 'Approval Layout', 'Printing Process',
@@ -11,8 +15,101 @@ const TAHAP_PRODUKSI = [
 export default function LaporanProduksiPage() {
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
+  const [stages, setStages] = useState<Row[]>([]);
+  const [progress, setProgress] = useState<Row[]>([]);
+  const [wos, setWos] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  async function fetchData() {
+    try {
+      const [s, p, w] = await Promise.all([
+        dbGet('production_stages'),
+        dbGet('wo_progress'),
+        dbGet('work_orders'),
+      ]);
+      setStages(s.sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0)));
+      setProgress(p);
+      setWos(w);
+    } catch {}
+    setLoading(false);
+  }
+
+  // Fetch on mount, on date change, and on window focus
+  useEffect(() => { fetchData(); }, [from, to]);
+  useEffect(() => {
+    const onFocus = () => fetchData();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   const periode = formatPeriod(from, to);
+
+  // Helper: get qty for a set of progress items
+  function getQty(items: Row[]) {
+    return items.reduce((sum, p) => {
+      const wo = wos.find((w: Row) => w.id === p.work_order_id);
+      return sum + (wo?.jumlah || 0);
+    }, 0);
+  }
+
+  // Filter by date range for SELESAI items
+  function inRange(dateStr: string) {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    const f = new Date(from); f.setHours(0,0,0,0);
+    const t = new Date(to); t.setHours(23,59,59,999);
+    return d >= f && d <= t;
+  }
+
+  // TERSEDIA at stage X → count as "Selesai" at stage X-1 (previous stage)
+  const tersediaSelesaiPrev: Record<string, Row[]> = {};
+  for (const p of progress) {
+    if (p.status !== 'TERSEDIA') continue;
+    const stageIdx = stages.findIndex((s: Row) => s.id === p.stage_id);
+    if (stageIdx > 0) {
+      const prevId = String(stages[stageIdx - 1].id);
+      if (!tersediaSelesaiPrev[prevId]) tersediaSelesaiPrev[prevId] = [];
+      tersediaSelesaiPrev[prevId].push(p);
+    }
+  }
+
+  // Build stats per stage
+  const stageStats = TAHAP_PRODUKSI.map(nama => {
+    const stageRow = stages.find((s: Row) => s.nama === nama);
+    const stageId = stageRow?.id;
+    // Selesai = fully done WOs only at LAST stage (Shipment) + TERSEDIA at next stage
+    const lastStage = stages.length > 0 ? stages[stages.length - 1] : null;
+    const isLastStage = lastStage && stageId === lastStage.id;
+    const selesaiDone = isLastStage ? progress.filter((p: Row) => {
+      if (p.stage_id !== stageId || p.status !== 'SELESAI') return false;
+      if (!inRange(p.completed_at)) return false;
+      const wo = wos.find((w: Row) => w.id === p.work_order_id);
+      return wo?.status === 'SELESAI';
+    }) : [];
+    const selesaiItems = [...selesaiDone, ...(tersediaSelesaiPrev[String(stageId)] || [])];
+    const sedangItems = progress.filter((p: Row) => p.stage_id === stageId && p.status === 'SEDANG');
+    const totalItems = [...selesaiItems, ...sedangItems];
+    return {
+      nama,
+      selesaiWo: selesaiItems.length, selesaiPcs: getQty(selesaiItems),
+      sedangWo: sedangItems.length, sedangPcs: getQty(sedangItems),
+      totalWo: totalItems.length, totalPcs: getQty(totalItems),
+    };
+  });
+
+  const totalSelesaiWo = stageStats.reduce((s, r) => s + r.selesaiWo, 0);
+  const totalSelesaiPcs = stageStats.reduce((s, r) => s + r.selesaiPcs, 0);
+  const totalSedangWo = stageStats.reduce((s, r) => s + r.sedangWo, 0);
+  const totalSedangPcs = stageStats.reduce((s, r) => s + r.sedangPcs, 0);
+  const grandWo = stageStats.reduce((s, r) => s + r.totalWo, 0);
+  const grandPcs = stageStats.reduce((s, r) => s + r.totalPcs, 0);
+
+  if (loading) return (
+    <div className="space-y-4">
+      <div className="h-10 bg-white/[0.03] rounded-lg animate-pulse" />
+      {[1,2,3].map(i => <div key={i} className="h-24 bg-white/[0.03] rounded-xl animate-pulse" />)}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -36,20 +133,17 @@ export default function LaporanProduksiPage() {
         <StatCard
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
           iconBg="bg-emerald-500/15" iconColor="text-emerald-400"
-          label="Total Selesai (Periode)"
-          wo={0} pcs={0}
+          label="Total Selesai (Periode)" wo={totalSelesaiWo} pcs={totalSelesaiPcs}
         />
         <StatCard
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
           iconBg="bg-amber-500/15" iconColor="text-amber-400"
-          label="Total Sedang Proses"
-          wo={0} pcs={0}
+          label="Total Sedang Proses" wo={totalSedangWo} pcs={totalSedangPcs}
         />
         <StatCard
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" /></svg>}
           iconBg="bg-blue-500/15" iconColor="text-blue-400"
-          label="Grand Total (Aktif)"
-          wo={0} pcs={0}
+          label="Grand Total (Aktif)" wo={grandWo} pcs={grandPcs}
         />
       </div>
 
@@ -69,20 +163,20 @@ export default function LaporanProduksiPage() {
               </tr>
             </thead>
             <tbody>
-              {TAHAP_PRODUKSI.map(tahap => (
-                <tr key={tahap} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                  <td className="px-6 py-4 text-sm font-medium text-white">{tahap}</td>
+              {stageStats.map(row => (
+                <tr key={row.nama} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                  <td className="px-6 py-4 text-sm font-medium text-white">{row.nama}</td>
                   <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-slate-400">0 WO</span>
-                    <span className="block text-xs text-slate-600">(0 pcs)</span>
+                    <span className={`text-sm ${row.selesaiWo > 0 ? 'text-emerald-400 font-medium' : 'text-slate-400'}`}>{row.selesaiWo} WO</span>
+                    <span className="block text-xs text-slate-600">({row.selesaiPcs} pcs)</span>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-slate-400">0 WO</span>
-                    <span className="block text-xs text-slate-600">(0 pcs)</span>
+                    <span className={`text-sm ${row.sedangWo > 0 ? 'text-amber-400 font-medium' : 'text-slate-400'}`}>{row.sedangWo} WO</span>
+                    <span className="block text-xs text-slate-600">({row.sedangPcs} pcs)</span>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <span className="text-sm font-bold text-white">0 WO</span>
-                    <span className="block text-xs text-slate-600">(0 pcs)</span>
+                    <span className={`text-sm font-bold ${row.totalWo > 0 ? 'text-white' : 'text-slate-500'}`}>{row.totalWo} WO</span>
+                    <span className="block text-xs text-slate-600">({row.totalPcs} pcs)</span>
                   </td>
                 </tr>
               ))}
