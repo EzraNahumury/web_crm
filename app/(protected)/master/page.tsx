@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, ReactNode } from 'react';
-import { dbGet, dbCreate, dbDelete } from '@/lib/api-db';
+import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 
 /* ═══ Tab config ═══ */
@@ -46,10 +46,10 @@ function SearchBar({ value, onChange, placeholder }: { value: string; onChange: 
   );
 }
 
-function ActionBtns({ onDelete }: { onDelete: () => void }) {
+function ActionBtns({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
   return (
     <div className="flex items-center gap-1.5">
-      <button className="text-slate-500 hover:text-amber-400 transition-colors p-1"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg></button>
+      <button onClick={onEdit} className="text-slate-500 hover:text-amber-400 transition-colors p-1"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg></button>
       <button onClick={onDelete} className="text-slate-500 hover:text-red-400 transition-colors p-1"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg></button>
     </div>
   );
@@ -98,6 +98,7 @@ export default function MasterPage() {
   const [tab, setTab] = useState<TabKey>('customer');
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(false);
+  const [editingRow, setEditingRow] = useState<Row | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -135,10 +136,25 @@ export default function MasterPage() {
     fetchData();
   }
 
-  async function handleCreate(data: Row) {
+  function handleEdit(row: Row) {
+    setEditingRow(row);
+    setModal(true);
+  }
+
+  async function handleSave(data: Row) {
     setSaving(true);
-    try { await dbCreate(tableName, data); setModal(false); toast.success('Data Ditambahkan', 'Data berhasil disimpan.'); fetchData(); }
-    catch (e) { toast.error('Gagal Menyimpan', String(e)); }
+    try {
+      if (editingRow) {
+        await dbUpdate(tableName, editingRow.id, data);
+        toast.success('Data Diperbarui', 'Perubahan berhasil disimpan.');
+      } else {
+        await dbCreate(tableName, data);
+        toast.success('Data Ditambahkan', 'Data berhasil disimpan.');
+      }
+      setModal(false);
+      setEditingRow(null);
+      fetchData();
+    } catch (e) { toast.error('Gagal Menyimpan', String(e)); }
     setSaving(false);
   }
 
@@ -178,7 +194,7 @@ export default function MasterPage() {
             <h1 className="text-2xl font-bold text-white">{cur.title}</h1>
             <p className="text-sm text-slate-400 mt-1">{cur.subtitle}</p>
           </div>
-          <AddBtn label={cur.addLabel} onClick={() => setModal(true)} />
+          <AddBtn label={cur.addLabel} onClick={() => { setEditingRow(null); setModal(true); }} />
         </div>
 
         <SearchBar value={search} onChange={setSearch} placeholder={cur.searchPlaceholder} />
@@ -189,35 +205,50 @@ export default function MasterPage() {
             <div className="px-5 py-12 text-center text-sm text-slate-500">Memuat data...</div>
           ) : (
             <div className="overflow-x-auto">
-              {tab === 'customer' && <TableCustomer rows={rows} onDelete={handleDelete} />}
-              {tab === 'paket' && <TableSimple rows={rows} col="nama" header="NAMA PAKET" onDelete={handleDelete} />}
-              {tab === 'barang' && <TableBarang rows={rows} onDelete={handleDelete} />}
-              {tab === 'tipe-barang' && <TableNameDesc rows={rows} col1="nama" col2="deskripsi" h1="NAMA TIPE" h2="DESKRIPSI" onDelete={handleDelete} />}
-              {tab === 'ukuran' && <TableNameDesc rows={rows} col1="nama" col2="deskripsi" h1="NAMA UKURAN" h2="DESKRIPSI" onDelete={handleDelete} />}
-              {tab === 'pecah-pola' && <TableNameDesc rows={rows} col1="nama" col2="inisial" h1="NAMA PECAH POLA" h2="INISIAL" onDelete={handleDelete} />}
-              {tab === 'jabatan' && <TableNameDesc rows={rows} col1="nama" col2="deskripsi" h1="NAMA JABATAN" h2="DESKRIPSI" onDelete={handleDelete} />}
-              {tab === 'karyawan' && <TableKaryawan rows={rows} onDelete={handleDelete} />}
-              {tab === 'promo' && <TablePromo rows={rows} fmtDate={fmtDate} onDelete={handleDelete} />}
-              {tab === 'leads' && <TableLeads rows={rows} onDelete={handleDelete} />}
+              {tab === 'customer' && <TableCustomer rows={rows} onEdit={handleEdit} onDelete={handleDelete} />}
+              {tab === 'paket' && <TableSimple rows={rows} col="nama" header="NAMA PAKET" onEdit={handleEdit} onDelete={handleDelete} />}
+              {tab === 'barang' && <TableBarang rows={rows} onEdit={handleEdit} onDelete={handleDelete} />}
+              {tab === 'tipe-barang' && <TableNameDesc rows={rows} col1="nama" col2="deskripsi" h1="NAMA TIPE" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
+              {tab === 'ukuran' && <TableNameDesc rows={rows} col1="nama" col2="deskripsi" h1="NAMA UKURAN" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
+              {tab === 'pecah-pola' && <TableNameDesc rows={rows} col1="nama" col2="inisial" h1="NAMA PECAH POLA" h2="INISIAL" onEdit={handleEdit} onDelete={handleDelete} />}
+              {tab === 'jabatan' && <TableNameDesc rows={rows} col1="nama" col2="deskripsi" h1="NAMA JABATAN" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
+              {tab === 'karyawan' && <TableKaryawan rows={rows} onEdit={handleEdit} onDelete={handleDelete} />}
+              {tab === 'promo' && <TablePromo rows={rows} fmtDate={fmtDate} onEdit={handleEdit} onDelete={handleDelete} />}
+              {tab === 'leads' && <TableLeads rows={rows} onEdit={handleEdit} onDelete={handleDelete} />}
             </div>
           )}
         </div>
       </div>
 
       {/* ═══ Modals ═══ */}
-      <ModalForm tab={tab} open={modal} onClose={() => setModal(false)} onSave={handleCreate}
-        saving={saving} jabatanList={jabatanList} tipeBarangList={tipeBarangList} />
+      <ModalForm tab={tab} open={modal} onClose={() => { setModal(false); setEditingRow(null); }} onSave={handleSave}
+        saving={saving} jabatanList={jabatanList} tipeBarangList={tipeBarangList} editingRow={editingRow} />
     </div>
   );
 }
 
 /* ═══ Modal Form ═══ */
-function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarangList }: {
+function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarangList, editingRow }: {
   tab: TabKey; open: boolean; onClose: () => void; onSave: (data: Row) => void;
-  saving: boolean; jabatanList: Row[]; tipeBarangList: Row[];
+  saving: boolean; jabatanList: Row[]; tipeBarangList: Row[]; editingRow: Row | null;
 }) {
   const [form, setForm] = useState<Row>({});
-  useEffect(() => { if (open) setForm({}); }, [open]);
+  const isEdit = !!editingRow;
+  useEffect(() => {
+    if (open) {
+      if (editingRow) {
+        // Pre-fill form, exclude non-column fields (id, timestamps, JOIN aliases)
+        const exclude = new Set(['id', 'created_at', 'updated_at', 'jabatan_nama', 'tipe_nama']);
+        const rest: Row = {};
+        for (const [k, v] of Object.entries(editingRow)) {
+          if (!exclude.has(k)) rest[k] = v;
+        }
+        setForm(rest);
+      } else {
+        setForm({});
+      }
+    }
+  }, [open, editingRow]);
   const set = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
   const submit = () => onSave(form);
   const footer = (
@@ -227,20 +258,21 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
     </div>
   );
 
-  const titles: Record<TabKey, string> = {
-    customer: 'Tambah Customer Baru', paket: 'Tambah Paket Baru', barang: 'Tambah Barang Baru',
-    'tipe-barang': 'Tambah Tipe Barang Baru', ukuran: 'Tambah Ukuran Baru', 'pecah-pola': 'Tambah Pecah Pola Baru',
-    jabatan: 'Tambah Jabatan Baru', karyawan: 'Tambah Karyawan Baru', promo: 'Tambah Promo Baru', leads: 'Tambah Lead Baru',
+  const labels: Record<TabKey, string> = {
+    customer: 'Customer', paket: 'Paket', barang: 'Barang',
+    'tipe-barang': 'Tipe Barang', ukuran: 'Ukuran', 'pecah-pola': 'Pecah Pola',
+    jabatan: 'Jabatan', karyawan: 'Karyawan', promo: 'Promo', leads: 'Lead',
   };
+  const modalTitle = isEdit ? `Edit ${labels[tab]}` : `Tambah ${labels[tab]} Baru`;
 
   return (
-    <Modal open={open} onClose={onClose} title={titles[tab]}>
+    <Modal open={open} onClose={onClose} title={modalTitle}>
       <div className="space-y-4">
         {tab === 'customer' && <>
-          <Field label="Nama Customer *" value={form.nama} onChange={v => set('nama', v)} />
-          <Field label="No HP" value={form.no_hp} onChange={v => set('no_hp', v)} placeholder="08xxxxxxxxxx" />
-          <Field label="Alamat Lengkap" value={form.alamat_lengkap} onChange={v => set('alamat_lengkap', v)} textarea />
-          <Field label="Kota" value={form.kabupaten_kota} onChange={v => set('kabupaten_kota', v)} />
+          <Field label="Nama *" value={form.nama} onChange={v => set('nama', v)} />
+          <Field label="No HP *" value={form.no_hp} onChange={v => set('no_hp', v)} placeholder="08xxxxxxxxxx" />
+          <Field label="Alamat Lengkap" value={form.alamat_lengkap} onChange={v => set('alamat_lengkap', v)} placeholder="Jalan, nomor, RT/RW" />
+          <RegionFields form={form} set={set} />
         </>}
         {tab === 'paket' && <>
           <Field label="Nama Paket" value={form.nama} onChange={v => set('nama', v)} placeholder="e.g., KAOS" />
@@ -305,6 +337,101 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
   );
 }
 
+/* ═══ Region cascading dropdowns ═══ */
+const REGION_API = 'https://www.emsifa.com/api-wilayah-indonesia/api';
+
+interface RegionItem { id: string; name: string }
+
+function RegionFields({ form, set }: { form: Row; set: (k: string, v: string) => void }) {
+  const [provinces, setProvinces] = useState<RegionItem[]>([]);
+  const [cities, setCities] = useState<RegionItem[]>([]);
+  const [districts, setDistricts] = useState<RegionItem[]>([]);
+  const [villages, setVillages] = useState<RegionItem[]>([]);
+
+  // Internal IDs for cascading
+  const [provId, setProvId] = useState('');
+  const [cityId, setCityId] = useState('');
+  const [distId, setDistId] = useState('');
+
+  useEffect(() => {
+    fetch(`${REGION_API}/provinces.json`).then(r => r.json()).then(setProvinces).catch(() => {});
+  }, []);
+
+  const handleProvince = (id: string) => {
+    const name = provinces.find(p => p.id === id)?.name || '';
+    setProvId(id);
+    set('provinsi', name);
+    setCityId(''); set('kabupaten_kota', '');
+    setDistId(''); set('kecamatan', '');
+    set('desa_kelurahan', '');
+    setCities([]); setDistricts([]); setVillages([]);
+    if (id) fetch(`${REGION_API}/regencies/${id}.json`).then(r => r.json()).then(setCities).catch(() => {});
+  };
+
+  const handleCity = (id: string) => {
+    const name = cities.find(c => c.id === id)?.name || '';
+    setCityId(id);
+    set('kabupaten_kota', name);
+    setDistId(''); set('kecamatan', '');
+    set('desa_kelurahan', '');
+    setDistricts([]); setVillages([]);
+    if (id) fetch(`${REGION_API}/districts/${id}.json`).then(r => r.json()).then(setDistricts).catch(() => {});
+  };
+
+  const handleDistrict = (id: string) => {
+    const name = districts.find(d => d.id === id)?.name || '';
+    setDistId(id);
+    set('kecamatan', name);
+    set('desa_kelurahan', '');
+    setVillages([]);
+    if (id) fetch(`${REGION_API}/villages/${id}.json`).then(r => r.json()).then(setVillages).catch(() => {});
+  };
+
+  const handleVillage = (id: string) => {
+    const name = villages.find(v => v.id === id)?.name || '';
+    set('desa_kelurahan', name);
+  };
+
+  const selectCls = `${inputCls} appearance-none cursor-pointer`;
+  const disabledCls = `${inputCls} opacity-50 cursor-not-allowed`;
+
+  return (
+    <>
+      <div>
+        <label className="block text-sm font-medium text-white mb-1.5">Provinsi</label>
+        <select value={provId} onChange={e => handleProvince(e.target.value)} className={selectCls}>
+          <option value="">Pilih provinsi...</option>
+          {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-white mb-1.5">Kab/Kota</label>
+        <select value={cityId} onChange={e => handleCity(e.target.value)}
+          className={provId ? selectCls : disabledCls} disabled={!provId}>
+          <option value="">{provId ? 'Pilih kab/kota...' : 'Pilih provinsi dulu'}</option>
+          {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-white mb-1.5">Kecamatan</label>
+        <select value={distId} onChange={e => handleDistrict(e.target.value)}
+          className={cityId ? selectCls : disabledCls} disabled={!cityId}>
+          <option value="">{cityId ? 'Pilih kecamatan...' : 'Pilih kabupaten/kota dulu'}</option>
+          {districts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-white mb-1.5">Desa/Kel</label>
+        <select value={villages.find(v => v.name === form.desa_kelurahan)?.id || ''} onChange={e => handleVillage(e.target.value)}
+          className={distId ? selectCls : disabledCls} disabled={!distId}>
+          <option value="">{distId ? 'Pilih desa/kelurahan...' : 'Pilih kecamatan dulu'}</option>
+          {villages.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+      </div>
+    </>
+  );
+}
+
 function Field({ label, value, onChange, placeholder, textarea }: {
   label: string; value?: string; onChange: (v: string) => void; placeholder?: string; textarea?: boolean;
 }) {
@@ -320,25 +447,28 @@ function Field({ label, value, onChange, placeholder, textarea }: {
 }
 
 /* ═══ Table components ═══ */
-function TableCustomer({ rows, onDelete }: { rows: Row[]; onDelete: (id: number) => void }) {
+function TableCustomer({ rows, onEdit, onDelete }: { rows: Row[]; onEdit: (r: Row) => void; onDelete: (id: number) => void }) {
   return (
-    <table className="w-full"><thead><tr className="border-b border-white/[0.06]">
-      {['NAMA','NO HP','ALAMAT LENGKAP','KOTA','AKSI'].map(h => <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>)}
+    <table className="w-full min-w-[700px]"><thead><tr className="border-b border-white/[0.06]">
+      {['NAMA','NO HP','ALAMAT','WILAYAH','AKSI'].map(h => <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>)}
     </tr></thead><tbody>
-      {rows.length === 0 ? <EmptyState label="customer" /> : rows.map(r => (
-        <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-          <td className="px-5 py-4 text-sm font-medium text-white">{r.nama}</td>
-          <td className="px-5 py-4 text-sm text-slate-400">{r.no_hp || '-'}</td>
-          <td className="px-5 py-4 text-sm text-slate-400">{r.alamat_lengkap || '-'}</td>
-          <td className="px-5 py-4 text-sm text-slate-400">{r.kabupaten_kota || '-'}</td>
-          <td className="px-5 py-4"><ActionBtns onDelete={() => onDelete(r.id)} /></td>
-        </tr>
-      ))}
+      {rows.length === 0 ? <EmptyState label="customer" /> : rows.map(r => {
+        const wilayah = [r.desa_kelurahan, r.kecamatan, r.kabupaten_kota, r.provinsi].filter(Boolean).join(', ');
+        return (
+          <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+            <td className="px-5 py-4 text-sm font-medium text-white">{r.nama}</td>
+            <td className="px-5 py-4 text-sm text-slate-400">{r.no_hp || '-'}</td>
+            <td className="px-5 py-4 text-sm text-slate-400 max-w-[200px] truncate">{r.alamat_lengkap || '-'}</td>
+            <td className="px-5 py-4 text-sm text-slate-400 max-w-[250px] truncate">{wilayah || '-'}</td>
+            <td className="px-5 py-4"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
+          </tr>
+        );
+      })}
     </tbody></table>
   );
 }
 
-function TableSimple({ rows, col, header, onDelete }: { rows: Row[]; col: string; header: string; onDelete: (id: number) => void }) {
+function TableSimple({ rows, col, header, onEdit, onDelete }: { rows: Row[]; col: string; header: string; onEdit: (r: Row) => void; onDelete: (id: number) => void }) {
   return (
     <table className="w-full"><thead><tr className="border-b border-white/[0.06]">
       <th className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{header}</th>
@@ -347,14 +477,14 @@ function TableSimple({ rows, col, header, onDelete }: { rows: Row[]; col: string
       {rows.length === 0 ? <EmptyState label="data" /> : rows.map(r => (
         <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
           <td className="px-5 py-4 text-sm font-medium text-white">{r[col]}</td>
-          <td className="px-5 py-4 text-right"><ActionBtns onDelete={() => onDelete(r.id)} /></td>
+          <td className="px-5 py-4 text-right"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
         </tr>
       ))}
     </tbody></table>
   );
 }
 
-function TableBarang({ rows, onDelete }: { rows: Row[]; onDelete: (id: number) => void }) {
+function TableBarang({ rows, onEdit, onDelete }: { rows: Row[]; onEdit: (r: Row) => void; onDelete: (id: number) => void }) {
   return (
     <table className="w-full min-w-[600px]"><thead><tr className="border-b border-white/[0.06]">
       {['NAMA BARANG','TIPE','SATUAN','AKSI'].map(h => <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>)}
@@ -364,14 +494,14 @@ function TableBarang({ rows, onDelete }: { rows: Row[]; onDelete: (id: number) =
           <td className="px-5 py-4 text-sm font-medium text-white">{r.nama}</td>
           <td className="px-5 py-4 text-sm text-slate-400">{r.tipe_nama || '-'}</td>
           <td className="px-5 py-4 text-sm text-slate-400">{r.satuan}</td>
-          <td className="px-5 py-4"><ActionBtns onDelete={() => onDelete(r.id)} /></td>
+          <td className="px-5 py-4"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
         </tr>
       ))}
     </tbody></table>
   );
 }
 
-function TableNameDesc({ rows, col1, col2, h1, h2, onDelete }: { rows: Row[]; col1: string; col2: string; h1: string; h2: string; onDelete: (id: number) => void }) {
+function TableNameDesc({ rows, col1, col2, h1, h2, onEdit, onDelete }: { rows: Row[]; col1: string; col2: string; h1: string; h2: string; onEdit: (r: Row) => void; onDelete: (id: number) => void }) {
   return (
     <table className="w-full"><thead><tr className="border-b border-white/[0.06]">
       <th className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h1}</th>
@@ -382,14 +512,14 @@ function TableNameDesc({ rows, col1, col2, h1, h2, onDelete }: { rows: Row[]; co
         <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
           <td className="px-5 py-4 text-sm font-medium text-white">{r[col1]}</td>
           <td className="px-5 py-4 text-sm text-slate-400">{r[col2] || '-'}</td>
-          <td className="px-5 py-4 text-right"><ActionBtns onDelete={() => onDelete(r.id)} /></td>
+          <td className="px-5 py-4 text-right"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
         </tr>
       ))}
     </tbody></table>
   );
 }
 
-function TableKaryawan({ rows, onDelete }: { rows: Row[]; onDelete: (id: number) => void }) {
+function TableKaryawan({ rows, onEdit, onDelete }: { rows: Row[]; onEdit: (r: Row) => void; onDelete: (id: number) => void }) {
   return (
     <table className="w-full"><thead><tr className="border-b border-white/[0.06]">
       {['NAMA KARYAWAN','POSISI','TELEPON','AKSI'].map(h => <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>)}
@@ -399,14 +529,14 @@ function TableKaryawan({ rows, onDelete }: { rows: Row[]; onDelete: (id: number)
           <td className="px-5 py-4 text-sm font-medium text-white">{r.nama}</td>
           <td className="px-5 py-4 text-sm text-slate-400">{r.jabatan_nama || '-'}</td>
           <td className="px-5 py-4 text-sm text-slate-400">{r.telepon || '-'}</td>
-          <td className="px-5 py-4"><ActionBtns onDelete={() => onDelete(r.id)} /></td>
+          <td className="px-5 py-4"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
         </tr>
       ))}
     </tbody></table>
   );
 }
 
-function TablePromo({ rows, fmtDate, onDelete }: { rows: Row[]; fmtDate: (d: string) => string; onDelete: (id: number) => void }) {
+function TablePromo({ rows, fmtDate, onEdit, onDelete }: { rows: Row[]; fmtDate: (d: string) => string; onEdit: (r: Row) => void; onDelete: (id: number) => void }) {
   return (
     <table className="w-full min-w-[800px]"><thead><tr className="border-b border-white/[0.06]">
       {['NAMA PROMO','PERIODE MULAI','PERIODE SELESAI','DESKRIPSI','AKSI'].map(h => <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>)}
@@ -417,14 +547,14 @@ function TablePromo({ rows, fmtDate, onDelete }: { rows: Row[]; fmtDate: (d: str
           <td className="px-5 py-4 text-sm text-slate-400">{fmtDate(r.periode_mulai)}</td>
           <td className="px-5 py-4 text-sm text-slate-400">{fmtDate(r.periode_selesai)}</td>
           <td className="px-5 py-4 text-sm text-slate-400 max-w-[300px] truncate">{r.deskripsi || '-'}</td>
-          <td className="px-5 py-4"><ActionBtns onDelete={() => onDelete(r.id)} /></td>
+          <td className="px-5 py-4"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
         </tr>
       ))}
     </tbody></table>
   );
 }
 
-function TableLeads({ rows, onDelete }: { rows: Row[]; onDelete: (id: number) => void }) {
+function TableLeads({ rows, onEdit, onDelete }: { rows: Row[]; onEdit: (r: Row) => void; onDelete: (id: number) => void }) {
   return (
     <table className="w-full min-w-[750px]"><thead><tr className="border-b border-white/[0.06]">
       {['NAMA','NO HP','SUMBER','JENIS CS','CATATAN','AKSI'].map(h => <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>)}
@@ -436,7 +566,7 @@ function TableLeads({ rows, onDelete }: { rows: Row[]; onDelete: (id: number) =>
           <td className="px-5 py-4 text-sm text-slate-400">{r.sumber || '-'}</td>
           <td className="px-5 py-4"><span className={`text-xs font-medium px-2.5 py-1 rounded-full ${JENIS_CS_STYLE[r.jenis_cs] || 'text-slate-400 bg-slate-500/10'}`}>{r.jenis_cs || '-'}</span></td>
           <td className="px-5 py-4 text-sm text-slate-400 max-w-[200px] truncate">{r.catatan || '-'}</td>
-          <td className="px-5 py-4"><ActionBtns onDelete={() => onDelete(r.id)} /></td>
+          <td className="px-5 py-4"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
         </tr>
       ))}
     </tbody></table>
