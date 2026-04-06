@@ -132,18 +132,18 @@ export default function ProduksiPage() {
     const wo = item.wo;
     return (
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors">
-        <div className="flex items-center gap-4">
-          <div>
-            <span className="text-sm font-medium text-blue-400">{wo.no_wo}</span>
-            <p className="text-xs text-slate-500 mt-0.5">{wo.customer_nama}</p>
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-blue-400 whitespace-nowrap">{wo.no_wo}</span>
+            <span className="text-sm font-semibold text-white">{wo.customer_nama}</span>
           </div>
-          <div className="text-xs text-slate-500">
-            <span className="text-slate-400">{wo.paket}</span>
-            <span className="mx-2">|</span>
-            <span>{wo.jumlah} pcs</span>
+          <div className="flex items-center gap-2 mt-1.5 text-xs">
+            <span className="text-slate-300 font-medium">{wo.paket}</span>
+            <span className="text-slate-600">|</span>
+            <span className="text-slate-400">{wo.jumlah} pcs</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-4 shrink-0">
           {actions}
         </div>
       </div>

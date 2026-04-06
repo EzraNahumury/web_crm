@@ -26,9 +26,10 @@ const TABLE_MAP: Record<TabKey, string> = {
 };
 
 const JENIS_CS_STYLE: Record<string, string> = {
-  'CS Eksternal': 'text-blue-400 bg-blue-500/10',
-  'Reseller': 'text-purple-400 bg-purple-500/10',
-  'Agen': 'text-amber-400 bg-amber-500/10',
+  'Organic': 'text-green-400 bg-green-500/10',
+  'Meta Ads': 'text-blue-400 bg-blue-500/10',
+  'TikTok Ads': 'text-pink-400 bg-pink-500/10',
+  'Corporate': 'text-amber-400 bg-amber-500/10',
 };
 
 const inputCls = 'w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500/40 transition-colors';
@@ -326,7 +327,7 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
           <div><label className="block text-sm font-medium text-white mb-1.5">Jenis CS</label>
             <select value={form.jenis_cs || ''} onChange={e => set('jenis_cs', e.target.value)} className={`${inputCls} appearance-none cursor-pointer`}>
               <option value="">Pilih jenis CS</option>
-              {['CS Eksternal','Reseller','Agen'].map(s => <option key={s}>{s}</option>)}
+              {['Organic','Meta Ads','TikTok Ads','Corporate'].map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
           <Field label="Catatan" value={form.catatan} onChange={v => set('catatan', v)} textarea />

@@ -51,6 +51,7 @@ export interface DashboardStats {
   todayCapacity: number;
   dailyCapacityUsed: number;
   stageCounts: Record<string, number>;
+  totalRevenue: number;
 }
 
 export interface User {

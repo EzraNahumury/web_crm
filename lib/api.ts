@@ -266,6 +266,7 @@ function computeStats(orders: Order[]): DashboardStats {
   const open = orders.filter(o => o.status === 'OPEN').length;
   const inProgress = orders.filter(o => o.status === 'IN_PROGRESS').length;
   const done = orders.filter(o => o.status === 'DONE').length;
+  const totalRevenue = orders.reduce((sum, o) => sum + (o.sallaryProduct || 0), 0);
   return {
     totalOrders: orders.length,
     openOrders: open,
@@ -277,5 +278,6 @@ function computeStats(orders: Order[]): DashboardStats {
     todayCapacity: 200,
     dailyCapacityUsed: 0,
     stageCounts: {},
+    totalRevenue,
   };
 }
