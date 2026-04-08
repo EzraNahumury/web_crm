@@ -11,6 +11,8 @@ type Row = Record<string, any>;
 
 function fmtDate(d: string) {
   if (!d) return '-';
+  const m = String(d).match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   try { return new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return d; }
 }
 
@@ -28,7 +30,7 @@ export default function WorkOrdersPage() {
   const [editCustomer, setEditCustomer] = useState('');
   const [editJumlah, setEditJumlah] = useState('');
   const [editPaket, setEditPaket] = useState('');
-  const [editBahan, setEditBahan] = useState('');
+  const [editDetailBahan, setEditDetailBahan] = useState<Row[]>([]);
   const [editDeadline, setEditDeadline] = useState('');
   const [editKeterangan, setEditKeterangan] = useState('');
   const [editSaving, setEditSaving] = useState(false);
@@ -99,15 +101,17 @@ export default function WorkOrdersPage() {
       const count = wos.filter((w: Row) => w.no_wo?.startsWith(prefix)).length;
       const noWo = `${prefix}-${String(count + 1).padStart(3, '0')}`;
 
-      // Fetch order items for paket & bahan
+      // Fetch order items for paket & bahan & qty
       let paketNama: string = '-';
       let bahanNama: string = '-';
+      let totalQty = 0;
       try {
         const items = await dbGet('order_items');
         const orderItems = items.filter((i: Row) => String(i.order_id) === String(order.id));
         if (orderItems.length > 0) {
           paketNama = orderItems.map((i: Row) => String(i.paket_nama || '')).filter(Boolean).join(', ') || '-';
           bahanNama = orderItems.map((i: Row) => String(i.bahan_kain || '')).filter(Boolean).join(', ') || '-';
+          totalQty = orderItems.reduce((sum: number, i: Row) => sum + (Number(i.qty) || 0), 0);
         }
       } catch {}
 
@@ -123,7 +127,7 @@ export default function WorkOrdersPage() {
         customer_nama: order.customer_nama,
         paket: paketNama,
         bahan: bahanNama,
-        jumlah: 0,
+        jumlah: totalQty,
         deadline: order.estimasi_deadline,
         keterangan: order.keterangan || '',
         status: 'PROSES_PRODUKSI',
@@ -154,15 +158,19 @@ export default function WorkOrdersPage() {
     setCreating(false);
   }
 
-  function openEditModal(wo: Row) {
+  async function openEditModal(wo: Row) {
     setEditWo(wo);
     setEditCustomer(wo.customer_nama || '');
     setEditJumlah(String(wo.jumlah || 0));
     setEditPaket(wo.paket || '');
-    setEditBahan(wo.bahan || '');
     setEditDeadline(wo.deadline ? new Date(wo.deadline).toISOString().split('T')[0] : '');
     setEditKeterangan(wo.keterangan || '');
     setEditModalOpen(true);
+    // Fetch detail bahan from order
+    try {
+      const db = await dbGet('order_detail_bahan');
+      setEditDetailBahan(db.filter((d: Row) => String(d.order_id) === String(wo.order_id)));
+    } catch { setEditDetailBahan([]); }
   }
 
   async function handleSaveEdit() {
@@ -173,7 +181,6 @@ export default function WorkOrdersPage() {
         customer_nama: editCustomer,
         jumlah: Number(editJumlah) || 0,
         paket: editPaket,
-        bahan: editBahan,
         deadline: editDeadline,
         keterangan: editKeterangan,
       });
@@ -247,7 +254,8 @@ export default function WorkOrdersPage() {
           <table className="w-full min-w-[1000px]">
             <thead>
               <tr className="border-b border-white/[0.06]">
-                {['NO WO','CUSTOMER','PAKET','BAHAN','TGL ORDER','DEADLINE','STATUS','AKSI'].map(h => (
+                {['NO WO','CUSTOMER','PAKET','TGL ORDER','DEADLINE','STATUS','AKSI'].map(h => (
+                  /* BAHAN column hidden, data still fetched */
                   <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -278,7 +286,7 @@ export default function WorkOrdersPage() {
                       </td>
                       <td className="px-5 py-4 text-sm text-slate-300">{wo.customer_nama}</td>
                       <td className="px-5 py-4 text-sm text-slate-400">{wo.paket || '-'}</td>
-                      <td className="px-5 py-4 text-sm text-slate-400">{wo.bahan || '-'}</td>
+                      {/* BAHAN hidden: wo.bahan still available in data */}
                       <td className="px-5 py-4 text-sm text-slate-400">{fmtDate(wo.tanggal_order)}</td>
                       <td className={`px-5 py-4 text-sm font-medium ${isOverdue ? 'text-red-400' : 'text-slate-400'}`}>
                         {fmtDate(wo.deadline)}
@@ -384,8 +392,19 @@ export default function WorkOrdersPage() {
                 <input className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors" value={editPaket} onChange={e => setEditPaket(e.target.value)} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-white mb-1.5">Bahan</label>
-                <input className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 transition-colors" value={editBahan} onChange={e => setEditBahan(e.target.value)} />
+                <label className="block text-sm font-medium text-white mb-1.5">Detail Bahan</label>
+                {editDetailBahan.length > 0 ? (
+                  <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+                    {editDetailBahan.map((d, idx) => (
+                      <div key={d.id} className={`flex items-center ${idx !== 0 ? 'border-t border-white/[0.06]' : ''}`}>
+                        <span className="text-xs font-medium text-slate-400 w-[140px] shrink-0 px-3 py-2 bg-white/[0.02] uppercase">{d.bagian}</span>
+                        <span className="flex-1 text-sm text-white px-3 py-2 border-l border-white/[0.06]">{d.bahan}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500 py-2">Tidak ada detail bahan dari order.</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-white mb-1.5">Deadline</label>

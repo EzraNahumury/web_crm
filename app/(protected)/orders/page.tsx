@@ -320,7 +320,8 @@ export default function OrdersPage() {
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">No</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Customer</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Paket</th>
-                <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Bahan</th>
+                {/* Bahan hidden */}
+                <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Tgl ACC Proofing</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">DP Produksi</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">DL Customer</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Tgl Selesai</th>
@@ -344,7 +345,8 @@ export default function OrdersPage() {
                     <td className="px-4 py-3.5">
                       <span className="text-white/60 font-medium">{order.paket1}</span>
                     </td>
-                    <td className="px-4 py-3.5 text-white/35">{order.bahan || '-'}</td>
+                    {/* Bahan hidden: order.bahan still available */}
+                    <td className="px-4 py-3.5 text-white/35">{order.tglAccProofing ? formatDate(order.tglAccProofing) : '-'}</td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.dpProduksi)}</td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.dlCust)}</td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.tglSelesai)}</td>

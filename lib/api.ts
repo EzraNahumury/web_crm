@@ -92,6 +92,7 @@ interface DbOrder {
   nominal_order: number;
   dp_produksi: number;
   tracking_link: string;
+  tanggal_acc_proofing: string;
   nama_tim: string;
   created_at: string;
   // joined from order_items (first item for compat)
@@ -257,6 +258,7 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
       riskLevel,
       sallaryProduct: Number(r.nominal_order) || 0,
       sallaryShipping: 0,
+      tglAccProofing: fmtDate(r.tanggal_acc_proofing),
       trackingLink: r.tracking_link || '',
     } as Order;
   });

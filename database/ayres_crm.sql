@@ -207,6 +207,8 @@ CREATE TABLE `orders` (
   `dp_desain` DECIMAL(15,2) NOT NULL DEFAULT 0,
   `dp_produksi` DECIMAL(15,2) NOT NULL DEFAULT 0,
   `kekurangan` DECIMAL(15,2) NOT NULL DEFAULT 0,
+  `tanggal_acc_proofing` DATE DEFAULT NULL,
+  `ekspedisi` VARCHAR(100) DEFAULT NULL,
   `tracking_link` VARCHAR(500) DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -243,6 +245,16 @@ CREATE TABLE `order_promos` (
   KEY `fk_op_promo` (`promo_id`),
   CONSTRAINT `fk_op_order` FOREIGN KEY (`order_id`) REFERENCES `orders`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_op_promo` FOREIGN KEY (`promo_id`) REFERENCES `promo`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE `order_detail_bahan` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `order_id` INT UNSIGNED NOT NULL,
+  `bagian` VARCHAR(100) NOT NULL COMMENT 'FRONT BODY, BACK BODY, SLEEVE, etc.',
+  `bahan` VARCHAR(100) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `fk_odb_order` (`order_id`),
+  CONSTRAINT `fk_odb_order` FOREIGN KEY (`order_id`) REFERENCES `orders`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- ============================================

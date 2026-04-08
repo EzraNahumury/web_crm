@@ -10,9 +10,22 @@ type Row = Record<string, any>;
 function fmtMoney(v: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(v || 0);
 }
+function parseDateParts(d: string): [number, number, number] | null {
+  if (!d) return null;
+  // Extract yyyy-mm-dd from ISO or date string without timezone conversion
+  const m = String(d).match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+  return null;
+}
 function fmtDate(d: string) {
-  if (!d) return '-';
-  try { return new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return d; }
+  const p = parseDateParts(d);
+  if (!p) return '-';
+  return `${String(p[2]).padStart(2,'0')}/${String(p[1]).padStart(2,'0')}/${p[0]}`;
+}
+function toDateInput(d: string) {
+  const p = parseDateParts(d);
+  if (!p) return '';
+  return `${p[0]}-${String(p[1]).padStart(2,'0')}-${String(p[2]).padStart(2,'0')}`;
 }
 
 export default function OrderDetailPage() {
@@ -24,6 +37,7 @@ export default function OrderDetailPage() {
   const [form, setForm] = useState<Row>({});
   const [saving, setSaving] = useState(false);
   const [orderItems, setOrderItems] = useState<Row[]>([]);
+  const [detailBahan, setDetailBahan] = useState<Row[]>([]);
   const [leadInfo, setLeadInfo] = useState<Row | null>(null);
   const toast = useToast();
 
@@ -36,6 +50,10 @@ export default function OrderDetailPage() {
         try {
           const items = await dbGet('order_items');
           setOrderItems(items.filter((i: Row) => String(i.order_id) === String(found.id)));
+        } catch {}
+        try {
+          const db = await dbGet('order_detail_bahan');
+          setDetailBahan(db.filter((d: Row) => String(d.order_id) === String(found.id)));
         } catch {}
         if (found.lead_id) {
           try {
@@ -67,6 +85,8 @@ export default function OrderDetailPage() {
         dp_desain: Number(form.dp_desain) || 0,
         dp_produksi: Number(form.dp_produksi) || 0,
         kekurangan: Math.max(0, Number(form.nominal_order || 0) - Number(form.dp_desain || 0) - Number(form.dp_produksi || 0)),
+        tanggal_acc_proofing: form.tanggal_acc_proofing || null,
+        ekspedisi: form.ekspedisi || null,
         status: form.status,
       });
       setOrder({ ...order, ...form });
@@ -176,7 +196,9 @@ export default function OrderDetailPage() {
           <div><p className={lbl}>No Order</p><p className={val}>{order.no_order}</p></div>
           <div><p className={lbl}>Tanggal Order</p><p className={val}>{fmtDate(order.tanggal_order)}</p></div>
           <div><p className={lbl}>Nama Tim</p>{editing ? <input value={form.nama_tim || ''} onChange={e => set('nama_tim', e.target.value)} className={inp} /> : <p className={val}>{order.nama_tim || '-'}</p>}</div>
-          <div><p className={lbl}>Estimasi Deadline</p>{editing ? <input type="date" value={form.estimasi_deadline?.split('T')[0] || ''} onChange={e => set('estimasi_deadline', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.estimasi_deadline)}</p>}</div>
+          <div><p className={lbl}>Estimasi Deadline</p>{editing ? <input type="date" value={toDateInput(form.estimasi_deadline || '')} onChange={e => set('estimasi_deadline', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.estimasi_deadline)}</p>}</div>
+          <div><p className={lbl}>Tanggal ACC Proofing</p>{editing ? <input type="date" value={toDateInput(form.tanggal_acc_proofing || '')} onChange={e => set('tanggal_acc_proofing', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.tanggal_acc_proofing)}</p>}</div>
+          <div><p className={lbl}>Ekspedisi</p>{editing ? <input value={form.ekspedisi || ''} onChange={e => set('ekspedisi', e.target.value)} className={inp} /> : <p className={val}>{order.ekspedisi || '-'}</p>}</div>
           <div className="col-span-2"><p className={lbl}>Keterangan</p>{editing ? <textarea value={form.keterangan || ''} onChange={e => set('keterangan', e.target.value)} rows={2} className={`${inp} resize-none`} /> : <p className={val}>{order.keterangan || '-'}</p>}</div>
         </div>
       </section>
@@ -196,6 +218,12 @@ export default function OrderDetailPage() {
       <ItemsSection orderId={order.id} items={orderItems} onRefresh={async () => {
         const items = await dbGet('order_items');
         setOrderItems(items.filter((i: Row) => String(i.order_id) === String(order.id)));
+      }} />
+
+      {/* Detail Bahan */}
+      <DetailBahanSection orderId={order.id} detailBahan={detailBahan} onRefresh={async () => {
+        const db = await dbGet('order_detail_bahan');
+        setDetailBahan(db.filter((d: Row) => String(d.order_id) === String(order.id)));
       }} />
 
       {/* Pembayaran */}
@@ -225,23 +253,21 @@ export default function OrderDetailPage() {
 function ItemsSection({ orderId, items, onRefresh }: { orderId: number; items: Row[]; onRefresh: () => void }) {
   const [adding, setAdding] = useState(false);
   const [newPaket, setNewPaket] = useState('');
-  const [newBahan, setNewBahan] = useState('');
+  const [newQty, setNewQty] = useState('');
   const [paketList, setPaketList] = useState<Row[]>([]);
-  const [barangList, setBarangList] = useState<Row[]>([]);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
     dbGet('paket').then(setPaketList).catch(() => {});
-    dbGet('barang').then(setBarangList).catch(() => {});
   }, []);
 
   async function handleAdd() {
     if (!newPaket) { toast.warning('Validasi', 'Pilih paket'); return; }
     setSaving(true);
     try {
-      await dbCreate('order_items', { order_id: orderId, paket_nama: newPaket, bahan_kain: newBahan, qty: 0 });
-      setAdding(false); setNewPaket(''); setNewBahan('');
+      await dbCreate('order_items', { order_id: orderId, paket_nama: newPaket, bahan_kain: '', qty: Number(newQty) || 0 });
+      setAdding(false); setNewPaket(''); setNewQty('');
       toast.success('Item Ditambahkan');
       onRefresh();
     } catch (e) { toast.error('Gagal', String(e)); }
@@ -272,14 +298,14 @@ function ItemsSection({ orderId, items, onRefresh }: { orderId: number; items: R
       <table className="w-full">
         <thead><tr className="border-b border-white/[0.06]">
           <th className="text-[11px] text-slate-500 font-medium text-left pb-3 uppercase tracking-wider">Paket</th>
-          <th className="text-[11px] text-slate-500 font-medium text-left pb-3 uppercase tracking-wider">Bahan Kain</th>
+          <th className="text-[11px] text-slate-500 font-medium text-left pb-3 uppercase tracking-wider">QTY</th>
           <th className="text-[11px] text-slate-500 font-medium text-right pb-3 uppercase tracking-wider w-16">Aksi</th>
         </tr></thead>
         <tbody>
           {items.map((item: Row) => (
             <tr key={item.id} className="border-b border-white/[0.04]">
               <td className="py-3 text-sm text-blue-400 font-medium">{item.paket_nama}</td>
-              <td className="py-3 text-sm text-white">{item.bahan_kain || '-'}</td>
+              <td className="py-3 text-sm text-white">{item.qty || 0}</td>
               <td className="py-3 text-right">
                 <button onClick={() => handleDeleteItem(item.id)} className="text-slate-600 hover:text-red-400 transition-colors p-1">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
@@ -299,7 +325,99 @@ function ItemsSection({ orderId, items, onRefresh }: { orderId: number; items: R
                 </select>
               </td>
               <td className="py-2 pr-2">
-                <select value={newBahan} onChange={e => setNewBahan(e.target.value)} className={inp}>
+                <input type="number" min={0} value={newQty} onChange={e => setNewQty(e.target.value)} placeholder="0" className={inp} />
+              </td>
+              <td className="py-2 text-right">
+                <div className="flex items-center justify-end gap-1">
+                  <button onClick={handleAdd} disabled={saving} className="text-emerald-400 hover:text-emerald-300 transition-colors p-1" title="Simpan">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                  </button>
+                  <button onClick={() => { setAdding(false); setNewPaket(''); setNewQty(''); }} className="text-slate-500 hover:text-slate-300 transition-colors p-1" title="Batal">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function DetailBahanSection({ orderId, detailBahan, onRefresh }: { orderId: number; detailBahan: Row[]; onRefresh: () => void }) {
+  const [adding, setAdding] = useState(false);
+  const [newBagian, setNewBagian] = useState('');
+  const [newBahan, setNewBahan] = useState('');
+  const [barangList, setBarangList] = useState<Row[]>([]);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    dbGet('barang').then(setBarangList).catch(() => {});
+  }, []);
+
+  async function handleAdd() {
+    if (!newBagian || !newBahan) { toast.warning('Validasi', 'Isi bagian dan bahan'); return; }
+    setSaving(true);
+    try {
+      await dbCreate('order_detail_bahan', { order_id: orderId, bagian: newBagian, bahan: newBahan });
+      setAdding(false); setNewBagian(''); setNewBahan('');
+      toast.success('Detail Bahan Ditambahkan');
+      onRefresh();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
+  async function handleDeleteItem(id: number) {
+    const yes = await toast.confirm({ title: 'Hapus Detail Bahan?', message: 'Item ini akan dihapus.', type: 'danger', confirmText: 'Hapus' });
+    if (!yes) return;
+    await dbDelete('order_detail_bahan', id);
+    toast.deleted('Detail Bahan Dihapus');
+    onRefresh();
+  }
+
+  const inp = 'w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40';
+
+  return (
+    <section className="rounded-xl bg-[#111827] border border-white/[0.06] p-6 mb-4">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-base font-bold text-white">Detail Bahan</h2>
+        {!adding && (
+          <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 text-xs text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded-lg hover:bg-blue-500/10 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+            Tambah Item
+          </button>
+        )}
+      </div>
+      <table className="w-full">
+        <thead><tr className="border-b border-white/[0.06]">
+          <th className="text-[11px] text-slate-500 font-medium text-left pb-3 uppercase tracking-wider">Bagian</th>
+          <th className="text-[11px] text-slate-500 font-medium text-left pb-3 uppercase tracking-wider">Bahan</th>
+          <th className="text-[11px] text-slate-500 font-medium text-right pb-3 uppercase tracking-wider w-16">Aksi</th>
+        </tr></thead>
+        <tbody>
+          {detailBahan.map((d: Row) => (
+            <tr key={d.id} className="border-b border-white/[0.04]">
+              <td className="py-3 text-sm text-slate-400 uppercase font-medium">{d.bagian}</td>
+              <td className="py-3 text-sm text-white">{d.bahan}</td>
+              <td className="py-3 text-right">
+                <button onClick={() => handleDeleteItem(d.id)} className="text-slate-600 hover:text-red-400 transition-colors p-1">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                </button>
+              </td>
+            </tr>
+          ))}
+          {detailBahan.length === 0 && !adding && (
+            <tr><td colSpan={3} className="py-6 text-center text-sm text-slate-500">Tidak ada detail bahan.</td></tr>
+          )}
+          {adding && (
+            <tr className="border-b border-white/[0.04] bg-white/[0.02]">
+              <td className="py-2 pr-2">
+                <input value={newBagian} onChange={e => setNewBagian(e.target.value)} placeholder="Nama bagian..." className={inp} />
+              </td>
+              <td className="py-2 pr-2">
+                <select value={newBahan} onChange={e => setNewBahan(e.target.value)} className={`${inp} appearance-none cursor-pointer`}>
                   <option value="">Pilih bahan...</option>
                   {barangList.map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
                 </select>
@@ -309,7 +427,7 @@ function ItemsSection({ orderId, items, onRefresh }: { orderId: number; items: R
                   <button onClick={handleAdd} disabled={saving} className="text-emerald-400 hover:text-emerald-300 transition-colors p-1" title="Simpan">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                   </button>
-                  <button onClick={() => { setAdding(false); setNewPaket(''); setNewBahan(''); }} className="text-slate-500 hover:text-slate-300 transition-colors p-1" title="Batal">
+                  <button onClick={() => { setAdding(false); setNewBagian(''); setNewBahan(''); }} className="text-slate-500 hover:text-slate-300 transition-colors p-1" title="Batal">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>

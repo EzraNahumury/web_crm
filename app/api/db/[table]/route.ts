@@ -21,6 +21,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[] }>
   orders:            { columns: '*', searchCols: ['no_order', 'customer_nama'] },
   order_items:       { columns: '*' },
   order_promos:      { columns: '*' },
+  order_detail_bahan: { columns: '*' },
   work_orders:       { columns: '*', searchCols: ['no_wo', 'customer_nama'] },
   wo_spesifikasi:    { columns: '*' },
   wo_spesifikasi_bahan: { columns: '*' },

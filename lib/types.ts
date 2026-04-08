@@ -34,6 +34,7 @@ export interface Order {
   progress: Progress;
   progressPercent?: number;
   currentStageName?: string;
+  tglAccProofing?: string;
   tglKirim?: string;
   trackingLink?: string;
   daysLeft?: number | null;
