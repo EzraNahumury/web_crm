@@ -1227,6 +1227,36 @@ function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }:
         styles: { fontSize: 9 },
         headStyles: { fillColor: [30, 58, 95] },
       });
+
+      // Approval Finance box — bottom right, below table
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const finalY = (pdf as any).lastAutoTable?.finalY ?? 32;
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const boxW = 80;
+      const boxH = 40;
+      const boxX = pageW - boxW - 14;
+      let boxY = finalY + 10;
+      // If the box would overflow page height, push to a new page
+      if (boxY + boxH > pageH - 10) {
+        pdf.addPage();
+        boxY = 14;
+      }
+      // Title bar
+      pdf.setFillColor(30, 58, 95);
+      pdf.rect(boxX, boxY, boxW, 8, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('APPROVAL FINANCE', boxX + boxW / 2, boxY + 5.5, { align: 'center' });
+      // Signature area
+      pdf.setDrawColor(0, 0, 0);
+      pdf.setLineWidth(0.3);
+      pdf.rect(boxX, boxY + 8, boxW, boxH - 8);
+      // Reset fonts/colors for any subsequent rendering
+      pdf.setTextColor(0, 0, 0);
+      pdf.setFont('helvetica', 'normal');
+
       pdf.save(`Permintaan-Gudang-${wo.noWo}.pdf`);
       toast.success('PDF Berhasil', `Permintaan-Gudang-${wo.noWo}.pdf`);
     } catch (e) { toast.error('Gagal Download PDF', String(e)); }
