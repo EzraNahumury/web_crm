@@ -264,3 +264,10 @@ export function getCurrentStage(progress: Progress): string {
   if (idx < 0) return 'Belum mulai';
   return STAGES[idx]?.label || '-';
 }
+
+export function normBagian(s: string | null | undefined): string {
+  if (!s) return '';
+  return s.trim()
+    .replace(/([A-Za-z])(body)\b/gi, '$1 $2')
+    .toUpperCase();
+}

@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,17 +8,11 @@ export async function POST(req: NextRequest) {
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    const base64 = buffer.toString('base64');
+    const mimeType = file.type || 'image/png';
+    const dataUrl = `data:${mimeType};base64,${base64}`;
 
-    const dir = path.join(process.cwd(), 'public', 'uploads');
-    await mkdir(dir, { recursive: true });
-
-    const ext = path.extname(file.name) || '.png';
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
-    const filepath = path.join(dir, filename);
-
-    await writeFile(filepath, buffer);
-
-    return NextResponse.json({ url: `/uploads/${filename}` });
+    return NextResponse.json({ url: dataUrl });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

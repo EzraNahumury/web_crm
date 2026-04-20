@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
+import { normBagian } from '@/lib/utils';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -198,7 +199,7 @@ export default function OrderDetailPage() {
           <div><p className={lbl}>Nama Tim</p>{editing ? <input value={form.nama_tim || ''} onChange={e => set('nama_tim', e.target.value)} className={inp} /> : <p className={val}>{order.nama_tim || '-'}</p>}</div>
           <div><p className={lbl}>Estimasi Deadline</p>{editing ? <input type="date" value={toDateInput(form.estimasi_deadline || '')} onChange={e => set('estimasi_deadline', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.estimasi_deadline)}</p>}</div>
           <div><p className={lbl}>Tanggal ACC Proofing</p>{editing ? <input type="date" value={toDateInput(form.tanggal_acc_proofing || '')} onChange={e => set('tanggal_acc_proofing', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.tanggal_acc_proofing)}</p>}</div>
-          <div><p className={lbl}>Ekspedisi</p>{editing ? <input value={form.ekspedisi || ''} onChange={e => set('ekspedisi', e.target.value)} className={inp} /> : <p className={val}>{order.ekspedisi || '-'}</p>}</div>
+          <div><p className={lbl}>Ekspedisi</p>{editing ? <EkspedisiEdit value={form.ekspedisi || ''} onChange={v => set('ekspedisi', v)} /> : <p className={val}>{order.ekspedisi || '-'}</p>}</div>
           <div className="col-span-2"><p className={lbl}>Keterangan</p>{editing ? <textarea value={form.keterangan || ''} onChange={e => set('keterangan', e.target.value)} rows={2} className={`${inp} resize-none`} /> : <p className={val}>{order.keterangan || '-'}</p>}</div>
         </div>
       </section>
@@ -220,7 +221,7 @@ export default function OrderDetailPage() {
         setOrderItems(items.filter((i: Row) => String(i.order_id) === String(order.id)));
       }} />
 
-      {/* Detail Bahan */}
+      {/* Bahan */}
       <DetailBahanSection orderId={order.id} detailBahan={detailBahan} onRefresh={async () => {
         const db = await dbGet('order_detail_bahan');
         setDetailBahan(db.filter((d: Row) => String(d.order_id) === String(order.id)));
@@ -363,17 +364,17 @@ function DetailBahanSection({ orderId, detailBahan, onRefresh }: { orderId: numb
     try {
       await dbCreate('order_detail_bahan', { order_id: orderId, bagian: newBagian, bahan: newBahan });
       setAdding(false); setNewBagian(''); setNewBahan('');
-      toast.success('Detail Bahan Ditambahkan');
+      toast.success('Bahan Ditambahkan');
       onRefresh();
     } catch (e) { toast.error('Gagal', String(e)); }
     setSaving(false);
   }
 
   async function handleDeleteItem(id: number) {
-    const yes = await toast.confirm({ title: 'Hapus Detail Bahan?', message: 'Item ini akan dihapus.', type: 'danger', confirmText: 'Hapus' });
+    const yes = await toast.confirm({ title: 'Hapus Bahan?', message: 'Item ini akan dihapus.', type: 'danger', confirmText: 'Hapus' });
     if (!yes) return;
     await dbDelete('order_detail_bahan', id);
-    toast.deleted('Detail Bahan Dihapus');
+    toast.deleted('Bahan Dihapus');
     onRefresh();
   }
 
@@ -382,7 +383,7 @@ function DetailBahanSection({ orderId, detailBahan, onRefresh }: { orderId: numb
   return (
     <section className="rounded-xl bg-[#111827] border border-white/[0.06] p-6 mb-4">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-base font-bold text-white">Detail Bahan</h2>
+        <h2 className="text-base font-bold text-white">Bahan</h2>
         {!adding && (
           <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 text-xs text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded-lg hover:bg-blue-500/10 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
@@ -399,7 +400,7 @@ function DetailBahanSection({ orderId, detailBahan, onRefresh }: { orderId: numb
         <tbody>
           {detailBahan.map((d: Row) => (
             <tr key={d.id} className="border-b border-white/[0.04]">
-              <td className="py-3 text-sm text-slate-400 uppercase font-medium">{d.bagian}</td>
+              <td className="py-3 text-sm text-slate-400 font-medium">{normBagian(d.bagian)}</td>
               <td className="py-3 text-sm text-white">{d.bahan}</td>
               <td className="py-3 text-right">
                 <button onClick={() => handleDeleteItem(d.id)} className="text-slate-600 hover:text-red-400 transition-colors p-1">
@@ -409,7 +410,7 @@ function DetailBahanSection({ orderId, detailBahan, onRefresh }: { orderId: numb
             </tr>
           ))}
           {detailBahan.length === 0 && !adding && (
-            <tr><td colSpan={3} className="py-6 text-center text-sm text-slate-500">Tidak ada detail bahan.</td></tr>
+            <tr><td colSpan={3} className="py-6 text-center text-sm text-slate-500">Tidak ada bahan.</td></tr>
           )}
           {adding && (
             <tr className="border-b border-white/[0.04] bg-white/[0.02]">
@@ -457,6 +458,44 @@ function TrackingLink({ url }: { url: string }) {
           Buka Tracking
         </a>
       </div>
+    </div>
+  );
+}
+
+function EkspedisiEdit({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const KNOWN = ['JNE', 'J&T', 'LION PARCEL'];
+  const parse = (v: string): { base: string; detail: string } => {
+    if (!v) return { base: '', detail: '' };
+    const hit = KNOWN.find(k => v === k || v.startsWith(`${k} - `));
+    if (hit) return { base: hit, detail: v === hit ? '' : v.slice(hit.length + 3) };
+    return { base: 'LAINNYA', detail: v };
+  };
+  const initial = parse(value);
+  const [base, setBase] = useState(initial.base);
+  const [detail, setDetail] = useState(initial.detail);
+
+  const emit = (b: string, d: string) => {
+    if (!b) return onChange('');
+    if (b === 'LAINNYA') return onChange(d || '');
+    return onChange(d ? `${b} - ${d}` : b);
+  };
+
+  const inp = 'w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40';
+  const sel = `${inp} appearance-none cursor-pointer`;
+  return (
+    <div className="space-y-2">
+      <select value={base} onChange={e => { setBase(e.target.value); setDetail(''); emit(e.target.value, ''); }} className={sel}>
+        <option value="">Pilih ekspedisi...</option>
+        <option value="JNE">JNE</option>
+        <option value="J&T">J&T</option>
+        <option value="LION PARCEL">Lion Parcel</option>
+        <option value="LAINNYA">Lainnya</option>
+      </select>
+      {base && (
+        <input type="text" value={detail} onChange={e => { setDetail(e.target.value); emit(base, e.target.value); }}
+          placeholder={base === 'LAINNYA' ? 'Ketik nama ekspedisi...' : 'Nomor resi / keterangan...'}
+          className={inp} />
+      )}
     </div>
   );
 }

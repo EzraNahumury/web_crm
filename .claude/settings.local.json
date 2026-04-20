@@ -24,7 +24,17 @@
       "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"UPDATE work_orders SET status = 'PROSES_PRODUKSI' WHERE status = 'PENDING';\" 2>&1)",
       "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"SELECT no_wo, paket, bahan FROM work_orders;\" 2>&1)",
       "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"\nSELECT w.id, w.no_wo, w.order_id, w.paket, w.bahan,\n  GROUP_CONCAT\\(oi.paket_nama SEPARATOR ', '\\) AS all_paket,\n  GROUP_CONCAT\\(oi.bahan_kain SEPARATOR ', '\\) AS all_bahan\nFROM work_orders w\nLEFT JOIN order_items oi ON oi.order_id = w.order_id\nGROUP BY w.id;\n\" 2>&1)",
-      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"\nUPDATE work_orders w\nSET w.paket = \\(SELECT GROUP_CONCAT\\(oi.paket_nama SEPARATOR ', '\\) FROM order_items oi WHERE oi.order_id = w.order_id\\),\n    w.bahan = \\(SELECT GROUP_CONCAT\\(oi.bahan_kain SEPARATOR ', '\\) FROM order_items oi WHERE oi.order_id = w.order_id\\);\n\" 2>&1)"
+      "Bash(\"C:/xampp/mysql/bin/mysql.exe\" -u root ayres_crm -e \"\nUPDATE work_orders w\nSET w.paket = \\(SELECT GROUP_CONCAT\\(oi.paket_nama SEPARATOR ', '\\) FROM order_items oi WHERE oi.order_id = w.order_id\\),\n    w.bahan = \\(SELECT GROUP_CONCAT\\(oi.bahan_kain SEPARATOR ', '\\) FROM order_items oi WHERE oi.order_id = w.order_id\\);\n\" 2>&1)",
+      "Bash(railway variables:*)",
+      "Read(//c/xampp/mysql/bin/**)",
+      "Read(//c/wamp64/bin/**)",
+      "Read(//c/laragon/bin/**)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('MYSQL_PUBLIC_URL',''\\)\\)\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const j=JSON.parse\\(d\\);console.log\\(j.MYSQL_PUBLIC_URL||''\\)}\\)\")",
+      "Bash(/c/xampp/mysql/bin/mysql.exe:*)",
+      "Bash(node -e ':*)",
+      "Bash(npx tsc *)",
+      "Bash(tasklist)"
     ]
   }
 }

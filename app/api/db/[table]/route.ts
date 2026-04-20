@@ -30,7 +30,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[] }>
   wo_pengiriman:     { columns: '*' },
   wo_progress:       { columns: '*' },
   stok:              { columns: 's.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'] },
-  stok_adjustment:   { columns: 'sa.*, b.nama AS barang_nama, b.satuan', searchCols: ['b.nama'] },
+  stok_adjustment:   { columns: 'sa.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'] },
 };
 
 // JOIN clauses for tables with relations
@@ -40,7 +40,7 @@ function getFrom(table: string): string {
     case 'karyawan': return 'karyawan k LEFT JOIN jabatan j ON j.id = k.jabatan_id';
     case 'users': return 'users u JOIN roles r ON r.id = u.role_id';
     case 'stok': return 'stok s JOIN barang b ON b.id = s.barang_id LEFT JOIN tipe_barang tb ON tb.id = b.tipe_barang_id';
-    case 'stok_adjustment': return 'stok_adjustment sa JOIN barang b ON b.id = sa.barang_id';
+    case 'stok_adjustment': return 'stok_adjustment sa JOIN barang b ON b.id = sa.barang_id LEFT JOIN tipe_barang tb ON tb.id = b.tipe_barang_id';
     default: return table;
   }
 }

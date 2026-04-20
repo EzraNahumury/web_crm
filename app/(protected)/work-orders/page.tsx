@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
+import { normBagian } from '@/lib/utils';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -128,7 +129,7 @@ export default function WorkOrdersPage() {
         paket: paketNama,
         bahan: bahanNama,
         jumlah: totalQty,
-        deadline: order.estimasi_deadline,
+        deadline: order.estimasi_deadline ? new Date(order.estimasi_deadline).toISOString().split('T')[0] : null,
         keterangan: order.keterangan || '',
         status: 'PROSES_PRODUKSI',
         current_stage_id: firstStageId,
@@ -397,7 +398,7 @@ export default function WorkOrdersPage() {
                   <div className="rounded-lg border border-white/[0.06] overflow-hidden">
                     {editDetailBahan.map((d, idx) => (
                       <div key={d.id} className={`flex items-center ${idx !== 0 ? 'border-t border-white/[0.06]' : ''}`}>
-                        <span className="text-xs font-medium text-slate-400 w-[140px] shrink-0 px-3 py-2 bg-white/[0.02] uppercase">{d.bagian}</span>
+                        <span className="text-xs font-medium text-slate-400 w-[140px] shrink-0 px-3 py-2 bg-white/[0.02]">{normBagian(d.bagian)}</span>
                         <span className="flex-1 text-sm text-white px-3 py-2 border-l border-white/[0.06]">{d.bahan}</span>
                       </div>
                     ))}

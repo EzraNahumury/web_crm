@@ -21,6 +21,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+[data-theme="light"] body {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
@@ -36,11 +41,152 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255,255,255,0.14);
 }
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.12);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,0,0,0.22);
+}
 
 /* Dark select options */
 select option {
   background: #18181b;
   color: #d4d4d8;
+}
+[data-theme="light"] select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT MODE OVERRIDES
+   Covers all arbitrary Tailwind classes used across the app.
+   Dark is default (no selector); light activates via [data-theme="light"]
+   ═══════════════════════════════════════════════════════════ */
+
+/* Base page / surface backgrounds */
+[data-theme="light"] .bg-\[\#09090b\],
+[data-theme="light"] .bg-\[\#0a0e17\] { background-color: #f8fafc !important; }
+[data-theme="light"] .bg-\[\#0c1120\] { background-color: #ffffff !important; }
+[data-theme="light"] .bg-\[\#111827\] { background-color: #ffffff !important; }
+[data-theme="light"] .bg-\[\#0d1117\] { background-color: #f1f5f9 !important; }
+[data-theme="light"] .bg-\[\#141a2e\] { background-color: #ffffff !important; }
+[data-theme="light"] .bg-\[\#161618\] { background-color: #ffffff !important; }
+
+/* Zinc backgrounds (from DefaultLayout / login menus) */
+[data-theme="light"] .bg-zinc-800,
+[data-theme="light"] .bg-zinc-900,
+[data-theme="light"] .bg-zinc-800\/50,
+[data-theme="light"] .bg-zinc-800\/60,
+[data-theme="light"] .bg-zinc-800\/80,
+[data-theme="light"] .bg-zinc-700\/50 { background-color: #f1f5f9 !important; }
+
+/* White-overlay backgrounds (hover tints, card surfaces) */
+[data-theme="light"] .bg-white\/\[0\.01\],
+[data-theme="light"] .bg-white\/\[0\.02\],
+[data-theme="light"] .bg-white\/\[0\.03\] { background-color: rgba(15, 23, 42, 0.025) !important; }
+[data-theme="light"] .bg-white\/\[0\.04\],
+[data-theme="light"] .bg-white\/\[0\.05\] { background-color: rgba(15, 23, 42, 0.045) !important; }
+[data-theme="light"] .bg-white\/\[0\.06\],
+[data-theme="light"] .bg-white\/\[0\.07\],
+[data-theme="light"] .bg-white\/\[0\.08\] { background-color: rgba(15, 23, 42, 0.065) !important; }
+[data-theme="light"] .bg-white\/\[0\.11\] { background-color: rgba(15, 23, 42, 0.09) !important; }
+[data-theme="light"] .bg-white\/10 { background-color: rgba(15, 23, 42, 0.1) !important; }
+/* Near-opaque whites (used for card/modal highlights) — flip to near-opaque dark so they still visually "lift" */
+[data-theme="light"] .bg-white\/50,
+[data-theme="light"] .bg-white\/70,
+[data-theme="light"] .bg-white\/80,
+[data-theme="light"] .bg-white\/85 { background-color: rgba(255, 255, 255, 0.9) !important; }
+
+/* Text colors */
+[data-theme="light"] .text-white { color: #0f172a !important; }
+[data-theme="light"] .text-slate-200 { color: #1e293b !important; }
+[data-theme="light"] .text-slate-300 { color: #334155 !important; }
+[data-theme="light"] .text-slate-400 { color: #475569 !important; }
+[data-theme="light"] .text-slate-500 { color: #64748b !important; }
+[data-theme="light"] .text-slate-600 { color: #94a3b8 !important; }
+[data-theme="light"] .text-slate-700 { color: #cbd5e1 !important; }
+[data-theme="light"] .text-zinc-300 { color: #334155 !important; }
+[data-theme="light"] .text-zinc-400 { color: #475569 !important; }
+[data-theme="light"] .text-zinc-500 { color: #64748b !important; }
+[data-theme="light"] .text-zinc-600 { color: #94a3b8 !important; }
+
+/* Translucent white text — invert to translucent dark */
+[data-theme="light"] .text-white\/90 { color: rgba(15, 23, 42, 0.92) !important; }
+[data-theme="light"] .text-white\/80 { color: rgba(15, 23, 42, 0.85) !important; }
+[data-theme="light"] .text-white\/60 { color: rgba(15, 23, 42, 0.72) !important; }
+[data-theme="light"] .text-white\/50 { color: rgba(15, 23, 42, 0.65) !important; }
+[data-theme="light"] .text-white\/40 { color: rgba(15, 23, 42, 0.55) !important; }
+[data-theme="light"] .text-white\/35 { color: rgba(15, 23, 42, 0.48) !important; }
+[data-theme="light"] .text-white\/30 { color: rgba(15, 23, 42, 0.42) !important; }
+[data-theme="light"] .text-white\/25 { color: rgba(15, 23, 42, 0.38) !important; }
+[data-theme="light"] .text-white\/20 { color: rgba(15, 23, 42, 0.32) !important; }
+[data-theme="light"] .text-white\/15 { color: rgba(15, 23, 42, 0.25) !important; }
+[data-theme="light"] .text-white\/10 { color: rgba(15, 23, 42, 0.18) !important; }
+[data-theme="light"] .hover\:text-white\/50:hover { color: rgba(15, 23, 42, 0.65) !important; }
+
+/* Placeholder */
+[data-theme="light"] .placeholder-slate-500::placeholder,
+[data-theme="light"] .placeholder-slate-600::placeholder,
+[data-theme="light"] .placeholder-slate-700::placeholder { color: #94a3b8 !important; }
+[data-theme="light"] .placeholder-white\/25::placeholder { color: rgba(15, 23, 42, 0.35) !important; }
+
+/* Borders — bumped up opacity vs dark mode so separator lines stay visible on light bg */
+[data-theme="light"] .border-white\/\[0\.03\],
+[data-theme="light"] .border-white\/\[0\.04\],
+[data-theme="light"] .border-white\/\[0\.05\] { border-color: rgba(15, 23, 42, 0.12) !important; }
+[data-theme="light"] .border-white\/\[0\.06\],
+[data-theme="light"] .border-white\/\[0\.08\] { border-color: rgba(15, 23, 42, 0.16) !important; }
+[data-theme="light"] .border-white\/10 { border-color: rgba(15, 23, 42, 0.22) !important; }
+[data-theme="light"] .border-white\/60,
+[data-theme="light"] .border-white\/70 { border-color: rgba(15, 23, 42, 0.35) !important; }
+[data-theme="light"] .border-zinc-700\/50,
+[data-theme="light"] .border-zinc-800\/50,
+[data-theme="light"] .border-zinc-800\/80 { border-color: #cbd5e1 !important; }
+[data-theme="light"] .divide-white\/\[0\.04\] > :not([hidden]) ~ :not([hidden]) { border-color: rgba(15, 23, 42, 0.12) !important; }
+[data-theme="light"] .divide-white\/\[0\.06\] > :not([hidden]) ~ :not([hidden]) { border-color: rgba(15, 23, 42, 0.16) !important; }
+
+/* Hover-on-white overlays — explicit :hover overrides */
+[data-theme="light"] .hover\:bg-white\/\[0\.02\]:hover,
+[data-theme="light"] .hover\:bg-white\/\[0\.03\]:hover,
+[data-theme="light"] .hover\:bg-white\/\[0\.04\]:hover { background-color: rgba(15, 23, 42, 0.05) !important; }
+[data-theme="light"] .hover\:bg-white\/\[0\.06\]:hover,
+[data-theme="light"] .hover\:bg-white\/\[0\.08\]:hover { background-color: rgba(15, 23, 42, 0.08) !important; }
+[data-theme="light"] .hover\:bg-zinc-800\/50:hover,
+[data-theme="light"] .hover\:bg-zinc-800\/60:hover { background-color: #f1f5f9 !important; }
+[data-theme="light"] .focus\:bg-white\/\[0\.02\]:focus,
+[data-theme="light"] .focus\:bg-white\/\[0\.05\]:focus { background-color: rgba(15, 23, 42, 0.045) !important; }
+[data-theme="light"] .focus\:bg-white\/\[0\.11\]:focus { background-color: rgba(15, 23, 42, 0.08) !important; }
+[data-theme="light"] .hover\:border-white\/\[0\.08\]:hover,
+[data-theme="light"] .hover\:border-white\/10:hover { border-color: rgba(15, 23, 42, 0.28) !important; }
+
+/* Logo — removes dark-mode invert so original logo shows in light */
+[data-theme="light"] .brightness-0.invert { filter: none !important; }
+
+/* Form controls use system color-scheme */
+[data-theme="light"] input,
+[data-theme="light"] textarea,
+[data-theme="light"] select { color-scheme: light; }
+
+/* Hover text colors — when items darken/brighten text on hover */
+[data-theme="light"] .hover\:text-white:hover { color: #0f172a !important; }
+[data-theme="light"] .hover\:text-slate-200:hover { color: #1e293b !important; }
+[data-theme="light"] .hover\:text-slate-300:hover { color: #334155 !important; }
+[data-theme="light"] .hover\:text-zinc-300:hover { color: #334155 !important; }
+[data-theme="light"] .hover\:text-zinc-200:hover { color: #1e293b !important; }
+
+/* Focus-within border (drawer inputs) */
+[data-theme="light"] .focus-within\:border-blue-500\/50:focus-within { border-color: rgba(59, 130, 246, 0.5) !important; }
+
+/* Hide number input spinners */
+.no-spin::-webkit-outer-spin-button,
+.no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.no-spin {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 /* Checkbox custom style */
@@ -116,6 +262,12 @@ input[type="date"].date-input::-webkit-calendar-picker-indicator {
 }
 input[type="date"].date-input {
   color-scheme: dark;
+}
+[data-theme="light"] input[type="date"].date-input {
+  color-scheme: light;
+}
+[data-theme="light"] input[type="date"].date-input::-webkit-calendar-picker-indicator {
+  filter: none;
 }
 
 /* Login - Hexagonal card clip path */

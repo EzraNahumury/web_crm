@@ -42,10 +42,7 @@ interface DetailBahanItem {
   bahan: string;
 }
 
-const DEFAULT_BAGIAN = [
-  'FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION',
-  'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS',
-];
+const DEFAULT_BAGIAN = ['FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION', 'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS'];
 
 function initDetailBahan(): DetailBahanItem[] {
   return DEFAULT_BAGIAN.map((b, i) => ({ id: i + 1, bagian: b, bahan: '' }));
@@ -184,7 +181,9 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
         dp_produksi: dpProduksi,
         kekurangan,
         tanggal_acc_proofing: tglAccProofing || null,
-        ekspedisi: ekspedisi === 'LAINNYA' ? ekspedisiLainnya : ekspedisi || null,
+        ekspedisi: ekspedisi === 'LAINNYA'
+          ? (ekspedisiLainnya || null)
+          : ekspedisi ? (ekspedisiLainnya ? `${ekspedisi} - ${ekspedisiLainnya}` : ekspedisi) : null,
       });
 
       // Create order items
@@ -352,12 +351,20 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 <label className={labelCls}>Item Order</label>
                 <div className="space-y-2">
                   {items.map(item => (
-                    <div key={item.id} className="flex gap-2 items-center">
-                      <select value={item.paket} onChange={e => updateItem(item.id, 'paket', e.target.value)}
-                        className={`${selectCls} flex-1`}>
-                        <option value="">Pilih paket</option>
-                        {paketList.map(p => <option key={p.id} value={p.nama}>{p.nama}</option>)}
-                      </select>
+                    <div key={item.id} className="flex gap-2 items-stretch">
+                      <div className="flex-1 flex rounded-lg border border-white/10 bg-[#0d1117] overflow-hidden focus-within:border-blue-500/50 transition-colors">
+                        <select value={item.paket} onChange={e => updateItem(item.id, 'paket', e.target.value)}
+                          className="flex-1 min-w-0 bg-transparent text-white text-sm px-4 py-2.5 focus:outline-none appearance-none cursor-pointer">
+                          <option value="">Pilih paket</option>
+                          {paketList.map(p => <option key={p.id} value={p.nama}>{p.nama}</option>)}
+                        </select>
+                        <div className="flex items-center gap-1.5 px-3 border-l border-white/10 bg-white/[0.02]">
+                          <span className="text-xs font-medium text-slate-500 uppercase">Qty</span>
+                          <input type="number" min={0} value={item.qty || ''}
+                            onChange={e => updateItem(item.id, 'qty', parseInt(e.target.value) || 0)}
+                            placeholder="0" className="no-spin w-12 bg-transparent text-white text-sm text-right focus:outline-none placeholder-slate-600" />
+                        </div>
+                      </div>
                       <button onClick={() => removeItem(item.id)}
                         className={`shrink-0 text-slate-500 hover:text-red-400 transition-colors p-1 ${items.length <= 1 ? 'opacity-20 pointer-events-none' : ''}`}>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -370,13 +377,6 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                   Tambah Item
                 </button>
-              </div>
-
-              {/* QTY */}
-              <div>
-                <label className={labelCls}>QTY</label>
-                <input type="number" min={0} value={items[0]?.qty || ''} onChange={e => updateItem(items[0]?.id, 'qty', parseInt(e.target.value) || 0)}
-                  placeholder="Masukkan jumlah..." className={inputCls} />
               </div>
 
               {/* Detail Bahan */}
@@ -436,7 +436,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
               {/* Ekspedisi */}
               <div>
                 <label className={labelCls}>Ekspedisi</label>
-                <select value={ekspedisi} onChange={e => { setEkspedisi(e.target.value); if (e.target.value !== 'LAINNYA') setEkspedisiLainnya(''); }}
+                <select value={ekspedisi} onChange={e => { setEkspedisi(e.target.value); setEkspedisiLainnya(''); }}
                   className={selectCls}>
                   <option value="">Pilih ekspedisi...</option>
                   <option value="JNE">JNE</option>
@@ -444,9 +444,10 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                   <option value="LION PARCEL">Lion Parcel</option>
                   <option value="LAINNYA">Lainnya</option>
                 </select>
-                {ekspedisi === 'LAINNYA' && (
+                {ekspedisi && (
                   <input type="text" value={ekspedisiLainnya} onChange={e => setEkspedisiLainnya(e.target.value)}
-                    placeholder="Ketik nama ekspedisi..." className={`${inputCls} mt-2`} />
+                    placeholder={ekspedisi === 'LAINNYA' ? 'Ketik nama ekspedisi...' : 'Nomor resi / keterangan...'}
+                    className={`${inputCls} mt-2`} />
                 )}
               </div>
             </div>
