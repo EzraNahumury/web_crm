@@ -1380,6 +1380,8 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
   const [rows, setRows] = useState<ItemRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [specs, setSpecs] = useState<Row[]>(propSpecs);
   const [specBahan, setSpecBahan] = useState<Row[]>(propSpecBahan);
   const toast = useToast();
@@ -1437,6 +1439,65 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
     setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
   }
 
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>, rowId: number, field: keyof ItemRow) {
+    const text = e.clipboardData.getData('text');
+    if (!text) return;
+
+    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+    if (lines.length === 0) return;
+
+    const parsed = lines.map(l => l.split('\t'));
+    const maxCols = Math.max(...parsed.map(r => r.length));
+
+    // Single cell paste → let default behavior fill the field normally
+    if (lines.length === 1 && maxCols === 1) return;
+
+    e.preventDefault();
+
+    // Detect if first column is NO (all numeric) and should be skipped
+    const firstColAllNum = parsed.every(r => /^\d+$/.test((r[0] || '').trim()));
+    const startCol = firstColAllNum && maxCols >= 2 ? 1 : 0;
+
+    // When pasting multiple columns, columns map to NAMA → NP → SIZE → KET
+    // regardless of which field the user clicked into.
+    // When pasting a single column, fill into the field the user clicked.
+    const cols: (keyof ItemRow)[] = maxCols - startCol === 1
+      ? [field]
+      : ['nama', 'np', 'ukuran', 'keterangan'];
+
+    const newData = parsed.map(r => {
+      const data = r.slice(startCol).map(c => c.trim());
+      const obj: Record<string, string> = {};
+      for (let i = 0; i < cols.length && i < data.length; i++) {
+        obj[cols[i] as string] = data[i];
+      }
+      return obj;
+    });
+
+    setRows(prev => {
+      const startIdx = prev.findIndex(r => r.id === rowId);
+      if (startIdx < 0) return prev;
+      const next = [...prev];
+      for (let i = 0; i < newData.length; i++) {
+        const targetIdx = startIdx + i;
+        if (targetIdx < next.length) {
+          next[targetIdx] = { ...next[targetIdx], ...newData[i] };
+        } else {
+          next.push({
+            id: -(Date.now() + i + 1),
+            nama: '', np: '', ukuran: '', keterangan: '', penjahit: '',
+            ...newData[i],
+            isNew: true,
+          } as ItemRow);
+        }
+      }
+      return next;
+    });
+
+    toast.success('Paste Berhasil', `${newData.length} baris dimasukkan.`);
+  }
+
   function addRow() {
     setRows(prev => [...prev, { id: -Date.now(), nama: '', np: '', ukuran: '', keterangan: '', penjahit: '', isNew: true }]);
   }
@@ -1476,6 +1537,83 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       await fetchItems();
     } catch (e) { toast.error('Gagal Simpan', String(e)); }
     setSaving(false);
+  }
+
+  async function handleUploadExcel(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const XLSX = (await import('xlsx-js-style')).default;
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+
+      // Prefer "Detail Order" sheet, otherwise first sheet
+      const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('detail order')) || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      if (!ws) throw new Error('Sheet tidak ditemukan');
+
+      const aoa: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
+
+      // Find header row (containing NAMA, NP, SIZE)
+      let headerIdx = -1;
+      const cols = { nama: -1, np: -1, size: -1, ket: -1 };
+      for (let i = 0; i < Math.min(aoa.length, 30); i++) {
+        const row = (aoa[i] || []).map(c => String(c ?? '').trim().toUpperCase());
+        const namaCol = row.findIndex(c => c === 'NAMA');
+        const npCol = row.findIndex(c => c === 'NP');
+        const sizeCol = row.findIndex(c => c === 'SIZE');
+        if (namaCol >= 0 && npCol >= 0 && sizeCol >= 0) {
+          headerIdx = i;
+          cols.nama = namaCol;
+          cols.np = npCol;
+          cols.size = sizeCol;
+          cols.ket = row.findIndex(c => c === 'KET' || c === 'KETERANGAN');
+          break;
+        }
+      }
+      if (headerIdx < 0) {
+        toast.error('Format Tidak Sesuai', 'Header NAMA / NP / SIZE tidak ditemukan di file.');
+        return;
+      }
+
+      // Skip subheader row if it looks like one (mostly empty under NAMA/NP/SIZE)
+      let startIdx = headerIdx + 1;
+      const next = aoa[startIdx] || [];
+      const nextNama = String(next[cols.nama] ?? '').trim();
+      const nextNp = String(next[cols.np] ?? '').trim();
+      const nextSize = String(next[cols.size] ?? '').trim();
+      if (!nextNama && !nextNp && !nextSize && next.length > 0) startIdx++;
+
+      const imported: ItemRow[] = [];
+      for (let i = startIdx; i < aoa.length; i++) {
+        const row = aoa[i] || [];
+        const nama = String(row[cols.nama] ?? '').trim();
+        const np = String(row[cols.np] ?? '').trim();
+        const size = String(row[cols.size] ?? '').trim();
+        const ket = cols.ket >= 0 ? String(row[cols.ket] ?? '').trim() : '';
+        if (!nama && !np && !size && !ket) continue;
+        imported.push({
+          id: -(Date.now() + imported.length),
+          nama, np, ukuran: size, keterangan: ket, penjahit: '', isNew: true,
+        });
+      }
+
+      if (imported.length === 0) {
+        toast.error('Data Kosong', 'Tidak ada baris data yang ditemukan di file.');
+        return;
+      }
+
+      // If existing rows are all empty placeholders, replace them; otherwise append
+      const allEmpty = rows.every(r => !r.nama.trim() && !r.np.trim() && !r.ukuran.trim() && !r.keterangan.trim() && !r.penjahit.trim());
+      setRows(prev => allEmpty ? imported : [...prev, ...imported]);
+      toast.success('Upload Berhasil', `${imported.length} baris dimuat. Klik Simpan Data untuk menyimpan.`);
+    } catch (err) {
+      toast.error('Gagal Upload', String(err));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   }
 
   // Map normalized bagian → display label & optional sub-columns for PDF/Excel export
@@ -1708,6 +1846,22 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
         </div>
         <div className="text-lg font-bold text-white">DETAIL ORDER ITEMS</div>
         <div className="flex items-center gap-2 flex-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={handleUploadExcel}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            title="Upload Excel hasil isian customer (kolom NAMA, NP, SIZE)"
+            className="flex items-center gap-1.5 text-xs text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg hover:bg-emerald-500/10 disabled:opacity-50 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
+            {uploading ? 'Memproses...' : 'Upload Excel'}
+          </button>
           <button onClick={handleExportExcel} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Export Excel</button>
           <button onClick={handleDownloadPdfWO3} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
           <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
@@ -1740,11 +1894,11 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
               {rows.map((p, i) => (
                 <tr key={p.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                   <td className="px-4 py-3 text-sm text-blue-400">{i + 1}</td>
-                  <td className="px-4 py-3"><input value={p.nama} onChange={e => updateRow(p.id, 'nama', e.target.value)} placeholder="Nama" className="bg-transparent text-sm text-emerald-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input value={p.np} onChange={e => updateRow(p.id, 'np', e.target.value)} placeholder="NP" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input value={p.ukuran} onChange={e => updateRow(p.id, 'ukuran', e.target.value)} placeholder="Size" className="bg-transparent text-sm font-bold text-white placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input value={p.keterangan} onChange={e => updateRow(p.id, 'keterangan', e.target.value)} placeholder="Keterangan" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input value={p.penjahit} onChange={e => updateRow(p.id, 'penjahit', e.target.value)} placeholder="Penjahit" className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.nama} onChange={e => updateRow(p.id, 'nama', e.target.value)} onPaste={e => handlePaste(e, p.id, 'nama')} placeholder="Nama" className="bg-transparent text-sm text-emerald-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.np} onChange={e => updateRow(p.id, 'np', e.target.value)} onPaste={e => handlePaste(e, p.id, 'np')} placeholder="NP" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.ukuran} onChange={e => updateRow(p.id, 'ukuran', e.target.value)} onPaste={e => handlePaste(e, p.id, 'ukuran')} placeholder="Size" className="bg-transparent text-sm font-bold text-white placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.keterangan} onChange={e => updateRow(p.id, 'keterangan', e.target.value)} onPaste={e => handlePaste(e, p.id, 'keterangan')} placeholder="Keterangan" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  <td className="px-4 py-3"><input value={p.penjahit} onChange={e => updateRow(p.id, 'penjahit', e.target.value)} onPaste={e => handlePaste(e, p.id, 'penjahit')} placeholder="Penjahit" className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
                   <td className="px-4 py-3">
                     <button onClick={() => removeRow(p.id)} className="text-slate-600 hover:text-red-400 transition-colors">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
