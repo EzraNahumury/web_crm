@@ -155,6 +155,28 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
     if (!customer.trim()) { toast.warning('Validasi', 'Nama Customer wajib diisi'); return; }
     setSaving(true);
     try {
+      // Auto-register / match customer in master
+      // Match by nama (case-insensitive) — if found, reuse that id;
+      // otherwise create a new customers record so the master always has a record.
+      const allCustomers = await dbGet('customers');
+      const existingCust = allCustomers.find(
+        (c: { nama?: string }) => String(c.nama || '').trim().toLowerCase() === customer.trim().toLowerCase()
+      );
+      let customerId: number;
+      if (existingCust) {
+        customerId = Number(existingCust.id);
+      } else {
+        customerId = await dbCreate('customers', {
+          nama: customer,
+          no_hp: noHp || null,
+          alamat_lengkap: alamat || null,
+          desa_kelurahan: desa || null,
+          kecamatan: kecamatan || null,
+          kabupaten_kota: kabupaten || null,
+          provinsi: provinsi || null,
+        });
+      }
+
       // Generate no_order
       const orders = await dbGet('orders');
       const nextNum = orders.length + 1;
@@ -163,6 +185,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
       // Create order
       const orderId = await dbCreate('orders', {
         no_order: noOrder,
+        customer_id: customerId,
         customer_nama: customer,
         customer_phone: noHp,
         customer_alamat: alamat,

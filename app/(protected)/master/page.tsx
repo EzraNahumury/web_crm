@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, ReactNode } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
+import { Pagination, paginate } from '@/lib/pagination';
 
 /* ═══ Tab config ═══ */
 type TabKey = 'customer'|'paket'|'barang'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads';
@@ -103,6 +104,7 @@ export default function MasterPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState(1);
   const toast = useToast();
   // Extra data for dropdowns
   const [jabatanList, setJabatanList] = useState<Row[]>([]);
@@ -127,7 +129,13 @@ export default function MasterPage() {
     if (tab === 'barang') dbGet('tipe_barang').then(setTipeBarangList).catch(() => {});
   }, [tab]);
 
-  const switchTab = (t: TabKey) => { setTab(t); setSearch(''); };
+  const switchTab = (t: TabKey) => { setTab(t); setSearch(''); setPage(1); };
+
+  // Reset page when search changes or data refetched (length differs)
+  useEffect(() => { setPage(1); }, [search, tab]);
+
+  // Pagination slice for current rows
+  const paged = paginate(rows, page);
 
   async function handleDelete(id: number) {
     const yes = await toast.confirm({ title: 'Hapus Data?', message: 'Data ini akan dihapus permanen.', type: 'danger', confirmText: 'Ya, Hapus' });
@@ -205,18 +213,21 @@ export default function MasterPage() {
           {loading ? (
             <div className="px-5 py-12 text-center text-sm text-slate-500">Memuat data...</div>
           ) : (
-            <div className="overflow-x-auto">
-              {tab === 'customer' && <TableCustomer rows={rows} onEdit={handleEdit} onDelete={handleDelete} />}
-              {tab === 'paket' && <TableSimple rows={rows} col="nama" header="NAMA PAKET" onEdit={handleEdit} onDelete={handleDelete} />}
-              {tab === 'barang' && <TableBarang rows={rows} onEdit={handleEdit} onDelete={handleDelete} />}
-              {tab === 'tipe-barang' && <TableNameDesc rows={rows} col1="nama" col2="deskripsi" h1="NAMA TIPE" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
-              {tab === 'ukuran' && <TableNameDesc rows={rows} col1="nama" col2="deskripsi" h1="NAMA UKURAN" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
-              {tab === 'pecah-pola' && <TableNameDesc rows={rows} col1="nama" col2="inisial" h1="NAMA PECAH POLA" h2="INISIAL" onEdit={handleEdit} onDelete={handleDelete} />}
-              {tab === 'jabatan' && <TableNameDesc rows={rows} col1="nama" col2="deskripsi" h1="NAMA JABATAN" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
-              {tab === 'karyawan' && <TableKaryawan rows={rows} onEdit={handleEdit} onDelete={handleDelete} />}
-              {tab === 'promo' && <TablePromo rows={rows} fmtDate={fmtDate} onEdit={handleEdit} onDelete={handleDelete} />}
-              {tab === 'leads' && <TableLeads rows={rows} onEdit={handleEdit} onDelete={handleDelete} />}
-            </div>
+            <>
+              <div className="overflow-x-auto">
+                {tab === 'customer' && <TableCustomer rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'paket' && <TableSimple rows={paged.slice} col="nama" header="NAMA PAKET" onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'barang' && <TableBarang rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'tipe-barang' && <TableNameDesc rows={paged.slice} col1="nama" col2="deskripsi" h1="NAMA TIPE" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'ukuran' && <TableNameDesc rows={paged.slice} col1="nama" col2="deskripsi" h1="NAMA UKURAN" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'pecah-pola' && <TableNameDesc rows={paged.slice} col1="nama" col2="inisial" h1="NAMA PECAH POLA" h2="INISIAL" onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'jabatan' && <TableNameDesc rows={paged.slice} col1="nama" col2="deskripsi" h1="NAMA JABATAN" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'karyawan' && <TableKaryawan rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'promo' && <TablePromo rows={paged.slice} fmtDate={fmtDate} onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'leads' && <TableLeads rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
+              </div>
+              <Pagination current={paged.current} total={paged.total} count={paged.count} onChange={setPage} />
+            </>
           )}
         </div>
       </div>

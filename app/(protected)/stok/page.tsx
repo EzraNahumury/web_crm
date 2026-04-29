@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
+import { Pagination, paginate } from '@/lib/pagination';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -25,7 +26,13 @@ export default function StokPage() {
   const [adjQty, setAdjQty] = useState('0');
   const [adjKeterangan, setAdjKeterangan] = useState('');
   const [saving, setSaving] = useState(false);
+  const [aktualPage, setAktualPage] = useState(1);
+  const [adjPage, setAdjPage] = useState(1);
   const toast = useToast();
+
+  // Reset pagination when search or tab changes
+  useEffect(() => { setAktualPage(1); }, [search]);
+  useEffect(() => { setAktualPage(1); setAdjPage(1); }, [tab]);
 
   async function fetchData() {
     try {
@@ -62,6 +69,8 @@ export default function StokPage() {
   const filtered = stokDisplay.filter(m =>
     !search || m.nama.toLowerCase().includes(search.toLowerCase())
   );
+  const aktualPaged = paginate(filtered, aktualPage);
+  const adjPaged = paginate(adjustments, adjPage);
 
   // Current stock for selected barang in modal
   const selectedBarang = barangList.find((b: Row) => String(b.id) === adjBarangId);
@@ -166,7 +175,7 @@ export default function StokPage() {
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr><td colSpan={7} className="px-5 py-10 text-center text-sm text-slate-500">Tidak ada data stok</td></tr>
-                  ) : filtered.map(m => (
+                  ) : aktualPaged.slice.map(m => (
                     <tr key={m.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                       <td className="px-5 py-4 text-sm font-medium text-white">{m.nama}</td>
                       <td className="px-5 py-4"><span className="text-xs text-slate-400 bg-white/[0.06] px-2.5 py-1 rounded">{m.jenis}</span></td>
@@ -190,6 +199,7 @@ export default function StokPage() {
                 </tbody>
               </table>
             </div>
+            <Pagination current={aktualPaged.current} total={aktualPaged.total} count={aktualPaged.count} onChange={setAktualPage} />
           </div>
         </div>
       ) : (
@@ -213,7 +223,7 @@ export default function StokPage() {
                 <tbody>
                   {adjustments.length === 0 ? (
                     <tr><td colSpan={9} className="px-5 py-10 text-center text-sm text-slate-500">Belum ada riwayat adjustment</td></tr>
-                  ) : adjustments.map((a: Row) => {
+                  ) : adjPaged.slice.map((a: Row) => {
                     const selisih = a.selisih || 0;
                     const satuan = a.satuan || 'PCS';
                     const tipeColor = a.tipe === 'Penambahan' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
@@ -251,6 +261,7 @@ export default function StokPage() {
                 </tbody>
               </table>
             </div>
+            <Pagination current={adjPaged.current} total={adjPaged.total} count={adjPaged.count} onChange={setAdjPage} />
           </div>
         </div>
       )}

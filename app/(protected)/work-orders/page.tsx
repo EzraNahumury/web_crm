@@ -5,6 +5,7 @@ import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
 import { normBagian } from '@/lib/utils';
+import { Pagination, paginate } from '@/lib/pagination';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -35,6 +36,7 @@ export default function WorkOrdersPage() {
   const [editDeadline, setEditDeadline] = useState('');
   const [editKeterangan, setEditKeterangan] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  const [page, setPage] = useState(1);
   const router = useRouter();
   const toast = useToast();
 
@@ -209,6 +211,10 @@ export default function WorkOrdersPage() {
     });
   }, [woList, search, customerFilter]);
 
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [search, customerFilter]);
+  const paged = paginate(filtered, page);
+
   if (loading) return (
     <div className="space-y-4">
       <div className="h-10 bg-white/[0.03] rounded-lg animate-pulse" />
@@ -265,7 +271,7 @@ export default function WorkOrdersPage() {
               {filtered.length === 0 ? (
                 <tr><td colSpan={10} className="px-5 py-12 text-center text-sm text-slate-500">Tidak ada work order ditemukan</td></tr>
               ) : (
-                filtered.map((wo: Row) => {
+                paged.slice.map((wo: Row) => {
                   const deadline = wo.deadline ? new Date(wo.deadline) : null;
                   const today = new Date(); today.setHours(0,0,0,0);
                   const daysLeft = deadline ? Math.floor((deadline.getTime() - today.getTime()) / 86400000) : null;
@@ -326,6 +332,7 @@ export default function WorkOrdersPage() {
             </tbody>
           </table>
         </div>
+        <Pagination current={paged.current} total={paged.total} count={paged.count} onChange={setPage} />
       </div>
 
       {/* Modal Buat WO */}

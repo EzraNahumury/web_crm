@@ -9,6 +9,7 @@ import { useToast } from '@/lib/toast';
 import { Order, OrderStatus } from '@/lib/types';
 import { STAGES, RISK_LABELS, STATUS_LABELS } from '@/lib/constants';
 import { formatDate } from '@/lib/utils';
+import { Pagination } from '@/lib/pagination';
 import CreateOrderDrawer from './create-order-drawer';
 
 const STATUS_STYLES_DARK: Record<string, string> = {
@@ -397,49 +398,10 @@ export default function OrdersPage() {
             </tbody>
           </table>
         </div>
-        {totalPages > 1 && (
-          <div className="px-5 py-3 border-t border-white/[0.04] flex items-center justify-between">
-            <span className="text-[11px] text-white/20 tabular-nums">
-              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} dari {filtered.length}
-            </span>
-            <PaginationBar current={page} total={totalPages} onChange={setPage} />
-          </div>
-        )}
+        <Pagination current={page} total={totalPages} count={filtered.length} onChange={setPage} />
       </div>
 
       <CreateOrderDrawer open={createOpen} onClose={() => setCreateOpen(false)} />
-    </div>
-  );
-}
-
-function PaginationBar({ current, total, onChange }: { current: number; total: number; onChange: (p: number) => void }) {
-  const pages: (number | '...')[] = [];
-  if (total <= 7) { for (let i = 1; i <= total; i++) pages.push(i); }
-  else {
-    pages.push(1);
-    if (current > 3) pages.push('...');
-    for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) pages.push(i);
-    if (current < total - 2) pages.push('...');
-    pages.push(total);
-  }
-  return (
-    <div className="flex items-center gap-1">
-      <button onClick={() => current > 1 && onChange(current - 1)} disabled={current === 1}
-        className="min-w-[32px] h-7 px-2 rounded-lg text-[12px] font-medium text-white/30 hover:bg-white/[0.04] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-        Prev
-      </button>
-      {pages.map((p, i) => p === '...'
-        ? <span key={`el-${i}`} className="px-1 text-white/15 text-[12px]">...</span>
-        : <button key={p} onClick={() => onChange(p as number)}
-            className={`min-w-[28px] h-7 px-1.5 rounded-lg text-[12px] font-medium transition-colors
-              ${p === current ? 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/25' : 'text-white/30 hover:bg-white/[0.04]'}`}>
-            {p}
-          </button>
-      )}
-      <button onClick={() => current < total && onChange(current + 1)} disabled={current === total}
-        className="min-w-[32px] h-7 px-2 rounded-lg text-[12px] font-medium text-white/30 hover:bg-white/[0.04] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-        Next
-      </button>
     </div>
   );
 }
