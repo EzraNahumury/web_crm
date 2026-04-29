@@ -104,6 +104,34 @@ export default function ProduksiPage() {
     try {
       await dbUpdate('wo_progress', progressRow.id, { status: 'SELESAI', completed_at: new Date().toISOString() });
 
+      // Auto-deduct stok ketika tahap "Fabric Cutting" diselesaikan
+      const currentStage = stages.find((s: Row) => s.id === progressRow.stage_id);
+      if (currentStage?.nama === 'Fabric Cutting') {
+        try {
+          const res = await fetch('/api/wo/deduct-stok', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wo_id: progressRow.work_order_id }),
+          });
+          const data = await res.json();
+          if (!res.ok && data.error === 'Stok tidak cukup' && Array.isArray(data.insufficient)) {
+            // Rollback progress status — stok tidak cukup, batalkan SELESAI
+            await dbUpdate('wo_progress', progressRow.id, { status: 'SEDANG', completed_at: null });
+            const detail = data.insufficient
+              .map((i: { bahan: string; available: number; needed: number }) => `${i.bahan}: butuh ${i.needed}, tersedia ${i.available}`)
+              .join(' • ');
+            toast.error('Stok Tidak Cukup', `Tidak bisa selesaikan Fabric Cutting. ${detail}`);
+            await fetchData();
+            return;
+          }
+          if (data.success && data.deducted > 0) {
+            toast.success('Stok Dipotong', `${data.deducted} item dipotong dari stok${data.skipped ? ` (${data.skipped} di-skip karena tidak ada di master barang)` : ''}.`);
+          } else if (data.success && data.skipped > 0) {
+            toast.warning('Stok Tidak Dipotong', `${data.skipped} item di-skip karena nama bahan tidak cocok dengan master barang.`);
+          }
+        } catch (e) { console.error('Deduct stok failed', e); }
+      }
+
       const currentStageIdx = stages.findIndex((s: Row) => s.id === progressRow.stage_id);
       if (currentStageIdx < stages.length - 1) {
         const nextStage = stages[currentStageIdx + 1];

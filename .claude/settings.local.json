@@ -35,7 +35,8 @@
       "Bash(node -e ':*)",
       "Bash(npx tsc *)",
       "Bash(tasklist)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "Bash(grep *)"
     ]
   }
 }

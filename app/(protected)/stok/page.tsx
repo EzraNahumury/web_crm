@@ -17,6 +17,7 @@ export default function StokPage() {
   const [stokList, setStokList] = useState<Row[]>([]);
   const [adjustments, setAdjustments] = useState<Row[]>([]);
   const [barangList, setBarangList] = useState<Row[]>([]);
+  const [woList, setWoList] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [adjustModal, setAdjustModal] = useState(false);
   const [adjBarangId, setAdjBarangId] = useState('');
@@ -28,14 +29,16 @@ export default function StokPage() {
 
   async function fetchData() {
     try {
-      const [s, a, b] = await Promise.all([
+      const [s, a, b, w] = await Promise.all([
         dbGet('stok'),
         dbGet('stok_adjustment'),
         dbGet('barang'),
+        dbGet('work_orders'),
       ]);
       setStokList(s);
       setAdjustments(a);
       setBarangList(b);
+      setWoList(w);
     } catch {}
     setLoading(false);
   }
@@ -202,27 +205,37 @@ export default function StokPage() {
               <table className="w-full min-w-[900px]">
                 <thead>
                   <tr className="border-b border-white/[0.06]">
-                    {['TANGGAL','NAMA BAHAN','JENIS','TIPE','QTY SEBELUM','QTY SESUDAH','SELISIH','KETERANGAN'].map(h => (
+                    {['TANGGAL','NAMA BAHAN','JENIS','TIPE','SUMBER','QTY SEBELUM','QTY SESUDAH','SELISIH','KETERANGAN'].map(h => (
                       <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {adjustments.length === 0 ? (
-                    <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-slate-500">Belum ada riwayat adjustment</td></tr>
+                    <tr><td colSpan={9} className="px-5 py-10 text-center text-sm text-slate-500">Belum ada riwayat adjustment</td></tr>
                   ) : adjustments.map((a: Row) => {
                     const selisih = a.selisih || 0;
                     const satuan = a.satuan || 'PCS';
                     const tipeColor = a.tipe === 'Penambahan' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
                       : a.tipe === 'Pengurangan' ? 'text-red-400 bg-red-500/10 border-red-500/20'
+                      : a.tipe === 'Pemakaian_WO' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
                       : 'text-blue-400 bg-blue-500/10 border-blue-500/20';
+                    const tipeLabel = a.tipe === 'Pemakaian_WO' ? 'Pemakaian WO' : a.tipe;
+                    const wo = a.work_order_id ? woList.find((w: Row) => String(w.id) === String(a.work_order_id)) : null;
                     return (
                       <tr key={a.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                         <td className="px-5 py-4 text-sm text-slate-400">{fmtDate(a.created_at)}</td>
                         <td className="px-5 py-4 text-sm font-medium text-white">{a.barang_nama}</td>
                         <td className="px-5 py-4"><span className="text-xs text-slate-400 bg-white/[0.06] px-2.5 py-1 rounded">{a.tipe_nama || '-'}</span></td>
                         <td className="px-5 py-4">
-                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${tipeColor}`}>{a.tipe}</span>
+                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${tipeColor}`}>{tipeLabel}</span>
+                        </td>
+                        <td className="px-5 py-4 text-sm">
+                          {wo ? (
+                            <span className="text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded">{wo.no_wo || `WO #${wo.id}`}</span>
+                          ) : (
+                            <span className="text-xs text-slate-500">Manual</span>
+                          )}
                         </td>
                         <td className="px-5 py-4 text-sm text-slate-400">{a.qty_sebelum} {satuan}</td>
                         <td className="px-5 py-4 text-sm text-slate-300">{a.qty_sesudah} {satuan}</td>

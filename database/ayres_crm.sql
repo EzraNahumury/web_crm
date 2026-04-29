@@ -350,11 +350,15 @@ CREATE TABLE `wo_permintaan_gudang` (
   `urutan` INT NOT NULL DEFAULT 0,
   `bagian` VARCHAR(100) NOT NULL,
   `bahan` VARCHAR(100) NOT NULL,
+  `barang_id` INT UNSIGNED NULL,
   `warna` VARCHAR(50) DEFAULT NULL,
   `kuantitas` INT NOT NULL DEFAULT 0,
+  `deducted_at` TIMESTAMP NULL DEFAULT NULL COMMENT 'Waktu stok dipotong (NULL = belum dipotong)',
   PRIMARY KEY (`id`),
   KEY `fk_pg_wo` (`work_order_id`),
-  CONSTRAINT `fk_pg_wo` FOREIGN KEY (`work_order_id`) REFERENCES `work_orders`(`id`) ON DELETE CASCADE
+  KEY `fk_pg_barang` (`barang_id`),
+  CONSTRAINT `fk_pg_wo` FOREIGN KEY (`work_order_id`) REFERENCES `work_orders`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_pg_barang` FOREIGN KEY (`barang_id`) REFERENCES `barang`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 -- WO 3: Detail Order Items (Player list)
@@ -415,18 +419,21 @@ CREATE TABLE `stok` (
 CREATE TABLE `stok_adjustment` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `barang_id` INT UNSIGNED NOT NULL,
-  `tipe` ENUM('Penambahan','Pengurangan','Koreksi') NOT NULL,
+  `tipe` ENUM('Penambahan','Pengurangan','Koreksi','Pemakaian_WO') NOT NULL,
   `qty_sebelum` INT NOT NULL DEFAULT 0,
   `qty_sesudah` INT NOT NULL DEFAULT 0,
   `selisih` INT NOT NULL DEFAULT 0,
   `keterangan` TEXT DEFAULT NULL,
+  `work_order_id` INT UNSIGNED NULL,
   `user_id` INT UNSIGNED DEFAULT NULL COMMENT 'User yang melakukan adjustment',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `fk_sa_barang` (`barang_id`),
+  KEY `fk_sa_wo` (`work_order_id`),
   KEY `fk_sa_user` (`user_id`),
   KEY `idx_sa_created` (`created_at`),
   CONSTRAINT `fk_sa_barang` FOREIGN KEY (`barang_id`) REFERENCES `barang`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_sa_wo` FOREIGN KEY (`work_order_id`) REFERENCES `work_orders`(`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_sa_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 

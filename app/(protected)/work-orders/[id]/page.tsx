@@ -1444,9 +1444,28 @@ function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }:
   const [liveSpecs, setLiveSpecs] = useState(propSpecs);
   const [liveSpecBahan, setLiveSpecBahan] = useState(propSpecBahan);
   const [liveGudang, setLiveGudang] = useState<Row[]>(gudangItems);
+  const [barangList, setBarangList] = useState<Row[]>([]);
+  const [stokList, setStokList] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+  // Lookup barang by name (case-insensitive); returns barang row or null
+  const findBarang = (name: string): Row | null => {
+    if (!name) return null;
+    const lower = name.trim().toLowerCase();
+    return barangList.find((b: Row) => String(b.nama || '').trim().toLowerCase() === lower) || null;
+  };
+  const lookupBarangId = (name: string): number | null => {
+    const b = findBarang(name);
+    return b ? Number(b.id) : null;
+  };
+  // Get available stock for a bahan name. Returns null if no master record.
+  const getStokInfo = (name: string): { qty: number; satuan: string } | null => {
+    const b = findBarang(name);
+    if (!b) return null;
+    const s = stokList.find((st: Row) => String(st.barang_id) === String(b.id));
+    return { qty: s?.qty ?? 0, satuan: b.satuan || 'PCS' };
+  };
   const delIcon = <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>;
 
   // Fetch fresh data from DB on mount
@@ -1454,10 +1473,15 @@ function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }:
     (async () => {
       setLoading(true);
       try {
-        const [s, sb, g] = await Promise.all([dbGet('wo_spesifikasi'), dbGet('wo_spesifikasi_bahan'), dbGet('wo_permintaan_gudang')]);
+        const [s, sb, g, b, st] = await Promise.all([
+          dbGet('wo_spesifikasi'), dbGet('wo_spesifikasi_bahan'),
+          dbGet('wo_permintaan_gudang'), dbGet('barang'), dbGet('stok'),
+        ]);
         setLiveSpecs(s.filter((r: Row) => String(r.work_order_id) === String(wo.id)));
         setLiveSpecBahan(sb);
         setLiveGudang(g.filter((r: Row) => String(r.work_order_id) === String(wo.id)));
+        setBarangList(b);
+        setStokList(st);
       } catch {}
       setLoading(false);
     })();
@@ -1542,7 +1566,8 @@ function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }:
         const inp = autoInputs[`bu-${i}`] || { warna: '', kuantitas: 0 };
         await dbCreate('wo_permintaan_gudang', {
           work_order_id: wo.id, kategori: 'BAHAN_UTAMA', urutan: urutan++,
-          bagian: r.bagian, bahan: r.bahan, warna: inp.warna, kuantitas: Number(inp.kuantitas) || 0,
+          bagian: r.bagian, bahan: r.bahan, barang_id: lookupBarangId(r.bahan),
+          warna: inp.warna, kuantitas: Number(inp.kuantitas) || 0,
         });
       }
       for (let i = 0; i < aksesorisRows.length; i++) {
@@ -1550,14 +1575,16 @@ function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }:
         const inp = autoInputs[`ak-${i}`] || { warna: '', kuantitas: 0 };
         await dbCreate('wo_permintaan_gudang', {
           work_order_id: wo.id, kategori: 'AKSESORIS', urutan: urutan++,
-          bagian: r.bagian, bahan: r.bahan, warna: inp.warna, kuantitas: Number(inp.kuantitas) || 0,
+          bagian: r.bagian, bahan: r.bahan, barang_id: lookupBarangId(r.bahan),
+          warna: inp.warna, kuantitas: Number(inp.kuantitas) || 0,
         });
       }
       for (const r of extraAks) {
         if (r.bagian.trim() || r.bahan.trim()) {
           await dbCreate('wo_permintaan_gudang', {
             work_order_id: wo.id, kategori: 'AKSESORIS', urutan: urutan++,
-            bagian: r.bagian, bahan: r.bahan, warna: r.warna, kuantitas: Number(r.kuantitas) || 0,
+            bagian: r.bagian, bahan: r.bahan, barang_id: lookupBarangId(r.bahan),
+            warna: r.warna, kuantitas: Number(r.kuantitas) || 0,
           });
         }
       }
@@ -1565,7 +1592,8 @@ function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }:
         if (r.bagian.trim() || r.bahan.trim()) {
           await dbCreate('wo_permintaan_gudang', {
             work_order_id: wo.id, kategori: 'MATERIAL_TAMBAHAN', urutan: urutan++,
-            bagian: r.bagian, bahan: r.bahan, warna: r.warna, kuantitas: Number(r.kuantitas) || 0,
+            bagian: r.bagian, bahan: r.bahan, barang_id: lookupBarangId(r.bahan),
+            warna: r.warna, kuantitas: Number(r.kuantitas) || 0,
           });
         }
       }
@@ -1680,16 +1708,30 @@ function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }:
               )}
 
               {/* Bahan utama from WO1 spec bahan */}
-              {bahanUtama.map((r, i) => (
+              {bahanUtama.map((r, i) => {
+                const qty = autoInputs[`bu-${i}`]?.kuantitas || 0;
+                const stokInfo = getStokInfo(r.bahan);
+                const insufficient = stokInfo && qty > stokInfo.qty;
+                return (
                 <tr key={`bu-${i}`} className="border-b border-white/[0.04]">
                   <td className="px-5 py-3.5 text-sm text-blue-400">{i + 1}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-emerald-400">{normBagian(r.bagian)}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-white">{r.bahan}</td>
                   <td className="px-5 py-3.5"><input type="text" value={autoInputs[`bu-${i}`]?.warna ?? ''} onChange={e => setAutoField(`bu-${i}`, 'warna', e.target.value)} placeholder="Warna..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-3.5"><input type="number" min={0} placeholder="0" value={autoInputs[`bu-${i}`]?.kuantitas || ''} onChange={e => setAutoField(`bu-${i}`, 'kuantitas', Number(e.target.value) || 0)} className="no-spin bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-16" /></td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex flex-col">
+                      <input type="number" min={0} placeholder="0" value={autoInputs[`bu-${i}`]?.kuantitas || ''} onChange={e => setAutoField(`bu-${i}`, 'kuantitas', Number(e.target.value) || 0)} className={`no-spin bg-transparent text-sm focus:outline-none w-16 ${insufficient ? 'text-red-400' : 'text-slate-300'} placeholder-slate-600`} />
+                      {stokInfo ? (
+                        <span className={`text-[10px] mt-0.5 ${insufficient ? 'text-red-400' : 'text-slate-500'}`}>Stok: {stokInfo.qty} {stokInfo.satuan}</span>
+                      ) : (
+                        <span className="text-[10px] text-slate-600 mt-0.5">Tidak ada di master</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-5 py-3.5" />
                 </tr>
-              ))}
+                );
+              })}
 
               {/* Aksesoris separator */}
               {hasData && (
@@ -1701,16 +1743,30 @@ function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }:
               )}
 
               {/* Aksesoris auto-generated from WO1 spec fields */}
-              {aksesorisRows.map((r, i) => (
+              {aksesorisRows.map((r, i) => {
+                const qty = autoInputs[`ak-${i}`]?.kuantitas || 0;
+                const stokInfo = getStokInfo(r.bahan);
+                const insufficient = stokInfo && qty > stokInfo.qty;
+                return (
                 <tr key={`ak-${i}`} className="border-b border-white/[0.04]">
                   <td className="px-5 py-3.5 text-sm text-blue-400">{bahanUtama.length + i + 1}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-emerald-400">{normBagian(r.bagian)}</td>
                   <td className="px-5 py-3.5 text-sm font-medium text-white">{r.bahan}</td>
                   <td className="px-5 py-3.5"><input type="text" value={autoInputs[`ak-${i}`]?.warna ?? ''} onChange={e => setAutoField(`ak-${i}`, 'warna', e.target.value)} placeholder="Warna..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-3.5"><input type="number" min={0} placeholder="0" value={autoInputs[`ak-${i}`]?.kuantitas || ''} onChange={e => setAutoField(`ak-${i}`, 'kuantitas', Number(e.target.value) || 0)} className="no-spin bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-16" /></td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex flex-col">
+                      <input type="number" min={0} placeholder="0" value={autoInputs[`ak-${i}`]?.kuantitas || ''} onChange={e => setAutoField(`ak-${i}`, 'kuantitas', Number(e.target.value) || 0)} className={`no-spin bg-transparent text-sm focus:outline-none w-16 ${insufficient ? 'text-red-400' : 'text-slate-300'} placeholder-slate-600`} />
+                      {stokInfo ? (
+                        <span className={`text-[10px] mt-0.5 ${insufficient ? 'text-red-400' : 'text-slate-500'}`}>Stok: {stokInfo.qty} {stokInfo.satuan}</span>
+                      ) : (
+                        <span className="text-[10px] text-slate-600 mt-0.5">Tidak ada di master</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-5 py-3.5" />
                 </tr>
-              ))}
+                );
+              })}
 
               {/* Aksesoris tambahan (editable) */}
               {extraAks.map((row, i) => (
