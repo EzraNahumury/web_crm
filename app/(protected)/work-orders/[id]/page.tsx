@@ -486,6 +486,397 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     } catch (e) { toast.error('Gagal Download PDF', String(e)); }
   }
 
+  async function handleExportExcel(specId: number) {
+    const spec = specs.find((s: Row) => String(s.id) === String(specId));
+    if (!spec) return;
+    try {
+      const ExcelJS = (await import('exceljs')).default;
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Spesifikasi', {
+        pageSetup: {
+          paperSize: 9,
+          orientation: 'landscape',
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 1,
+          margins: { left: 0.3, right: 0.3, top: 0.3, bottom: 0.3, header: 0.2, footer: 0.2 },
+        },
+      });
+
+      const bRows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
+      const DEFAULT_BAGIAN = ['FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION', 'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS'];
+
+      const stages = ['Approval Design', 'Approval Pattern', ...PROD_STAGES];
+      const acc: [string, string][] = [
+        ['TAGLINE', spec.tagline || ''],
+        ['AUTHENTIC', spec.authentic || ''],
+        ['SIZE', spec.info_ukuran || ''],
+        ['LOGO', spec.info_logo || ''],
+        ['WEBBING', spec.webbing || ''],
+        ['PACKING', spec.info_packing || ''],
+      ];
+
+      const parseDataUrl = (url: string) => {
+        const m = url.match(/^data:image\/(png|jpeg|jpg|gif);base64,(.+)$/i);
+        if (!m) return null;
+        const ext = (m[1].toLowerCase() === 'jpg' ? 'jpeg' : m[1].toLowerCase()) as 'png' | 'jpeg' | 'gif';
+        return { base64: m[2], extension: ext };
+      };
+
+      const fetchAsDataUrl = async (url: string): Promise<string | null> => {
+        try {
+          const r = await fetch(url);
+          if (!r.ok) return null;
+          const blob = await r.blob();
+          return await new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        } catch { return null; }
+      };
+
+      // Column widths (14 cols A–N) — sized so that landscape A4 fits horizontally
+      const widths = [4, 22, 14, 14, 14, 2, 14, 14, 18, 18, 2, 24, 14, 18];
+      ws.columns = widths.map(w => ({ width: w }));
+
+      // Row heights — compressed body so content fits one A4 landscape page
+      for (let r = 1; r <= 3; r++) ws.getRow(r).height = 22;
+      ws.getRow(4).height = 20;
+      for (let r = 5; r <= 32; r++) ws.getRow(r).height = 14;  // image area + right block
+      for (let r = 33; r <= 38; r++) ws.getRow(r).height = 14; // Keterangan Jahit
+      ws.getRow(39).height = 6;
+      ws.getRow(40).height = 26; // DEADLINE
+      ws.getRow(41).height = 6;
+      for (let r = 42; r <= 49; r++) ws.getRow(r).height = 18;
+
+      // Helper: load image natural dimensions via in-browser Image
+      const loadImageDims = (dataUrl: string): Promise<{ w: number; h: number } | null> =>
+        new Promise(resolve => {
+          const img = new window.Image();
+          img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+          img.onerror = () => resolve(null);
+          img.src = dataUrl;
+        });
+
+      // Approximate Excel cell sizes in pixels
+      const colWidthPx = (w?: number) => (w ?? 8) * 7;
+      const rowHeightPx = (h?: number) => (h ?? 15) * 1.333;
+
+      const cellRangeBoxPx = (c1: number, r1: number, c2: number, r2: number) => {
+        let w = 0, h = 0;
+        for (let c = c1; c <= c2; c++) w += colWidthPx(ws.getColumn(c).width);
+        for (let r = r1; r <= r2; r++) h += rowHeightPx(ws.getRow(r).height);
+        return { w, h };
+      };
+
+      // Place an image preserving its natural aspect ratio, centered within the cell range
+      const placeAspectImage = async (
+        dataUrl: string,
+        c1: number, r1: number, c2: number, r2: number,
+      ) => {
+        const dims = await loadImageDims(dataUrl);
+        const p = parseDataUrl(dataUrl);
+        if (!dims || !p) return;
+        const { w: boxW, h: boxH } = cellRangeBoxPx(c1, r1, c2, r2);
+        const ratio = dims.w / dims.h;
+        let imgW = boxW, imgH = boxW / ratio;
+        if (imgH > boxH) { imgH = boxH; imgW = boxH * ratio; }
+        // Apply safety margin so image never overflows the cell range due to
+        // the slight discrepancy between our pixel estimates and Excel rendering
+        const SAFETY = 0.93;
+        imgW *= SAFETY;
+        imgH *= SAFETY;
+        const xOff = (boxW - imgW) / 2;
+        const yOff = (boxH - imgH) / 2;
+        // Convert pixel offsets to fractional col/row positions
+        let colF = c1 - 1, accW = 0;
+        for (let c = c1; c <= c2; c++) {
+          const w = colWidthPx(ws.getColumn(c).width);
+          if (accW + w >= xOff) { colF = (c - 1) + (xOff - accW) / w; break; }
+          accW += w;
+        }
+        let rowF = r1 - 1, accH = 0;
+        for (let r = r1; r <= r2; r++) {
+          const h = rowHeightPx(ws.getRow(r).height);
+          if (accH + h >= yOff) { rowF = (r - 1) + (yOff - accH) / h; break; }
+          accH += h;
+        }
+        const imgId = wb.addImage({ base64: p.base64, extension: p.extension });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ws.addImage(imgId, { tl: { col: colF, row: rowF }, ext: { width: imgW, height: imgH }, editAs: 'oneCell' } as any);
+      };
+
+      const thin = { style: 'thin' as const, color: { argb: 'FF000000' } };
+      const medium = { style: 'medium' as const, color: { argb: 'FF000000' } };
+      const allBorders = { top: thin, bottom: thin, left: thin, right: thin };
+
+      const setBorder = (range: { r1: number; c1: number; r2: number; c2: number }) => {
+        for (let r = range.r1; r <= range.r2; r++) {
+          for (let c = range.c1; c <= range.c2; c++) {
+            const cell = ws.getCell(r, c);
+            cell.border = {
+              top: r === range.r1 ? thin : cell.border?.top,
+              bottom: r === range.r2 ? thin : cell.border?.bottom,
+              left: c === range.c1 ? thin : cell.border?.left,
+              right: c === range.c2 ? thin : cell.border?.right,
+            };
+          }
+        }
+      };
+
+      // ─── Logo on A1:A3 ───
+      const logoData = await fetchAsDataUrl(`${location.origin}/logo/new logo.png`);
+      if (logoData) {
+        const p = parseDataUrl(logoData);
+        if (p) {
+          const id = wb.addImage({ base64: p.base64, extension: p.extension });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ws.addImage(id, { tl: { col: 0.2, row: 0.4 }, br: { col: 1.7, row: 2.6 }, editAs: 'oneCell' } as any);
+        }
+      }
+
+      // ─── AYRES APPAREL title B1:K3 ───
+      ws.mergeCells('B1:K3');
+      const title = ws.getCell('B1');
+      title.value = 'AYRES APPAREL';
+      title.font = { name: 'Arial', size: 26, bold: true, color: { argb: 'FF000000' } };
+      title.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      // WORK ORDER NO. label L1:L3
+      ws.mergeCells('L1:L3');
+      const woLbl = ws.getCell('L1');
+      woLbl.value = 'WORK ORDER NO.';
+      woLbl.font = { name: 'Arial', size: 9, bold: true };
+      woLbl.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      woLbl.border = allBorders;
+
+      // wo.noWo M1:N3
+      ws.mergeCells('M1:N3');
+      const woNo = ws.getCell('M1');
+      woNo.value = wo.noWo;
+      woNo.font = { name: 'Arial', size: 14, bold: true };
+      woNo.alignment = { vertical: 'middle', horizontal: 'center' };
+      woNo.border = allBorders;
+
+      // Header bottom thick line under cols A:N row 3
+      for (let c = 1; c <= 14; c++) {
+        const cell = ws.getCell(3, c);
+        cell.border = { ...cell.border, bottom: medium };
+      }
+
+      // ─── Section bars row 4 ───
+      ws.mergeCells('B4:E4');
+      const desainBar = ws.getCell('B4');
+      desainBar.value = 'DESAIN MOCK UP';
+      desainBar.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      desainBar.alignment = { vertical: 'middle', horizontal: 'center' };
+      desainBar.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } };
+      desainBar.border = allBorders;
+
+      ws.mergeCells('G4:J4');
+      const patternBar = ws.getCell('G4');
+      patternBar.value = 'PATTERN';
+      patternBar.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      patternBar.alignment = { vertical: 'middle', horizontal: 'center' };
+      patternBar.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } };
+      patternBar.border = allBorders;
+
+      // ─── DESAIN MOCK UP image area B5:E32 (image preserves aspect) ───
+      if (spec.dokumen_desain) await placeAspectImage(spec.dokumen_desain, 2, 5, 5, 32);
+      setBorder({ r1: 5, c1: 2, r2: 32, c2: 5 });
+
+      // ─── PATTERN image area G5:J32 (same height as DESAIN, balanced) ───
+      if (spec.dokumen_pattern) await placeAspectImage(spec.dokumen_pattern, 7, 5, 10, 32);
+      setBorder({ r1: 5, c1: 7, r2: 32, c2: 10 });
+
+      // ─── Keterangan Jahit B33:E38 ───
+      ws.mergeCells('B33:E33');
+      const kjLbl = ws.getCell('B33');
+      kjLbl.value = 'Keterangan Jahit :';
+      kjLbl.font = { name: 'Arial', size: 11, bold: true };
+      kjLbl.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      ws.mergeCells('B34:E38');
+      const kjVal = ws.getCell('B34');
+      kjVal.value = spec.keterangan_jahit || '';
+      kjVal.font = { name: 'Arial', size: 9 };
+      kjVal.alignment = { vertical: 'top', horizontal: 'left', wrapText: true, indent: 1 };
+      kjVal.border = allBorders;
+
+      // ─── DEADLINE B40:E40 ───
+      ws.mergeCells('B40:E40');
+      const dlCell = ws.getCell('B40');
+      dlCell.value = 'DEADLINE :';
+      dlCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFF0000' } };
+      dlCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      dlCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8E0B8' } };
+      dlCell.border = allBorders;
+
+      // ─── BAHAN table — dynamic rows from DB (preserve user's order including custom bagians) ───
+      const bahanItems = bRows.length > 0
+        ? bRows.map((r: Row) => ({ bagian: normBagian(r.bagian), bahan: String(r.bahan || '') }))
+        : DEFAULT_BAGIAN.map(b => ({ bagian: b, bahan: '' }));
+      const bahanCount = Math.max(bahanItems.length, 2);
+      const bahanStartRow = 42;
+      const bahanEndRow = bahanStartRow + bahanCount - 1;
+      for (let r = bahanStartRow; r <= bahanEndRow; r++) ws.getRow(r).height = 18;
+
+      bahanItems.forEach((item, i) => {
+        const r = bahanStartRow + i;
+        const lbl = ws.getCell(r, 2);
+        lbl.value = item.bagian;
+        lbl.font = { name: 'Arial', size: 10, bold: true };
+        lbl.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        lbl.border = allBorders;
+
+        ws.mergeCells(r, 3, r, 5);
+        const val = ws.getCell(r, 3);
+        val.value = item.bahan;
+        val.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFF0000' } };
+        val.alignment = { vertical: 'middle', horizontal: 'center' };
+        val.border = allBorders;
+      });
+
+      // ─── Font & Number G(start):I(end) — same row range as BAHAN ───
+      ws.mergeCells(`G${bahanStartRow}:I${bahanStartRow}`);
+      const fnLbl = ws.getCell(`G${bahanStartRow}`);
+      fnLbl.value = 'Font & Number';
+      fnLbl.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      fnLbl.alignment = { vertical: 'middle', horizontal: 'center' };
+      fnLbl.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } };
+      fnLbl.border = allBorders;
+
+      ws.mergeCells(`G${bahanStartRow + 1}:I${bahanEndRow}`);
+      const fnVal = ws.getCell(`G${bahanStartRow + 1}`);
+      fnVal.value = spec.font_nomor || '';
+      fnVal.font = { name: 'Arial', size: 9 };
+      fnVal.alignment = { vertical: 'top', horizontal: 'left', wrapText: true, indent: 1 };
+      fnVal.border = allBorders;
+
+      // ─── Approval Admin/Data J(start):K(end) ───
+      ws.mergeCells(`J${bahanStartRow}:K${bahanStartRow}`);
+      const aaLbl = ws.getCell(`J${bahanStartRow}`);
+      aaLbl.value = 'Approval Admin / Data';
+      aaLbl.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
+      aaLbl.alignment = { vertical: 'middle', horizontal: 'center' };
+      aaLbl.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } };
+      aaLbl.border = allBorders;
+
+      ws.mergeCells(`J${bahanStartRow + 1}:K${bahanEndRow}`);
+      const aaVal = ws.getCell(`J${bahanStartRow + 1}`);
+      aaVal.value = spec.approval_admin || '';
+      aaVal.font = { name: 'Arial', size: 9 };
+      aaVal.alignment = { vertical: 'top', horizontal: 'left', wrapText: true, indent: 1 };
+      aaVal.border = allBorders;
+
+      // ─── Right column: Customer block L4:N7 ───
+      ws.mergeCells('L4:N4');
+      const custHdr = ws.getCell('L4');
+      custHdr.value = 'Customer';
+      custHdr.font = { name: 'Arial', size: 10, bold: true };
+      custHdr.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      custHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+      custHdr.border = allBorders;
+
+      const custFields: [string, string][] = [
+        ['Nama', wo.customer || ''],
+        ['Paket', wo.paket || ''],
+        ['Jumlah', `${spec.jumlah || 0} PCS`],
+      ];
+      custFields.forEach(([k, v], i) => {
+        const r = 5 + i;
+        const lbl = ws.getCell(r, 12);
+        lbl.value = k;
+        lbl.font = { name: 'Arial', size: 9, bold: true, italic: true, underline: true };
+        lbl.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        lbl.border = allBorders;
+        ws.mergeCells(r, 13, r, 14);
+        const val = ws.getCell(r, 13);
+        val.value = v;
+        val.font = { name: 'Arial', size: 9, bold: true };
+        val.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        val.border = allBorders;
+      });
+
+      // ─── Accessories block L8:N14 ───
+      ws.mergeCells('L8:N8');
+      const accHdr = ws.getCell('L8');
+      accHdr.value = 'Accessories';
+      accHdr.font = { name: 'Arial', size: 10, bold: true };
+      accHdr.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      accHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+      accHdr.border = allBorders;
+
+      acc.forEach(([k, v], i) => {
+        const r = 9 + i;
+        const lbl = ws.getCell(r, 12);
+        lbl.value = k;
+        lbl.font = { name: 'Arial', size: 9, bold: true, italic: true, underline: true };
+        lbl.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        lbl.border = allBorders;
+        ws.mergeCells(r, 13, r, 14);
+        const val = ws.getCell(r, 13);
+        val.value = v;
+        val.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFF0000' } };
+        val.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        val.border = allBorders;
+      });
+
+      // ─── PENANGGUNG JAWAB block L15:N(15+14) ───
+      ws.mergeCells('L15:N15');
+      const pjHdr = ws.getCell('L15');
+      pjHdr.value = 'PENANGGUNG JAWAB';
+      pjHdr.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      pjHdr.alignment = { vertical: 'middle', horizontal: 'center' };
+      pjHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } };
+      pjHdr.border = allBorders;
+
+      stages.forEach((stage, i) => {
+        const r = 16 + i;
+        const lbl = ws.getCell(r, 12);
+        lbl.value = `${i + 1}. ${stage}`;
+        lbl.font = { name: 'Arial', size: 9, bold: true };
+        lbl.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        lbl.border = allBorders;
+        ws.mergeCells(r, 13, r, 14);
+        ws.getCell(r, 13).border = allBorders;
+      });
+
+      // ─── EXPORT & ICC PRINT bottom right L(start):N(end) ───
+      ws.mergeCells(`L${bahanStartRow}:L${bahanEndRow}`);
+      const eiLbl = ws.getCell(`L${bahanStartRow}`);
+      eiLbl.value = 'EXPORT\n& ICC\nPRINT';
+      eiLbl.font = { name: 'Arial', size: 10, bold: true };
+      eiLbl.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      eiLbl.border = allBorders;
+
+      ws.mergeCells(`M${bahanStartRow}:N${bahanEndRow}`);
+      const eiVal = ws.getCell(`M${bahanStartRow}`);
+      eiVal.value = spec.export_icc || 'JPEG-RGB';
+      eiVal.font = { name: 'Arial', size: 13, bold: true };
+      eiVal.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      eiVal.border = allBorders;
+
+      // Set print area
+      ws.pageSetup.printArea = `A1:N${bahanEndRow}`;
+
+      // Generate file
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Spesifikasi-${wo.noWo}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Excel Berhasil', `Spesifikasi-${wo.noWo}.xlsx`);
+    } catch (e) { toast.error('Gagal Export Excel', String(e)); }
+  }
+
   async function openEditSpec(spec: Row) {
     try {
       // Fetch fresh data from DB
@@ -915,6 +1306,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
             </div>
             {specs.filter((s: Row) => s.id === selectedSpecId).map((spec: Row) => (
               <div key={spec.id} className="flex items-center gap-2 pr-1">
+                <button onClick={() => handleExportExcel(spec.id)} className="flex items-center gap-1.5 text-xs text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg hover:bg-emerald-500/10 transition-colors">Export Excel</button>
                 <button onClick={() => handleDownloadPDF(spec.id)} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
                 <button onClick={() => openEditSpec(spec)} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Edit</button>
                 <button onClick={() => handleDeleteSpec(spec)} className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/20 bg-red-500/10 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-colors">Hapus</button>

@@ -34,7 +34,8 @@
       "Bash(/c/xampp/mysql/bin/mysql.exe:*)",
       "Bash(node -e ':*)",
       "Bash(npx tsc *)",
-      "Bash(tasklist)"
+      "Bash(tasklist)",
+      "Bash(npx eslint *)"
     ]
   }
 }
