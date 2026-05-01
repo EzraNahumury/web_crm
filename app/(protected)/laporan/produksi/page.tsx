@@ -7,9 +7,10 @@ import DateRangePicker, { today, formatPeriod } from '../date-range-picker';
 type Row = Record<string, any>;
 
 const TAHAP_PRODUKSI = [
-  'Proofing', 'Printing Layout', 'Approval Layout', 'Printing Process',
-  'Sublim Press', 'QC Panel Process', 'Fabric Cutting', 'QC Cutting',
-  'Sewing', 'QC Jersey', 'Finishing', 'Shipment',
+  'Approval Design', 'Approval Pattern', 'Proofing', 'Printing Layout',
+  'Approval Layout', 'Printing Process', 'Sublim Press', 'QC Panel Process',
+  'Fabric Cutting', 'QC Cutting', 'Sewing', 'QC Jersey',
+  'Steam Jersey', 'Finishing', 'Shipment',
 ];
 
 export default function LaporanProduksiPage() {

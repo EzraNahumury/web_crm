@@ -374,18 +374,21 @@ CREATE TABLE `production_stages` (
 --
 
 INSERT INTO `production_stages` (`id`, `urutan`, `nama`, `created_at`) VALUES
-(1, 1, 'Proofing', '2026-04-01 06:23:47'),
-(2, 2, 'Printing Layout', '2026-04-01 06:23:47'),
-(3, 3, 'Approval Layout', '2026-04-01 06:23:47'),
-(4, 4, 'Printing Process', '2026-04-01 06:23:47'),
-(5, 5, 'Sublim Press', '2026-04-01 06:23:47'),
-(6, 6, 'QC Panel Process', '2026-04-01 06:23:47'),
-(7, 7, 'Fabric Cutting', '2026-04-01 06:23:47'),
-(8, 8, 'QC Cutting', '2026-04-01 06:23:47'),
-(9, 9, 'Sewing', '2026-04-01 06:23:47'),
-(10, 10, 'QC Jersey', '2026-04-01 06:23:47'),
-(11, 11, 'Finishing', '2026-04-01 06:23:47'),
-(12, 12, 'Shipment', '2026-04-01 06:23:47');
+(1, 3, 'Proofing', '2026-04-01 06:23:47'),
+(2, 4, 'Printing Layout', '2026-04-01 06:23:47'),
+(3, 5, 'Approval Layout', '2026-04-01 06:23:47'),
+(4, 6, 'Printing Process', '2026-04-01 06:23:47'),
+(5, 7, 'Sublim Press', '2026-04-01 06:23:47'),
+(6, 8, 'QC Panel Process', '2026-04-01 06:23:47'),
+(7, 9, 'Fabric Cutting', '2026-04-01 06:23:47'),
+(8, 10, 'QC Cutting', '2026-04-01 06:23:47'),
+(9, 11, 'Sewing', '2026-04-01 06:23:47'),
+(10, 12, 'QC Jersey', '2026-04-01 06:23:47'),
+(11, 14, 'Finishing', '2026-04-01 06:23:47'),
+(12, 15, 'Shipment', '2026-04-01 06:23:47'),
+(13, 1, 'Approval Design', '2026-05-01 00:00:00'),
+(14, 2, 'Approval Pattern', '2026-05-01 00:00:00'),
+(15, 13, 'Steam Jersey', '2026-05-01 00:00:00');
 
 -- --------------------------------------------------------
 
@@ -1245,7 +1248,7 @@ ALTER TABLE `pecah_pola`
 -- AUTO_INCREMENT for table `production_stages`
 --
 ALTER TABLE `production_stages`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
 
 --
 -- AUTO_INCREMENT for table `promo`

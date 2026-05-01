@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { apiGetOrders, apiGetOrdersForce } from '@/lib/api';
@@ -281,11 +280,11 @@ export default function OrdersPage() {
             </button>
           )}
           {user?.role === 'cs' && (
-            <Link href="/orders/new"
+            <button onClick={() => setCreateOpen(true)}
               className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-[13px] font-medium transition-colors shadow-lg shadow-indigo-600/20">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4v16m8-8H4"/></svg>
               Input Order
-            </Link>
+            </button>
           )}
         </div>
       </div>

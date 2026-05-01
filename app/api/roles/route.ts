@@ -136,6 +136,15 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ success: false, error: 'ID required' }, { status: 400 });
 
+    const users = await query<{ nama: string }>('SELECT nama FROM users WHERE role_id = ?', [id]);
+    if (users.length > 0) {
+      const names = users.map(u => u.nama).join(', ');
+      return NextResponse.json(
+        { success: false, error: `Role tidak bisa dihapus karena masih dipakai oleh user: ${names}` },
+        { status: 409 }
+      );
+    }
+
     const affected = await execute('DELETE FROM `roles` WHERE id = ?', [id]);
     return NextResponse.json({ success: true, data: { affected } });
   } catch (err) {

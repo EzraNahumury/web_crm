@@ -94,12 +94,10 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const [kabupaten, setKabupaten] = useState('');
   const [kecId, setKecId] = useState('');
   const [kecamatan, setKecamatan] = useState('');
-  const [desa, setDesa] = useState('');
 
   const { data: provList, loading: provLoading } = useWilayah('provinces');
   const { data: kabList, loading: kabLoading } = useWilayah('regencies', provId);
   const { data: kecList, loading: kecLoading } = useWilayah('districts', kabId);
-  const { data: desaList, loading: desaLoading } = useWilayah('villages', kecId);
   const [noHp, setNoHp] = useState('');
   const [leadId, setLeadId] = useState('');
   const [namaTim, setNamaTim] = useState('');
@@ -170,7 +168,6 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
           nama: customer,
           no_hp: noHp || null,
           alamat_lengkap: alamat || null,
-          desa_kelurahan: desa || null,
           kecamatan: kecamatan || null,
           kabupaten_kota: kabupaten || null,
           provinsi: provinsi || null,
@@ -189,7 +186,6 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
         customer_nama: customer,
         customer_phone: noHp,
         customer_alamat: alamat,
-        customer_desa: desa,
         customer_kecamatan: kecamatan,
         customer_kabupaten: kabupaten,
         customer_provinsi: provinsi,
@@ -254,7 +250,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   function handleReset() {
     setCustomer(''); setAlamat(''); setProvId(''); setProvinsi('');
     setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
-    setDesa(''); setNoHp(''); setLeadId(''); setNamaTim('');
+    setNoHp(''); setLeadId(''); setNamaTim('');
     setItems([{ id: 1, paket: '', qty: 0 }]); setTglOrder(today());
     setDetailBahan(initDetailBahan());
     setDeadline(weekLater()); setTglAccProofing(''); setKeterangan('');
@@ -305,7 +301,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 <select value={provId} onChange={e => {
                   const sel = provList.find(p => p.id === e.target.value);
                   setProvId(e.target.value); setProvinsi(sel?.name || '');
-                  setKabId(''); setKabupaten(''); setKecId(''); setKecamatan(''); setDesa('');
+                  setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
                 }} className={selectCls} disabled={provLoading}>
                   <option value="">{provLoading ? 'Memuat...' : 'Pilih provinsi...'}</option>
                   {provList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -316,31 +312,21 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 <select value={kabId} onChange={e => {
                   const sel = kabList.find(k => k.id === e.target.value);
                   setKabId(e.target.value); setKabupaten(sel?.name || '');
-                  setKecId(''); setKecamatan(''); setDesa('');
+                  setKecId(''); setKecamatan('');
                 }} className={selectCls} disabled={!provId || kabLoading}>
                   <option value="">{kabLoading ? 'Memuat...' : !provId ? 'Pilih provinsi dulu' : 'Pilih kabupaten/kota...'}</option>
                   {kabList.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelCls}>Kecamatan</label>
-                  <select value={kecId} onChange={e => {
+              <div>
+                <label className={labelCls}>Kecamatan</label>
+                <select value={kecId} onChange={e => {
                     const sel = kecList.find(k => k.id === e.target.value);
                     setKecId(e.target.value); setKecamatan(sel?.name || '');
-                    setDesa('');
                   }} className={selectCls} disabled={!kabId || kecLoading}>
-                    <option value="">{kecLoading ? 'Memuat...' : !kabId ? 'Pilih kab/kota dulu' : 'Pilih kecamatan...'}</option>
-                    {kecList.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className={labelCls}>Desa/Kelurahan</label>
-                  <select value={desa} onChange={e => setDesa(e.target.value)} className={selectCls} disabled={!kecId || desaLoading}>
-                    <option value="">{desaLoading ? 'Memuat...' : !kecId ? 'Pilih kecamatan dulu' : 'Pilih desa...'}</option>
-                    {desaList.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                  </select>
-                </div>
+                  <option value="">{kecLoading ? 'Memuat...' : !kabId ? 'Pilih kab/kota dulu' : 'Pilih kecamatan...'}</option>
+                  {kecList.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+                </select>
               </div>
               <div>
                 <label className={labelCls}>No HP</label>

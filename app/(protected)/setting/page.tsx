@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
+import { useToast } from '@/lib/toast';
 
 type SettingTab = 'whatsapp' | 'users' | 'roles';
 
@@ -31,6 +32,7 @@ interface UserRow {
 const MENU_ITEMS = ['Dashboard','Orders','Work Orders','Produksi','Laporan','Stok','Settings','Master Data'];
 
 export default function SettingPage() {
+  const toast = useToast();
   const [tab, setTab] = useState<SettingTab>('whatsapp');
   const [waEnabled, setWaEnabled] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -252,9 +254,13 @@ export default function SettingPage() {
       if (json.success) {
         setDeleteConfirm(null);
         fetchRoles();
+        toast.deleted('Role Dihapus', `Role "${role.nama}" berhasil dihapus.`);
+      } else {
+        toast.error('Gagal Hapus Role', json.error || 'Terjadi kesalahan.');
       }
     } catch (err) {
       console.error('Failed to delete role:', err);
+      toast.error('Gagal Hapus Role', String(err));
     }
   };
 
