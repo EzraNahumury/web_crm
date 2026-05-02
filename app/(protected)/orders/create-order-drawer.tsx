@@ -174,10 +174,13 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
         });
       }
 
-      // Generate no_order
+      // Generate no_order based on highest existing number to avoid duplicates after deletions
       const orders = await dbGet('orders');
-      const nextNum = orders.length + 1;
-      const noOrder = `ORD${String(nextNum).padStart(3, '0')}`;
+      const maxNum = orders.reduce((max: number, o: { no_order?: string }) => {
+        const match = o.no_order?.match(/^ORD(\d+)$/);
+        return match ? Math.max(max, parseInt(match[1], 10)) : max;
+      }, 0);
+      const noOrder = `ORD${String(maxNum + 1).padStart(3, '0')}`;
 
       // Create order
       const orderId = await dbCreate('orders', {
