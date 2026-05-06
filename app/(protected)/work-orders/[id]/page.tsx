@@ -1823,8 +1823,30 @@ function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }:
 }
 
 /* ═══ Tab WO 3 — Detail Order Items ═══ */
+// Keterangan can be a single plain string (legacy) or a JSON array of strings (multi-ket).
+function parseKets(raw: unknown): string[] {
+  if (raw == null) return [''];
+  const s = String(raw);
+  const trimmed = s.trim();
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const arr = JSON.parse(trimmed);
+      if (Array.isArray(arr)) {
+        const out = arr.map(v => String(v ?? ''));
+        return out.length > 0 ? out : [''];
+      }
+    } catch {}
+  }
+  return [s];
+}
+function serializeKets(kets: string[]): string {
+  if (!kets || kets.length === 0) return '';
+  if (kets.length === 1) return kets[0] || '';
+  return JSON.stringify(kets.map(k => k ?? ''));
+}
+
 function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: propSpecBahan }: { wo: Row; detailItems: Row[]; specs: Row[]; specBahan: Row[] }) {
-  type ItemRow = { id: number; nama: string; np: string; ukuran: string; keterangan: string; penjahit: string; isNew?: boolean };
+  type ItemRow = { id: number; nama: string; np: string; ukuran: string; keterangans: string[]; penjahit: string; isNew?: boolean };
   const [rows, setRows] = useState<ItemRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1833,6 +1855,10 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
   const [specs, setSpecs] = useState<Row[]>(propSpecs);
   const [specBahan, setSpecBahan] = useState<Row[]>(propSpecBahan);
   const toast = useToast();
+
+  const numKetCols = useMemo(() => {
+    return Math.max(1, ...rows.map(r => r.keterangans?.length || 1));
+  }, [rows]);
 
   // Fetch fresh spec data so any changes in WO1 reflect here
   useEffect(() => {
@@ -1873,9 +1899,11 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       const all = await dbGet('wo_detail_items');
       const items = all.filter((r: Row) => String(r.work_order_id) === String(wo.id));
       if (items.length > 0) {
-        setRows(items.map((r: Row) => ({ id: r.id, nama: r.nama || '', np: r.np || '', ukuran: r.ukuran || '', keterangan: r.keterangan || '', penjahit: r.kerah || '' })));
+        const parsed = items.map((r: Row) => ({ id: r.id, nama: r.nama || '', np: r.np || '', ukuran: r.ukuran || '', keterangans: parseKets(r.keterangan), penjahit: r.kerah || '' }));
+        const maxKets = Math.max(1, ...parsed.map((r: ItemRow) => r.keterangans.length));
+        setRows(parsed.map((r: ItemRow) => ({ ...r, keterangans: Array.from({ length: maxKets }, (_, i) => r.keterangans[i] ?? '') })));
       } else {
-        setRows(Array.from({ length: 5 }, (_, i) => ({ id: -(i + 1), nama: '', np: '', ukuran: '', keterangan: '', penjahit: '', isNew: true })));
+        setRows(Array.from({ length: 5 }, (_, i) => ({ id: -(i + 1), nama: '', np: '', ukuran: '', keterangans: [''], penjahit: '', isNew: true })));
       }
     } catch { setRows([]); }
     setLoading(false);
@@ -1883,11 +1911,32 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
 
   useEffect(() => { fetchItems(); }, []);
 
-  function updateRow(id: number, field: keyof ItemRow, value: string) {
+  function updateRow(id: number, field: 'nama' | 'np' | 'ukuran' | 'penjahit', value: string) {
     setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
   }
 
-  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>, rowId: number, field: keyof ItemRow) {
+  function updateKet(rowId: number, ketIdx: number, value: string) {
+    setRows(prev => prev.map(r => {
+      if (r.id !== rowId) return r;
+      const next = [...r.keterangans];
+      while (next.length <= ketIdx) next.push('');
+      next[ketIdx] = value;
+      return { ...r, keterangans: next };
+    }));
+  }
+
+  function addKetCol() {
+    setRows(prev => prev.map(r => ({ ...r, keterangans: [...r.keterangans, ''] })));
+  }
+
+  function removeKetCol(idx: number) {
+    if (numKetCols <= 1) return;
+    setRows(prev => prev.map(r => ({ ...r, keterangans: r.keterangans.filter((_, i) => i !== idx) })));
+  }
+
+  type PasteField = 'nama' | 'np' | 'ukuran' | 'penjahit' | { ketIdx: number };
+
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>, rowId: number, field: PasteField) {
     const text = e.clipboardData.getData('text');
     if (!text) return;
 
@@ -1907,18 +1956,24 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
     const firstColAllNum = parsed.every(r => /^\d+$/.test((r[0] || '').trim()));
     const startCol = firstColAllNum && maxCols >= 2 ? 1 : 0;
 
-    // When pasting multiple columns, columns map to NAMA → NP → SIZE → KET
-    // regardless of which field the user clicked into.
+    // When pasting multiple columns, columns map to NAMA → NP → SIZE → KET1 → KET2 ...
     // When pasting a single column, fill into the field the user clicked.
-    const cols: (keyof ItemRow)[] = maxCols - startCol === 1
+    const cols: PasteField[] = maxCols - startCol === 1
       ? [field]
-      : ['nama', 'np', 'ukuran', 'keterangan'];
+      : ['nama', 'np', 'ukuran', ...Array.from({ length: numKetCols }, (_, i) => ({ ketIdx: i } as PasteField))];
 
-    const newData = parsed.map(r => {
+    type ParsedRow = { nama?: string; np?: string; ukuran?: string; penjahit?: string; kets?: Record<number, string> };
+    const newData: ParsedRow[] = parsed.map(r => {
       const data = r.slice(startCol).map(c => c.trim());
-      const obj: Record<string, string> = {};
+      const obj: ParsedRow = {};
       for (let i = 0; i < cols.length && i < data.length; i++) {
-        obj[cols[i] as string] = data[i];
+        const col = cols[i];
+        if (typeof col === 'object') {
+          if (!obj.kets) obj.kets = {};
+          obj.kets[col.ketIdx] = data[i];
+        } else {
+          obj[col] = data[i];
+        }
       }
       return obj;
     });
@@ -1929,15 +1984,34 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       const next = [...prev];
       for (let i = 0; i < newData.length; i++) {
         const targetIdx = startIdx + i;
+        const d = newData[i];
+        const apply = (row: ItemRow): ItemRow => {
+          let kets = row.keterangans;
+          if (d.kets) {
+            kets = [...kets];
+            for (const [k, v] of Object.entries(d.kets)) {
+              const idx = Number(k);
+              while (kets.length <= idx) kets.push('');
+              kets[idx] = v;
+            }
+          }
+          return {
+            ...row,
+            ...(d.nama !== undefined ? { nama: d.nama } : {}),
+            ...(d.np !== undefined ? { np: d.np } : {}),
+            ...(d.ukuran !== undefined ? { ukuran: d.ukuran } : {}),
+            ...(d.penjahit !== undefined ? { penjahit: d.penjahit } : {}),
+            keterangans: kets,
+          };
+        };
         if (targetIdx < next.length) {
-          next[targetIdx] = { ...next[targetIdx], ...newData[i] };
+          next[targetIdx] = apply(next[targetIdx]);
         } else {
-          next.push({
+          next.push(apply({
             id: -(Date.now() + i + 1),
-            nama: '', np: '', ukuran: '', keterangan: '', penjahit: '',
-            ...newData[i],
+            nama: '', np: '', ukuran: '', keterangans: Array.from({ length: numKetCols }, () => ''), penjahit: '',
             isNew: true,
-          } as ItemRow);
+          }));
         }
       }
       return next;
@@ -1947,7 +2021,7 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
   }
 
   function addRow() {
-    setRows(prev => [...prev, { id: -Date.now(), nama: '', np: '', ukuran: '', keterangan: '', penjahit: '', isNew: true }]);
+    setRows(prev => [...prev, { id: -Date.now(), nama: '', np: '', ukuran: '', keterangans: Array.from({ length: numKetCols }, () => ''), penjahit: '', isNew: true }]);
   }
 
   const SIZE_ORDER: Record<string, number> = { 'XS': 1, 'S': 2, 'M': 3, 'L': 4, 'XL': 5, '2XL': 6, 'XXL': 6, '3XL': 7, 'XXXL': 7, '4XL': 8, '5XL': 9 };
@@ -1970,14 +2044,15 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       const existing = await dbGet('wo_detail_items');
       const oldRows = existing.filter((r: Row) => String(r.work_order_id) === String(wo.id));
       for (const old of oldRows) { await dbDelete('wo_detail_items', Number(old.id)); }
-      // Insert all current rows
+      // Insert all current rows that have any data
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
-        if (r.nama.trim() || r.np.trim() || r.ukuran.trim()) {
+        const hasData = r.nama.trim() || r.np.trim() || r.ukuran.trim() || r.penjahit.trim() || r.keterangans.some(k => k.trim());
+        if (hasData) {
           await dbCreate('wo_detail_items', {
             work_order_id: wo.id, urutan: i + 1,
             nama: r.nama, np: r.np, ukuran: r.ukuran,
-            keterangan: r.keterangan, kerah: r.penjahit,
+            keterangan: serializeKets(r.keterangans), kerah: r.penjahit,
           });
         }
       }
@@ -2041,9 +2116,10 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
         const size = String(row[cols.size] ?? '').trim();
         const ket = cols.ket >= 0 ? String(row[cols.ket] ?? '').trim() : '';
         if (!nama && !np && !size && !ket) continue;
+        const kets = Array.from({ length: numKetCols }, (_, idx) => idx === 0 ? ket : '');
         imported.push({
           id: -(Date.now() + imported.length),
-          nama, np, ukuran: size, keterangan: ket, penjahit: '', isNew: true,
+          nama, np, ukuran: size, keterangans: kets, penjahit: '', isNew: true,
         });
       }
 
@@ -2053,7 +2129,7 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       }
 
       // If existing rows are all empty placeholders, replace them; otherwise append
-      const allEmpty = rows.every(r => !r.nama.trim() && !r.np.trim() && !r.ukuran.trim() && !r.keterangan.trim() && !r.penjahit.trim());
+      const allEmpty = rows.every(r => !r.nama.trim() && !r.np.trim() && !r.ukuran.trim() && r.keterangans.every(k => !k.trim()) && !r.penjahit.trim());
       setRows(prev => allEmpty ? imported : [...prev, ...imported]);
       toast.success('Upload Berhasil', `${imported.length} baris dimuat. Klik Simpan Data untuk menyimpan.`);
     } catch (err) {
@@ -2100,7 +2176,8 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       const XLSX = (await import('xlsx-js-style')).default;
       const { topRow, dataCols } = buildBagianHeaders();
       const totalBagianCells = dataCols.reduce((a, b) => a + b, 0);
-      const totalCols = 5 + totalBagianCells + 1; // NO,NAMA,NP,SIZE,KET + bagian + PENJAHIT
+      const fixedLeftCols = 4 + numKetCols; // NO, NAMA, NP, SIZE + KET cols
+      const totalCols = fixedLeftCols + totalBagianCells + 1; // + PENJAHIT
 
       // Row 0: title (merged across all cols)
       // Row 1: customer (merged across all cols)
@@ -2112,8 +2189,9 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       const custRow: (string | null)[] = [`Customer: ${wo.customer}`, ...Array(totalCols - 1).fill('')];
       const spacerRow: string[] = Array(totalCols).fill('');
 
-      const topHeader: string[] = ['NO', 'NAMA', 'NP', 'SIZE', 'KET'];
-      const subHeader: string[] = ['', '', '', '', ''];
+      const ketHeaders = Array.from({ length: numKetCols }, (_, i) => i === 0 ? 'KET' : `KET ${i + 1}`);
+      const topHeader: string[] = ['NO', 'NAMA', 'NP', 'SIZE', ...ketHeaders];
+      const subHeader: string[] = Array(fixedLeftCols).fill('');
       for (const cell of topRow) {
         if (typeof cell === 'object' && cell.colSpan) {
           topHeader.push(cell.content);
@@ -2136,7 +2214,8 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       subHeader.push('');
 
       const dataRows = rows.map((r, i) => [
-        i + 1, r.nama, r.np, r.ukuran, r.keterangan,
+        i + 1, r.nama, r.np, r.ukuran,
+        ...Array.from({ length: numKetCols }, (_, k) => r.keterangans[k] ?? ''),
         ...Array(totalBagianCells).fill(''),
         r.penjahit,
       ]);
@@ -2150,12 +2229,12 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } });
       merges.push({ s: { r: 1, c: 0 }, e: { r: 1, c: totalCols - 1 } });
       // Fixed left header cols rowSpan=2 (rows 3-4)
-      for (let c = 0; c < 5; c++) merges.push({ s: { r: 3, c }, e: { r: 4, c } });
+      for (let c = 0; c < fixedLeftCols; c++) merges.push({ s: { r: 3, c }, e: { r: 4, c } });
       // PENJAHIT rowSpan=2
-      const lastCol = 5 + totalBagianCells;
+      const lastCol = fixedLeftCols + totalBagianCells;
       merges.push({ s: { r: 3, c: lastCol }, e: { r: 4, c: lastCol } });
       // Grouped bagian headers
-      let colOffset = 5;
+      let colOffset = fixedLeftCols;
       for (const col of bagianCols) {
         const cfg = BAGIAN_CONFIG[col.bagian] || { label: col.bagian };
         const span = cfg.subCols?.length || 1;
@@ -2169,7 +2248,8 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       ws['!merges'] = merges;
 
       ws['!cols'] = [
-        { wch: 5 }, { wch: 22 }, { wch: 8 }, { wch: 8 }, { wch: 18 },
+        { wch: 5 }, { wch: 22 }, { wch: 8 }, { wch: 8 },
+        ...Array(numKetCols).fill({ wch: 18 }),
         ...Array(totalBagianCells).fill({ wch: 11 }),
         { wch: 20 },
       ];
@@ -2212,7 +2292,8 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
         const stripe = r % 2 === 1 ? { fgColor: { rgb: 'F1F5F9' } } : undefined;
         for (let c = 0; c < totalCols; c++) {
           const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
-          const isLeft = c === 1 || c === 4 || c === totalCols - 1; // NAMA, KET, PENJAHIT
+          const isKetCol = c >= 4 && c < 4 + numKetCols;
+          const isLeft = c === 1 || isKetCol || c === totalCols - 1; // NAMA, KET cols, PENJAHIT
           const align = { horizontal: isLeft ? 'left' : 'center', vertical: 'center', wrapText: true };
           const style: Record<string, unknown> = { border: BORDER, alignment: align, font: { sz: 10, color: { rgb: '1E293B' } } };
           if (stripe) style.fill = stripe;
@@ -2245,39 +2326,47 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
 
       const { topRow, subRow, dataCols } = buildBagianHeaders();
       const totalBagianCells = dataCols.reduce((a, b) => a + b, 0);
-      const penjahitIdx = 5 + totalBagianCells;
+      const fixedLeftCols = 4 + numKetCols;
+      const penjahitIdx = fixedLeftCols + totalBagianCells;
 
+      const ketCells = Array.from({ length: numKetCols }, (_, i) => ({ content: i === 0 ? 'KET' : `KET ${i + 1}`, rowSpan: 2 }));
       const headRow1: Array<string | { content: string; colSpan?: number; rowSpan?: number }> = [
         { content: 'NO', rowSpan: 2 },
         { content: 'NAMA', rowSpan: 2 },
         { content: 'NP', rowSpan: 2 },
         { content: 'SIZE', rowSpan: 2 },
-        { content: 'KET', rowSpan: 2 },
+        ...ketCells,
         ...topRow,
         { content: 'PENJAHIT', rowSpan: 2 },
       ];
       const head = subRow.length > 0 ? [headRow1, subRow] : [headRow1];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const columnStyles: Record<number, any> = {
+        0: { cellWidth: 10 },
+        1: { cellWidth: 28, halign: 'left' },
+        2: { cellWidth: 12 },
+        3: { cellWidth: 12 },
+        [penjahitIdx]: { cellWidth: 22, halign: 'left' },
+      };
+      for (let i = 0; i < numKetCols; i++) {
+        columnStyles[4 + i] = { cellWidth: 20, halign: 'left' };
+      }
 
       autoTable(pdf, {
         startY: 32,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         head: head as any,
         body: rows.map((r, i) => [
-          i + 1, r.nama, r.np, r.ukuran, r.keterangan,
+          i + 1, r.nama, r.np, r.ukuran,
+          ...Array.from({ length: numKetCols }, (_, k) => r.keterangans[k] ?? ''),
           ...Array(totalBagianCells).fill(''),
           r.penjahit,
         ]),
         styles: { fontSize: 7, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
         headStyles: { fillColor: [30, 58, 95], fontSize: 7, halign: 'center', valign: 'middle', lineWidth: 0.3, lineColor: [0, 0, 0] },
         bodyStyles: { halign: 'center' },
-        columnStyles: {
-          0: { cellWidth: 10 },
-          1: { cellWidth: 28, halign: 'left' },
-          2: { cellWidth: 12 },
-          3: { cellWidth: 12 },
-          4: { cellWidth: 20, halign: 'left' },
-          [penjahitIdx]: { cellWidth: 22, halign: 'left' },
-        },
+        columnStyles,
       });
       pdf.save(`Detail-Order-${wo.noWo}.pdf`);
       toast.success('PDF Berhasil', `Detail-Order-${wo.noWo}.pdf`);
@@ -2310,6 +2399,14 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
             {uploading ? 'Memproses...' : 'Upload Excel'}
           </button>
+          <button
+            onClick={addKetCol}
+            title="Tambah kolom keterangan (KET 2, KET 3, ...)"
+            className="flex items-center gap-1.5 text-xs text-amber-400 border border-amber-500/20 px-3 py-1.5 rounded-lg hover:bg-amber-500/10 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+            Tambah Keterangan
+          </button>
           <button onClick={handleExportExcel} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Export Excel</button>
           <button onClick={handleDownloadPdfWO3} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
           <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
@@ -2334,7 +2431,18 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
                   </button>
                 </span>
               </th>
-              <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">KET</th>
+              {Array.from({ length: numKetCols }, (_, idx) => (
+                <th key={`ket-h-${idx}`} className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">
+                  <span className="flex items-center gap-1">
+                    {idx === 0 ? 'KET' : `KET ${idx + 1}`}
+                    {idx > 0 && (
+                      <button onClick={() => removeKetCol(idx)} className="text-slate-600 hover:text-red-400 transition-colors" title={`Hapus KET ${idx + 1}`}>
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    )}
+                  </span>
+                </th>
+              ))}
               <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">PENJAHIT</th>
               <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider"></th>
             </tr></thead>
@@ -2345,7 +2453,17 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
                   <td className="px-4 py-3"><input value={p.nama} onChange={e => updateRow(p.id, 'nama', e.target.value)} onPaste={e => handlePaste(e, p.id, 'nama')} placeholder="Nama" className="bg-transparent text-sm text-emerald-400 placeholder-slate-600 focus:outline-none w-full" /></td>
                   <td className="px-4 py-3"><input value={p.np} onChange={e => updateRow(p.id, 'np', e.target.value)} onPaste={e => handlePaste(e, p.id, 'np')} placeholder="NP" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
                   <td className="px-4 py-3"><input value={p.ukuran} onChange={e => updateRow(p.id, 'ukuran', e.target.value)} onPaste={e => handlePaste(e, p.id, 'ukuran')} placeholder="Size" className="bg-transparent text-sm font-bold text-white placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input value={p.keterangan} onChange={e => updateRow(p.id, 'keterangan', e.target.value)} onPaste={e => handlePaste(e, p.id, 'keterangan')} placeholder="Keterangan" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                  {Array.from({ length: numKetCols }, (_, idx) => (
+                    <td key={`ket-${p.id}-${idx}`} className="px-4 py-3">
+                      <input
+                        value={p.keterangans[idx] ?? ''}
+                        onChange={e => updateKet(p.id, idx, e.target.value)}
+                        onPaste={e => handlePaste(e, p.id, { ketIdx: idx })}
+                        placeholder={idx === 0 ? 'Keterangan' : `Keterangan ${idx + 1}`}
+                        className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full"
+                      />
+                    </td>
+                  ))}
                   <td className="px-4 py-3"><input value={p.penjahit} onChange={e => updateRow(p.id, 'penjahit', e.target.value)} onPaste={e => handlePaste(e, p.id, 'penjahit')} placeholder="Penjahit" className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
                   <td className="px-4 py-3">
                     <button onClick={() => removeRow(p.id)} className="text-slate-600 hover:text-red-400 transition-colors">
@@ -2396,12 +2514,13 @@ function TabWO4({ wo }: { wo: Row; detailItems: Row[] }) {
 
       setRows(wo3Items.map((item: Row, i: number) => {
         const existing = shipMap[String(i + 1)];
+        const kets = parseKets(item.keterangan).filter(k => k.trim());
         return {
           id: item.id,
           nama: item.nama || '',
           np: item.np || '',
           ukuran: item.ukuran || '',
-          keterangan: item.keterangan || '',
+          keterangan: kets.join(' | '),
           bonus: existing?.bonus || '',
           checklist: existing?.checklist === 1 || existing?.checklist === true,
         };
