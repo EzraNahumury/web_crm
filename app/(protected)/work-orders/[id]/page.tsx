@@ -380,13 +380,13 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       <td style="width:50%;vertical-align:top;padding:0">
         <div style="border:1px solid ${BORDER};overflow:hidden">
           <div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:center;color:${ACCENT};font-size:11px;font-weight:700;letter-spacing:0.6px;background:#fef2f2;border-bottom:1px solid ${BORDER};text-transform:uppercase">Keterangan Jahit</div>
-          <div style="min-height:60px;display:flex;align-items:center;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.keterangan_jahit || '-'}</div>
+          <div style="min-height:160px;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}"></div>
         </div>
       </td>
       <td style="width:50%;vertical-align:top;padding:0">
         <div style="border:1px solid ${BORDER};overflow:hidden">
           <div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:center;background:${PRIMARY};color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Font &amp; Number</div>
-          <div style="min-height:60px;display:flex;align-items:center;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.font_nomor || '-'}</div>
+          <div style="min-height:160px;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.font_nomor || '-'}</div>
         </div>
       </td>
     </tr></table>
@@ -545,7 +545,8 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       for (let r = 1; r <= 3; r++) ws.getRow(r).height = 22;
       ws.getRow(4).height = 20;
       for (let r = 5; r <= 32; r++) ws.getRow(r).height = 14;  // image area + right block
-      for (let r = 33; r <= 38; r++) ws.getRow(r).height = 14; // Keterangan Jahit
+      ws.getRow(33).height = 18; // Keterangan Jahit label
+      for (let r = 34; r <= 38; r++) ws.getRow(r).height = 26; // Keterangan Jahit value (taller for handwriting)
       ws.getRow(39).height = 6;
       ws.getRow(40).height = 26; // DEADLINE
       ws.getRow(41).height = 6;
@@ -700,7 +701,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
 
       ws.mergeCells('B34:E38');
       const kjVal = ws.getCell('B34');
-      kjVal.value = spec.keterangan_jahit || '';
+      kjVal.value = '';
       kjVal.font = { name: 'Arial', size: 9 };
       kjVal.alignment = { vertical: 'top', horizontal: 'left', wrapText: true, indent: 1 };
       kjVal.border = allBorders;
@@ -1359,15 +1360,15 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                       <div className="grid grid-cols-2 gap-2 mt-3">
                         <div className="border border-black rounded p-2">
                           <p className="text-[10px] font-bold text-red-600 bg-red-50 px-1">KETERANGAN JAHIT</p>
-                          <p className="text-xs mt-1">{spec.keterangan_jahit || '-'}</p>
+                          <p className="text-xs mt-1 min-h-[140px]"></p>
                         </div>
                         <div className="border border-black rounded p-2">
                           <p className="text-[10px] font-bold text-center bg-blue-900 text-white px-1">FONT & NUMBER</p>
-                          <p className="text-xs mt-1">{spec.font_nomor || '-'}</p>
+                          <p className="text-xs mt-1 min-h-[140px]">{spec.font_nomor || '-'}</p>
                         </div>
                       </div>
-                      <div className="mt-2 bg-green-100 text-black text-xs font-bold px-2 py-1 inline-block border border-black">
-                        DEADLINE : {wo.deadline}
+                      <div className="mt-2 bg-green-100 text-black text-xs font-bold px-2 py-1 inline-block border border-black min-w-[260px]">
+                        DEADLINE :&nbsp;
                       </div>
                     </div>
                     <div className="space-y-2 text-xs">
