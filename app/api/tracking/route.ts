@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
         jumlah: wo.jumlah,
         keterangan: wo.keterangan || '',
         tanggal_order: order?.tanggal_order || wo.up_produksi || '',
-        deadline: wo.deadline,
+        deadline: order?.estimasi_deadline || wo.deadline,
         status: wo.status,
         progressPercent,
         currentStageName,
