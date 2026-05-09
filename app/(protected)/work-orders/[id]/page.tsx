@@ -13,6 +13,131 @@ const PROD_STAGES = [
   'QC Panel','Potong Kain','QC Cutting','Jahit','QC Jersey','Finishing','Pengiriman',
 ];
 
+// Module-level — used by per-spec PDF download (TabWO1) and combined Download All PDF (parent).
+function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
+  const bRows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
+  const stages = ['Approval Design','Approval Pattern',...PROD_STAGES];
+  const acc = [['TAGLINE',spec.tagline],['AUTHENTIC',spec.authentic],['SIZE',spec.info_ukuran],['LOGO',spec.info_logo],['PACKING',spec.info_packing],['WEBBING',spec.webbing]];
+  const PRIMARY = '#0f172a';
+  const ACCENT = '#dc2626';
+  const BORDER = '#cbd5e1';
+  const SOFT = '#f8fafc';
+  const ROW_H = 30;
+
+  const desainImg = spec.dokumen_desain ? `<img src="${spec.dokumen_desain}" style="width:100%;height:100%;object-fit:cover;display:block"/>` : `<div style="width:100%;height:100%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:14px">Desain</div>`;
+  const patternImg = spec.dokumen_pattern ? `<img src="${spec.dokumen_pattern}" style="width:100%;height:100%;object-fit:cover;display:block"/>` : `<div style="width:100%;height:100%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:14px">Pattern</div>`;
+
+  const td = `border:1px solid ${BORDER};padding:0;height:${ROW_H}px;`;
+  const flexL = `display:flex;align-items:center;height:${ROW_H}px;padding:0 12px;line-height:1.2;`;
+  const flexC = `display:flex;align-items:center;justify-content:center;height:${ROW_H}px;padding:0 12px;line-height:1.2;`;
+  const HDR = (txt: string, extraTd = '') => `<td style="${td}background:${PRIMARY};${extraTd}"><div style="${flexC}color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">${txt}</div></td>`;
+  const LBL = (txt: string, extraTd = '') => `<td style="${td}background:${SOFT};${extraTd}"><div style="${flexL}color:${PRIMARY};font-size:11px;font-weight:700">${txt}</div></td>`;
+  const VAL = (txt: string, extraTd = '', innerExtra = '') => `<td style="${td}${extraTd}"><div style="${flexL}color:${PRIMARY};font-size:11px;${innerExtra}">${txt}</div></td>`;
+  const VALc = (txt: string, extraTd = '', innerExtra = '') => `<td style="${td}${extraTd}"><div style="${flexC}color:${PRIMARY};font-size:11px;${innerExtra}">${txt}</div></td>`;
+
+  return `<div style="background:#fff;padding:30px 36px;font-family:Arial,Helvetica,sans-serif;color:${PRIMARY};width:1400px;-webkit-font-smoothing:antialiased">
+<table style="width:100%;border-collapse:collapse;margin-bottom:20px"><tr>
+  <td style="vertical-align:bottom">
+    <div style="display:flex;align-items:center;gap:12px">
+      <img src="${location.origin}/logo/new logo.png" style="height:34px" onerror="this.style.display='none'"/>
+      <span style="font-size:26px;font-weight:800;color:${PRIMARY};letter-spacing:-0.3px">AYRES APPAREL</span>
+    </div>
+    <div style="height:3px;background:${PRIMARY};margin-top:12px"></div>
+  </td>
+  <td style="vertical-align:bottom;text-align:right;width:230px">
+    <div style="font-size:9px;color:#64748b;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Work Order No.</div>
+    <div style="font-size:20px;font-weight:800;color:${PRIMARY};border:2.5px solid ${PRIMARY};padding:14px 32px;display:inline-block;line-height:1">${wo.noWo}</div>
+  </td>
+</tr></table>
+<table style="width:100%;border-collapse:separate;border-spacing:14px 0"><tr>
+  <td style="width:60%;vertical-align:top;padding:0">
+    <div style="background:${PRIMARY};height:${ROW_H}px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase">Desain Mock Up &amp; Pattern</div>
+    <div style="display:flex;gap:10px;height:520px;margin-top:8px">
+      <div style="flex:1;border:1px solid ${BORDER};overflow:hidden">${desainImg}</div>
+      <div style="flex:1;border:1px solid ${BORDER};overflow:hidden">${patternImg}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-top:10px">
+      <tr>${HDR('Nama Customer', 'width:50%')}${HDR('Nama Spesifikasi')}</tr>
+      <tr>${VALc(wo.customer, '', `color:${ACCENT};font-weight:700;font-size:12px`)}${VALc(spec.nama_spesifikasi, '', `color:${ACCENT};font-weight:700;font-size:12px`)}</tr>
+    </table>
+    <table style="width:100%;border-collapse:separate;border-spacing:10px 0;margin-top:10px"><tr>
+      <td style="width:50%;vertical-align:top;padding:0">
+        <div style="border:1px solid ${BORDER};overflow:hidden">
+          <div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:center;color:${ACCENT};font-size:11px;font-weight:700;letter-spacing:0.6px;background:#fef2f2;border-bottom:1px solid ${BORDER};text-transform:uppercase">Keterangan Jahit</div>
+          <div style="min-height:160px;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}"></div>
+        </div>
+      </td>
+      <td style="width:50%;vertical-align:top;padding:0">
+        <div style="border:1px solid ${BORDER};overflow:hidden">
+          <div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:center;background:${PRIMARY};color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Font &amp; Number</div>
+          <div style="min-height:160px;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.font_nomor || '-'}</div>
+        </div>
+      </td>
+    </tr></table>
+  </td>
+  <td style="width:40%;vertical-align:top;padding:0">
+    <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+      <tr>${LBL('NAMA', 'width:32%')}${VAL(wo.customer, '', `color:${ACCENT};font-weight:700`)}</tr>
+      <tr>${LBL('PAKET')}${VAL(wo.paket, '', `color:${ACCENT};font-weight:700`)}</tr>
+      <tr>${LBL('JUMLAH')}${VAL(`${spec.jumlah || 0} PCS`, '', `color:${ACCENT};font-weight:700`)}</tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+      <tr><td colspan="2" style="${td}background:${PRIMARY}"><div style="${flexC}color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Accessories</div></td></tr>
+      ${acc.map(([k,v], i) => `<tr>${LBL(k as string, `width:34%;${i % 2 === 1 ? 'background:#eef2f7' : ''}`)}${VAL((v as string) || '-', i % 2 === 1 ? 'background:#fafbfc' : '')}</tr>`).join('')}
+    </table>
+    <table style="width:100%;border-collapse:collapse">
+      <tr>${HDR('Penanggung Jawab')}</tr>
+      <tr><td style="border:1px solid ${BORDER};padding:8px 10px">
+        <table style="width:100%;border-collapse:collapse">
+          ${stages.map((s, i) => `<tr><td style="padding:5px 2px;font-size:10.5px;color:#1e3a8a;font-weight:500;${i < stages.length - 1 ? `border-bottom:1px dashed ${BORDER};` : ''}line-height:1.2"><span style="display:inline-block;width:24px;color:#94a3b8;font-weight:700">${String(i+1).padStart(2,'0')}</span>${s}</td></tr>`).join('')}
+        </table>
+      </td></tr>
+    </table>
+  </td>
+</tr></table>
+<table style="width:100%;border-collapse:separate;border-spacing:14px 0;margin-top:16px"><tr>
+  <td style="vertical-align:top;width:34%;padding:0">
+    ${bRows.length > 0 ? `<table style="width:100%;border-collapse:collapse">
+      <tr><td colspan="2" style="${td}background:${PRIMARY}"><div style="${flexC}color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Bahan</div></td></tr>
+      ${bRows.map((r: Row, i: number) => `<tr>${LBL(normBagian(r.bagian), `width:50%;${i % 2 === 1 ? 'background:#eef2f7' : ''}`)}${VAL(r.bahan || '-', i % 2 === 1 ? 'background:#fafbfc' : '', `color:${ACCENT};font-weight:700`)}</tr>`).join('')}
+    </table>` : `<table style="width:100%;border-collapse:collapse"><tr>${HDR('Bahan')}</tr><tr><td style="border:1px solid ${BORDER};padding:14px;text-align:center;color:#94a3b8;font-size:11px">Tidak ada data bahan</td></tr></table>`}
+  </td>
+  <td style="vertical-align:top;width:33%;padding:0">
+    <table style="width:100%;border-collapse:collapse">
+      <tr>${HDR('Approval Admin / Data')}</tr>
+      <tr><td style="border:1px solid ${BORDER};padding:0"><div style="min-height:90px;display:flex;align-items:center;padding:10px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.approval_admin || '-'}</div></td></tr>
+    </table>
+  </td>
+  <td style="vertical-align:top;width:33%;padding:0">
+    <table style="width:100%;border-collapse:collapse">
+      <tr>${HDR('Export & ICC')}</tr>
+      <tr><td style="border:1px solid ${BORDER};padding:0"><div style="min-height:90px;display:flex;align-items:center;padding:10px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.export_icc || '-'}</div></td></tr>
+    </table>
+  </td>
+</tr></table>
+<div style="margin-top:18px;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:#94a3b8">
+  <div>Ayres Apparel &middot; Lembar Spesifikasi Produksi</div>
+  <div>Dicetak: ${new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
+</div>
+</div>`;
+}
+
+// Render an HTML string into an off-screen iframe and capture as canvas.
+async function renderHtmlToImage(html: string, width = 1400): Promise<{ data: string; w: number; h: number }> {
+  const html2canvas = (await import('html2canvas')).default;
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = `position:fixed;left:-9999px;width:${width}px;border:none`;
+  document.body.appendChild(iframe);
+  const doc = iframe.contentDocument!;
+  doc.open();
+  doc.write(`<html><head><style>*{box-sizing:border-box;margin:0;padding:0;text-decoration:none!important;font-style:normal!important}body{background:#fff}</style></head><body>${html}</body></html>`);
+  doc.close();
+  await new Promise(r => setTimeout(r, 1000));
+  const canvas = await html2canvas(doc.body, { scale: 2.5, useCORS: true, backgroundColor: '#ffffff', windowWidth: width });
+  document.body.removeChild(iframe);
+  return { data: canvas.toDataURL('image/png'), w: canvas.width, h: canvas.height };
+}
+
 function compressImage(file: File, maxSize = 1600, quality = 0.8): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -69,6 +194,8 @@ export default function WorkOrderDetailPage() {
   const [specs, setSpecs] = useState<Row[]>([]);
   const [specBahan, setSpecBahan] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     (async () => {
@@ -147,6 +274,225 @@ export default function WorkOrderDetailPage() {
     { key: 'wo4', label: 'WO 4' },
   ];
 
+  async function handleDownloadAllPDF() {
+    if (!wo) return;
+    setDownloadingAll(true);
+    try {
+      const { jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pageW = 297, pageH = 210, margin = 5;
+      let firstPage = true;
+
+      const woName = wo.no_wo;
+      const customer = wo.customer_nama || '';
+      const paket = wo.paket || '';
+
+      // === WO 1: Spec sheets (image-based, one page per spec) ===
+      for (const spec of specs) {
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        const html = buildWoSpecHtml(spec, woData, specBahan);
+        const { data: imgData, w, h } = await renderHtmlToImage(html, 1400);
+        const contentW = pageW - margin * 2;
+        const imgRatio = h / w;
+        const contentH = Math.min(contentW * imgRatio, pageH - margin * 2);
+        pdf.addImage(imgData, 'PNG', margin, margin, contentW, contentH);
+      }
+
+      // === WO 2: Permintaan Gudang ===
+      if (gudangItems.length > 0) {
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.setFontSize(14);
+        pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}`, 14, 18);
+        pdf.setFontSize(10);
+        pdf.text(`No WO: ${woName}`, 14, 26);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const allRows: any[] = [];
+        let no = 1;
+        const utama = gudangItems.filter((r: Row) => r.kategori === 'BAHAN_UTAMA');
+        const aks = gudangItems.filter((r: Row) => r.kategori === 'AKSESORIS');
+        const mat = gudangItems.filter((r: Row) => r.kategori === 'MATERIAL_TAMBAHAN');
+        for (const r of utama) {
+          allRows.push([String(no++), r.bagian || '', r.bahan || '', r.warna || '', String(r.kuantitas || 0)]);
+        }
+        if (aks.length > 0) {
+          allRows.push([{ content: 'AKSESORIS', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } }]);
+          for (const r of aks) {
+            allRows.push([String(no++), r.bagian || '', r.bahan || '', r.warna || '', String(r.kuantitas || 0)]);
+          }
+        }
+        if (mat.length > 0) {
+          allRows.push([{ content: 'MATERIAL TAMBAHAN', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } }]);
+          for (const r of mat) {
+            allRows.push([String(no++), r.bagian || '', r.bahan || '', r.warna || '', String(r.kuantitas || 0)]);
+          }
+        }
+        autoTable(pdf, {
+          startY: 32,
+          head: [['NO', 'BAGIAN', 'BAHAN', 'WARNA', 'KUANTITAS']],
+          body: allRows,
+          styles: { fontSize: 9 },
+          headStyles: { fillColor: [30, 58, 95] },
+        });
+      }
+
+      // === WO 3: Detail Order Items ===
+      if (detailItems.length > 0) {
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.setFontSize(14);
+        pdf.text(`DETAIL ORDER ITEMS - ${woName}`, 14, 18);
+        pdf.setFontSize(10);
+        pdf.text(`Customer: ${customer}`, 14, 26);
+
+        // Build bagian columns from spec_bahan
+        const specIdSet = new Set(specs.map((s: Row) => String(s.id)));
+        const rel = specBahan.filter((b: Row) => specIdSet.has(String(b.spesifikasi_id)));
+        const bagianMap = new Map<string, string[]>();
+        for (const b of rel) {
+          const bg = normBagian(b.bagian);
+          const bh = String(b.bahan || '').trim();
+          if (!bg) continue;
+          if (!bagianMap.has(bg)) bagianMap.set(bg, []);
+          const arr = bagianMap.get(bg)!;
+          if (bh && !arr.includes(bh)) arr.push(bh);
+        }
+        const bagianCols = Array.from(bagianMap.keys()).map(bagian => ({ bagian }));
+
+        const parsedRows = detailItems.map((item: Row) => ({
+          nama: item.nama || '',
+          np: item.np || '',
+          ukuran: item.ukuran || '',
+          kets: parseKets(item.keterangan),
+          penjahit: item.kerah || '',
+        }));
+        const numKetCols = Math.max(1, ...parsedRows.map(r => r.kets.length));
+
+        const BAGIAN_CONFIG: Record<string, { label: string; subCols?: string[] }> = {
+          'FRONT BODY': { label: 'BD' },
+          'BACK BODY': { label: 'BB' },
+          'COMBINATION': { label: 'VAR SAMPING', subCols: ['BD', 'BB'] },
+          'SLEEVE': { label: 'LENGAN', subCols: ['KANAN', 'KIRI'] },
+          'COLLAR': { label: 'KERAH' },
+          'SLEEVE ENDS': { label: 'LIS LENGAN' },
+          'SIDE PANTS STRIPE': { label: 'LIS CELANA' },
+          'PANTS': { label: 'CELANA' },
+        };
+
+        const topRow: Array<string | { content: string; colSpan?: number; rowSpan?: number }> = [];
+        const subRow: string[] = [];
+        const dataCols: number[] = [];
+        for (const col of bagianCols) {
+          const cfg = BAGIAN_CONFIG[col.bagian] || { label: col.bagian };
+          if (cfg.subCols && cfg.subCols.length > 0) {
+            topRow.push({ content: cfg.label, colSpan: cfg.subCols.length });
+            for (const sub of cfg.subCols) subRow.push(sub);
+            dataCols.push(cfg.subCols.length);
+          } else {
+            topRow.push({ content: cfg.label, rowSpan: 2 });
+            dataCols.push(1);
+          }
+        }
+        const totalBagianCells = dataCols.reduce((a, b) => a + b, 0);
+        const fixedLeftCols = 4 + numKetCols;
+        const penjahitIdx = fixedLeftCols + totalBagianCells;
+
+        const ketCells = Array.from({ length: numKetCols }, (_, i) => ({ content: i === 0 ? 'KET' : `KET ${i + 1}`, rowSpan: 2 }));
+        const headRow1 = [
+          { content: 'NO', rowSpan: 2 },
+          { content: 'NAMA', rowSpan: 2 },
+          { content: 'NP', rowSpan: 2 },
+          { content: 'SIZE', rowSpan: 2 },
+          ...ketCells,
+          ...topRow,
+          { content: 'PENJAHIT', rowSpan: 2 },
+        ];
+        const head = subRow.length > 0 ? [headRow1, subRow] : [headRow1];
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const columnStyles: Record<number, any> = {
+          0: { cellWidth: 10 },
+          1: { cellWidth: 28, halign: 'left' },
+          2: { cellWidth: 12 },
+          3: { cellWidth: 12 },
+          [penjahitIdx]: { cellWidth: 22, halign: 'left' },
+        };
+        for (let i = 0; i < numKetCols; i++) {
+          columnStyles[4 + i] = { cellWidth: 20, halign: 'left' };
+        }
+
+        autoTable(pdf, {
+          startY: 32,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          head: head as any,
+          body: parsedRows.map((r, i) => [
+            i + 1, r.nama, r.np, r.ukuran,
+            ...Array.from({ length: numKetCols }, (_, k) => r.kets[k] ?? ''),
+            ...Array(totalBagianCells).fill(''),
+            r.penjahit,
+          ]),
+          styles: { fontSize: 7, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          headStyles: { fillColor: [30, 58, 95], fontSize: 7, halign: 'center', valign: 'middle', lineWidth: 0.3, lineColor: [0, 0, 0] },
+          bodyStyles: { halign: 'center' },
+          columnStyles,
+        });
+      }
+
+      // === WO 4: Form Pengiriman ===
+      if (detailItems.length > 0) {
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.setFontSize(14);
+        pdf.text(`FORM PENGIRIMAN ${customer.toUpperCase()} (${paket})`, 14, 18);
+
+        let pengiriman: Row[] = [];
+        try {
+          const all = await dbGet('wo_pengiriman');
+          pengiriman = all.filter((r: Row) => String(r.work_order_id) === String(wo.id));
+        } catch {}
+        const shipMap: Record<string, Row> = {};
+        for (const s of pengiriman) shipMap[String(s.urutan)] = s;
+
+        autoTable(pdf, {
+          startY: 26,
+          head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'BONUS', 'CHECK']],
+          body: detailItems.map((item: Row, i: number) => {
+            const existing = shipMap[String(i + 1)];
+            const kets = parseKets(item.keterangan).filter(k => k.trim()).join(' | ');
+            return [i + 1, item.nama || '', item.np || '', item.ukuran || '', kets, existing?.bonus || '', (existing?.checklist === 1 || existing?.checklist === true) ? 'v' : ''];
+          }),
+          styles: { fontSize: 9 },
+          headStyles: { fillColor: [30, 58, 95] },
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const finalY = ((pdf as any).lastAutoTable?.finalY || 100) + 20;
+        pdf.setFontSize(10);
+        pdf.text('Dibuat Oleh,', 14, finalY);
+        pdf.text('Dicek Oleh,', 85, finalY);
+        pdf.text('Diterima Oleh,', 155, finalY);
+        pdf.text('( Admin )', 14, finalY + 25);
+        pdf.text('( QC / Packing )', 85, finalY + 25);
+        pdf.text(`( ${customer} )`, 155, finalY + 25);
+      }
+
+      if (firstPage) {
+        toast.error('Data Kosong', 'Tidak ada data WO untuk di-download.');
+        return;
+      }
+
+      pdf.save(`WorkOrder-${woName}.pdf`);
+      toast.success('PDF Berhasil', `WorkOrder-${woName}.pdf`);
+    } catch (e) {
+      toast.error('Gagal Download All PDF', String(e));
+    } finally {
+      setDownloadingAll(false);
+    }
+  }
+
   return (
     <div className="space-y-0 -mt-2">
       {/* Header */}
@@ -160,7 +506,18 @@ export default function WorkOrderDetailPage() {
             <p className="text-sm text-slate-400">{wo.customer_nama}</p>
           </div>
         </div>
-        <span className={`text-xs font-medium border px-3 py-1.5 rounded-full ${st.cls}`}>{st.label}</span>
+        <div className="flex flex-col items-end gap-2">
+          <span className={`text-xs font-medium border px-3 py-1.5 rounded-full ${st.cls}`}>{st.label}</span>
+          <button
+            onClick={handleDownloadAllPDF}
+            disabled={downloadingAll}
+            title="Download satu PDF gabungan WO 1 - WO 4"
+            className="flex items-center gap-1.5 text-xs text-blue-400 border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 rounded-full hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+            {downloadingAll ? 'Menyiapkan...' : 'Download All'}
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -324,126 +681,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   }
 
   function buildSpecHtml(spec: Row) {
-    const bRows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
-    const stages = ['Approval Design','Approval Pattern',...PROD_STAGES];
-    const acc = [['TAGLINE',spec.tagline],['AUTHENTIC',spec.authentic],['SIZE',spec.info_ukuran],['LOGO',spec.info_logo],['PACKING',spec.info_packing],['WEBBING',spec.webbing]];
-    const PRIMARY = '#0f172a';
-    const ACCENT = '#dc2626';
-    const BORDER = '#cbd5e1';
-    const SOFT = '#f8fafc';
-    const ROW_H = 30;
-
-    const desainImg = spec.dokumen_desain ? `<img src="${spec.dokumen_desain}" style="width:100%;height:100%;object-fit:cover;display:block"/>` : `<div style="width:100%;height:100%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:14px">Desain</div>`;
-    const patternImg = spec.dokumen_pattern ? `<img src="${spec.dokumen_pattern}" style="width:100%;height:100%;object-fit:cover;display:block"/>` : `<div style="width:100%;height:100%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:14px">Pattern</div>`;
-
-    // Cell helpers — flexbox vertical-center inside fixed-height div inside td (padding:0 on td)
-    const td = `border:1px solid ${BORDER};padding:0;height:${ROW_H}px;`;
-    const flexL = `display:flex;align-items:center;height:${ROW_H}px;padding:0 12px;line-height:1.2;`;
-    const flexC = `display:flex;align-items:center;justify-content:center;height:${ROW_H}px;padding:0 12px;line-height:1.2;`;
-    const HDR = (txt: string, extraTd = '') => `<td style="${td}background:${PRIMARY};${extraTd}"><div style="${flexC}color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">${txt}</div></td>`;
-    const LBL = (txt: string, extraTd = '') => `<td style="${td}background:${SOFT};${extraTd}"><div style="${flexL}color:${PRIMARY};font-size:11px;font-weight:700">${txt}</div></td>`;
-    const VAL = (txt: string, extraTd = '', innerExtra = '') => `<td style="${td}${extraTd}"><div style="${flexL}color:${PRIMARY};font-size:11px;${innerExtra}">${txt}</div></td>`;
-    const VALc = (txt: string, extraTd = '', innerExtra = '') => `<td style="${td}${extraTd}"><div style="${flexC}color:${PRIMARY};font-size:11px;${innerExtra}">${txt}</div></td>`;
-
-    return `<div style="background:#fff;padding:30px 36px;font-family:Arial,Helvetica,sans-serif;color:${PRIMARY};width:1400px;-webkit-font-smoothing:antialiased">
-<!-- HEADER -->
-<table style="width:100%;border-collapse:collapse;margin-bottom:20px"><tr>
-  <td style="vertical-align:bottom">
-    <div style="display:flex;align-items:center;gap:12px">
-      <img src="${location.origin}/logo/new logo.png" style="height:34px" onerror="this.style.display='none'"/>
-      <span style="font-size:26px;font-weight:800;color:${PRIMARY};letter-spacing:-0.3px">AYRES APPAREL</span>
-    </div>
-    <div style="height:3px;background:${PRIMARY};margin-top:12px"></div>
-  </td>
-  <td style="vertical-align:bottom;text-align:right;width:230px">
-    <div style="font-size:9px;color:#64748b;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Work Order No.</div>
-    <div style="font-size:20px;font-weight:800;color:${PRIMARY};border:2.5px solid ${PRIMARY};padding:14px 32px;display:inline-block;line-height:1">${wo.noWo}</div>
-  </td>
-</tr></table>
-
-<!-- MAIN 2-COL -->
-<table style="width:100%;border-collapse:separate;border-spacing:14px 0"><tr>
-
-  <!-- LEFT 60% -->
-  <td style="width:60%;vertical-align:top;padding:0">
-    <div style="background:${PRIMARY};height:${ROW_H}px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase">Desain Mock Up &amp; Pattern</div>
-    <div style="display:flex;gap:10px;height:520px;margin-top:8px">
-      <div style="flex:1;border:1px solid ${BORDER};overflow:hidden">${desainImg}</div>
-      <div style="flex:1;border:1px solid ${BORDER};overflow:hidden">${patternImg}</div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;margin-top:10px">
-      <tr>${HDR('Nama Customer', 'width:50%')}${HDR('Nama Spesifikasi')}</tr>
-      <tr>${VALc(wo.customer, '', `color:${ACCENT};font-weight:700;font-size:12px`)}${VALc(spec.nama_spesifikasi, '', `color:${ACCENT};font-weight:700;font-size:12px`)}</tr>
-    </table>
-    <!-- Keterangan Jahit + Font & Number -->
-    <table style="width:100%;border-collapse:separate;border-spacing:10px 0;margin-top:10px"><tr>
-      <td style="width:50%;vertical-align:top;padding:0">
-        <div style="border:1px solid ${BORDER};overflow:hidden">
-          <div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:center;color:${ACCENT};font-size:11px;font-weight:700;letter-spacing:0.6px;background:#fef2f2;border-bottom:1px solid ${BORDER};text-transform:uppercase">Keterangan Jahit</div>
-          <div style="min-height:160px;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}"></div>
-        </div>
-      </td>
-      <td style="width:50%;vertical-align:top;padding:0">
-        <div style="border:1px solid ${BORDER};overflow:hidden">
-          <div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:center;background:${PRIMARY};color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Font &amp; Number</div>
-          <div style="min-height:160px;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.font_nomor || '-'}</div>
-        </div>
-      </td>
-    </tr></table>
-  </td>
-
-  <!-- RIGHT 40% -->
-  <td style="width:40%;vertical-align:top;padding:0">
-    <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
-      <tr>${LBL('NAMA', 'width:32%')}${VAL(wo.customer, '', `color:${ACCENT};font-weight:700`)}</tr>
-      <tr>${LBL('PAKET')}${VAL(wo.paket, '', `color:${ACCENT};font-weight:700`)}</tr>
-      <tr>${LBL('JUMLAH')}${VAL(`${spec.jumlah || 0} PCS`, '', `color:${ACCENT};font-weight:700`)}</tr>
-    </table>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
-      <tr><td colspan="2" style="${td}background:${PRIMARY}"><div style="${flexC}color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Accessories</div></td></tr>
-      ${acc.map(([k,v], i) => `<tr>${LBL(k as string, `width:34%;${i % 2 === 1 ? 'background:#eef2f7' : ''}`)}${VAL((v as string) || '-', i % 2 === 1 ? 'background:#fafbfc' : '')}</tr>`).join('')}
-    </table>
-    <table style="width:100%;border-collapse:collapse">
-      <tr>${HDR('Penanggung Jawab')}</tr>
-      <tr><td style="border:1px solid ${BORDER};padding:8px 10px">
-        <table style="width:100%;border-collapse:collapse">
-          ${stages.map((s, i) => `<tr><td style="padding:5px 2px;font-size:10.5px;color:#1e3a8a;font-weight:500;${i < stages.length - 1 ? `border-bottom:1px dashed ${BORDER};` : ''}line-height:1.2"><span style="display:inline-block;width:24px;color:#94a3b8;font-weight:700">${String(i+1).padStart(2,'0')}</span>${s}</td></tr>`).join('')}
-        </table>
-      </td></tr>
-    </table>
-  </td>
-
-</tr></table>
-
-
-<!-- FOOTER -->
-<table style="width:100%;border-collapse:separate;border-spacing:14px 0;margin-top:16px"><tr>
-  <td style="vertical-align:top;width:34%;padding:0">
-    ${bRows.length > 0 ? `<table style="width:100%;border-collapse:collapse">
-      <tr><td colspan="2" style="${td}background:${PRIMARY}"><div style="${flexC}color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Bahan</div></td></tr>
-      ${bRows.map((r: Row, i: number) => `<tr>${LBL(normBagian(r.bagian), `width:50%;${i % 2 === 1 ? 'background:#eef2f7' : ''}`)}${VAL(r.bahan || '-', i % 2 === 1 ? 'background:#fafbfc' : '', `color:${ACCENT};font-weight:700`)}</tr>`).join('')}
-    </table>` : `<table style="width:100%;border-collapse:collapse"><tr>${HDR('Bahan')}</tr><tr><td style="border:1px solid ${BORDER};padding:14px;text-align:center;color:#94a3b8;font-size:11px">Tidak ada data bahan</td></tr></table>`}
-  </td>
-  <td style="vertical-align:top;width:33%;padding:0">
-    <table style="width:100%;border-collapse:collapse">
-      <tr>${HDR('Approval Admin / Data')}</tr>
-      <tr><td style="border:1px solid ${BORDER};padding:0"><div style="min-height:90px;display:flex;align-items:center;padding:10px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.approval_admin || '-'}</div></td></tr>
-    </table>
-  </td>
-  <td style="vertical-align:top;width:33%;padding:0">
-    <table style="width:100%;border-collapse:collapse">
-      <tr>${HDR('Export & ICC')}</tr>
-      <tr><td style="border:1px solid ${BORDER};padding:0"><div style="min-height:90px;display:flex;align-items:center;padding:10px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.export_icc || '-'}</div></td></tr>
-    </table>
-  </td>
-</tr></table>
-
-<!-- footer note -->
-<div style="margin-top:18px;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:#94a3b8">
-  <div>Ayres Apparel &middot; Lembar Spesifikasi Produksi</div>
-  <div>Dicetak: ${new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
-</div>
-</div>`;
+    return buildWoSpecHtml(spec, wo, allSpecBahan);
   }
 
   async function handleDownloadPDF(specId: number) {
