@@ -281,6 +281,15 @@ export default function WorkOrderDetailPage() {
       const { jsPDF } = await import('jspdf');
       const { default: autoTable } = await import('jspdf-autotable');
 
+      // Refetch fresh data so unsaved-then-saved changes show up immediately
+      const [freshSpecs, freshSpecBahan, freshGudang, freshDetail, freshShip] = await Promise.all([
+        dbGet('wo_spesifikasi').then(all => all.filter((r: Row) => String(r.work_order_id) === String(wo.id))).catch(() => specs),
+        dbGet('wo_spesifikasi_bahan').catch(() => specBahan),
+        dbGet('wo_permintaan_gudang').then(all => all.filter((r: Row) => String(r.work_order_id) === String(wo.id))).catch(() => gudangItems),
+        dbGet('wo_detail_items').then(all => all.filter((r: Row) => String(r.work_order_id) === String(wo.id))).catch(() => detailItems),
+        dbGet('wo_pengiriman').then(all => all.filter((r: Row) => String(r.work_order_id) === String(wo.id))).catch(() => []),
+      ]);
+
       const pdf = new jsPDF('l', 'mm', 'a4');
       const pageW = 297, pageH = 210, margin = 5;
       let firstPage = true;
@@ -290,10 +299,10 @@ export default function WorkOrderDetailPage() {
       const paket = wo.paket || '';
 
       // === WO 1: Spec sheets (image-based, one page per spec) ===
-      for (const spec of specs) {
+      for (const spec of freshSpecs) {
         if (!firstPage) pdf.addPage();
         firstPage = false;
-        const html = buildWoSpecHtml(spec, woData, specBahan);
+        const html = buildWoSpecHtml(spec, woData, freshSpecBahan);
         const { data: imgData, w, h } = await renderHtmlToImage(html, 1400);
         const contentW = pageW - margin * 2;
         const imgRatio = h / w;
@@ -302,7 +311,43 @@ export default function WorkOrderDetailPage() {
       }
 
       // === WO 2: Permintaan Gudang ===
-      if (gudangItems.length > 0) {
+      // Structure derived from specs (same as TabWO2), warna/kuantitas merged from saved gudang data.
+      const bahanUtamaRows: { bagian: string; bahan: string; warna: string; kuantitas: number }[] = [];
+      const aksesorisPreset: { bagian: string; bahan: string }[] = [];
+      for (const spec of freshSpecs) {
+        const rows = freshSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
+        for (const r of rows) bahanUtamaRows.push({ bagian: r.bagian || '', bahan: r.bahan || '-', warna: '', kuantitas: 0 });
+        if (spec.tagline) aksesorisPreset.push({ bagian: 'Tagline', bahan: spec.tagline });
+        if (spec.authentic) aksesorisPreset.push({ bagian: 'Keaslian', bahan: spec.authentic });
+        if (spec.info_ukuran) aksesorisPreset.push({ bagian: 'Info Ukuran', bahan: spec.info_ukuran });
+        if (spec.info_logo) aksesorisPreset.push({ bagian: 'Info Logo', bahan: spec.info_logo });
+        if (spec.info_packing) aksesorisPreset.push({ bagian: 'Info Packing', bahan: spec.info_packing });
+        if (spec.webbing) aksesorisPreset.push({ bagian: 'Webbing', bahan: spec.webbing });
+        if (spec.font_nomor) aksesorisPreset.push({ bagian: 'Font & Nomor', bahan: spec.font_nomor });
+      }
+      const savedBu = freshGudang.filter((r: Row) => r.kategori === 'BAHAN_UTAMA');
+      const savedAks = freshGudang.filter((r: Row) => r.kategori === 'AKSESORIS');
+      const savedMat = freshGudang.filter((r: Row) => r.kategori === 'MATERIAL_TAMBAHAN');
+      // Hydrate bahan utama warna/kuantitas
+      for (const row of bahanUtamaRows) {
+        const m = savedBu.find((g: Row) => g.bagian === row.bagian && g.bahan === row.bahan);
+        if (m) { row.warna = m.warna || ''; row.kuantitas = Number(m.kuantitas) || 0; }
+      }
+      // Hydrate aksesoris preset rows
+      const aksesorisRows: { bagian: string; bahan: string; warna: string; kuantitas: number }[] = aksesorisPreset.map(p => {
+        const m = savedAks.find((g: Row) => g.bagian === p.bagian && g.bahan === p.bahan);
+        return { ...p, warna: m?.warna || '', kuantitas: Number(m?.kuantitas) || 0 };
+      });
+      // Extra aksesoris (saved but not in preset)
+      const presetKeys = new Set(aksesorisPreset.map(r => `${r.bagian}|${r.bahan}`));
+      const extraAksRows = savedAks
+        .filter((g: Row) => !presetKeys.has(`${g.bagian}|${g.bahan}`))
+        .map((g: Row) => ({ bagian: g.bagian || '', bahan: g.bahan || '', warna: g.warna || '', kuantitas: Number(g.kuantitas) || 0 }));
+      const allAks = [...aksesorisRows, ...extraAksRows];
+      const matRows = savedMat.map((g: Row) => ({ bagian: g.bagian || '', bahan: g.bahan || '', warna: g.warna || '', kuantitas: Number(g.kuantitas) || 0 }));
+
+      const hasWo2Data = bahanUtamaRows.length > 0 || allAks.length > 0 || matRows.length > 0;
+      if (hasWo2Data) {
         if (!firstPage) pdf.addPage();
         firstPage = false;
         pdf.setFontSize(14);
@@ -311,37 +356,34 @@ export default function WorkOrderDetailPage() {
         pdf.text(`No WO: ${woName}`, 14, 26);
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const allRows: any[] = [];
+        const allWo2Rows: any[] = [];
         let no = 1;
-        const utama = gudangItems.filter((r: Row) => r.kategori === 'BAHAN_UTAMA');
-        const aks = gudangItems.filter((r: Row) => r.kategori === 'AKSESORIS');
-        const mat = gudangItems.filter((r: Row) => r.kategori === 'MATERIAL_TAMBAHAN');
-        for (const r of utama) {
-          allRows.push([String(no++), r.bagian || '', r.bahan || '', r.warna || '', String(r.kuantitas || 0)]);
+        for (const r of bahanUtamaRows) {
+          allWo2Rows.push([String(no++), r.bagian, r.bahan, r.warna, String(r.kuantitas)]);
         }
-        if (aks.length > 0) {
-          allRows.push([{ content: 'AKSESORIS', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } }]);
-          for (const r of aks) {
-            allRows.push([String(no++), r.bagian || '', r.bahan || '', r.warna || '', String(r.kuantitas || 0)]);
+        if (allAks.length > 0) {
+          allWo2Rows.push([{ content: 'AKSESORIS', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } }]);
+          for (const r of allAks) {
+            allWo2Rows.push([String(no++), r.bagian, r.bahan, r.warna, String(r.kuantitas)]);
           }
         }
-        if (mat.length > 0) {
-          allRows.push([{ content: 'MATERIAL TAMBAHAN', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } }]);
-          for (const r of mat) {
-            allRows.push([String(no++), r.bagian || '', r.bahan || '', r.warna || '', String(r.kuantitas || 0)]);
+        if (matRows.length > 0) {
+          allWo2Rows.push([{ content: 'MATERIAL TAMBAHAN', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } }]);
+          for (const r of matRows) {
+            allWo2Rows.push([String(no++), r.bagian, r.bahan, r.warna, String(r.kuantitas)]);
           }
         }
         autoTable(pdf, {
           startY: 32,
           head: [['NO', 'BAGIAN', 'BAHAN', 'WARNA', 'KUANTITAS']],
-          body: allRows,
+          body: allWo2Rows,
           styles: { fontSize: 9 },
           headStyles: { fillColor: [30, 58, 95] },
         });
       }
 
       // === WO 3: Detail Order Items ===
-      if (detailItems.length > 0) {
+      if (freshDetail.length > 0) {
         if (!firstPage) pdf.addPage();
         firstPage = false;
         pdf.setFontSize(14);
@@ -350,8 +392,8 @@ export default function WorkOrderDetailPage() {
         pdf.text(`Customer: ${customer}`, 14, 26);
 
         // Build bagian columns from spec_bahan
-        const specIdSet = new Set(specs.map((s: Row) => String(s.id)));
-        const rel = specBahan.filter((b: Row) => specIdSet.has(String(b.spesifikasi_id)));
+        const specIdSet = new Set(freshSpecs.map((s: Row) => String(s.id)));
+        const rel = freshSpecBahan.filter((b: Row) => specIdSet.has(String(b.spesifikasi_id)));
         const bagianMap = new Map<string, string[]>();
         for (const b of rel) {
           const bg = normBagian(b.bagian);
@@ -363,7 +405,7 @@ export default function WorkOrderDetailPage() {
         }
         const bagianCols = Array.from(bagianMap.keys()).map(bagian => ({ bagian }));
 
-        const parsedRows = detailItems.map((item: Row) => ({
+        const parsedRows = freshDetail.map((item: Row) => ({
           nama: item.nama || '',
           np: item.np || '',
           ukuran: item.ukuran || '',
@@ -443,24 +485,19 @@ export default function WorkOrderDetailPage() {
       }
 
       // === WO 4: Form Pengiriman ===
-      if (detailItems.length > 0) {
+      if (freshDetail.length > 0) {
         if (!firstPage) pdf.addPage();
         firstPage = false;
         pdf.setFontSize(14);
         pdf.text(`FORM PENGIRIMAN ${customer.toUpperCase()} (${paket})`, 14, 18);
 
-        let pengiriman: Row[] = [];
-        try {
-          const all = await dbGet('wo_pengiriman');
-          pengiriman = all.filter((r: Row) => String(r.work_order_id) === String(wo.id));
-        } catch {}
         const shipMap: Record<string, Row> = {};
-        for (const s of pengiriman) shipMap[String(s.urutan)] = s;
+        for (const s of freshShip) shipMap[String(s.urutan)] = s;
 
         autoTable(pdf, {
           startY: 26,
           head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'BONUS', 'CHECK']],
-          body: detailItems.map((item: Row, i: number) => {
+          body: freshDetail.map((item: Row, i: number) => {
             const existing = shipMap[String(i + 1)];
             const kets = parseKets(item.keterangan).filter(k => k.trim()).join(' | ');
             return [i + 1, item.nama || '', item.np || '', item.ukuran || '', kets, existing?.bonus || '', (existing?.checklist === 1 || existing?.checklist === true) ? 'v' : ''];
