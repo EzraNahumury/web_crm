@@ -78,7 +78,7 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
   <td style="width:40%;vertical-align:top;padding:0">
     <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
       <tr>${LBL('NAMA', 'width:32%')}${VAL(wo.customer, '', `color:${ACCENT};font-weight:700`)}</tr>
-      <tr>${LBL('PAKET')}${VAL(wo.paket, '', `color:${ACCENT};font-weight:700`)}</tr>
+      <tr>${LBL('PAKET')}${VAL(spec.paket || wo.paket, '', `color:${ACCENT};font-weight:700`)}</tr>
       <tr>${LBL('JUMLAH')}${VAL(`${spec.jumlah || 0} PCS`, '', `color:${ACCENT};font-weight:700`)}</tr>
     </table>
     <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
@@ -1072,7 +1072,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
 
       const custFields: [string, string][] = [
         ['Nama', wo.customer || ''],
-        ['Paket', wo.paket || ''],
+        ['Paket', String(spec.paket || wo.paket || '')],
         ['Jumlah', `${spec.jumlah || 0} PCS`],
       ];
       custFields.forEach(([k, v], i) => {
@@ -1195,7 +1195,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
 
       setEditSpec(fresh);
       setNamaSpec(fresh.nama_spesifikasi || '');
-      setPaket(String(freshWoData?.paket || wo.paket || '').split(',')[0].trim());
+      setPaket(String(fresh.paket || freshWoData?.paket || wo.paket || '').split(',')[0].trim());
       setJumlah(String(fresh.jumlah || 0));
       setTagline(fresh.tagline || '');
       setAuthentic(fresh.authentic || '');
@@ -1220,6 +1220,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     try {
       await dbUpdate('wo_spesifikasi', editSpec.id, {
         nama_spesifikasi: namaSpec,
+        paket: paket || null,
         jumlah: Number(jumlah) || 0,
         dokumen_desain: dokDesain || null, dokumen_pattern: dokPattern || null,
         tagline, authentic, info_ukuran: infoUkuran, info_logo: infoLogo,
@@ -1309,6 +1310,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       const specId = await dbCreate('wo_spesifikasi', {
         work_order_id: wo.id,
         nama_spesifikasi: namaSpec,
+        paket: paket || null,
         jumlah: Number(jumlah) || 0,
         deadline: (() => { const d = wo.deadlineRaw || wo.deadline; return d ? new Date(d).toISOString().split('T')[0] : null; })(),
         dokumen_desain: dokDesain || null, dokumen_pattern: dokPattern || null,
@@ -1683,7 +1685,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                     </div>
                     <div className="space-y-2 text-xs">
                       <div className="border border-black overflow-hidden">
-                        {[['NAMA', wo.customer],['PAKET', wo.paket],['JUMLAH', `${spec.jumlah || 0} PCS`]].map(([k,v]) => (
+                        {[['NAMA', wo.customer],['PAKET', spec.paket || wo.paket],['JUMLAH', `${spec.jumlah || 0} PCS`]].map(([k,v]) => (
                           <div key={k} className="grid grid-cols-2 border-b border-black last:border-0">
                             <span className="font-bold px-2 py-1 border-r border-black">{k}</span>
                             <span className="px-2 py-1 text-red-600">{v}</span>
