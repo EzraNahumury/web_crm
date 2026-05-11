@@ -1166,15 +1166,20 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
 
   async function openEditSpec(spec: Row) {
     try {
-      // Fetch fresh data from DB
-      const [freshSpecs, freshBahan, freshWos, freshOrders] = await Promise.all([
-        dbGet('wo_spesifikasi'), dbGet('wo_spesifikasi_bahan'),
-        dbGet('work_orders'), dbGet('orders'),
+      // Fetch fresh data using server-side filters (much faster than full-table scans).
+      // Use the parent's known order_id so all four fetches run in parallel.
+      const [freshSpecsArr, freshBahan, freshWosArr, freshOrdersArr] = await Promise.all([
+        dbGet<Row>('wo_spesifikasi', undefined, { id: spec.id }),
+        dbGet<Row>('wo_spesifikasi_bahan', undefined, { spesifikasi_id: spec.id }),
+        dbGet<Row>('work_orders', undefined, { id: wo.id }),
+        wo.order_id
+          ? dbGet<Row>('orders', undefined, { id: wo.order_id as number })
+          : Promise.resolve([] as Row[]),
       ]);
-      const fresh = freshSpecs.find((s: Row) => String(s.id) === String(spec.id)) || spec;
-      const rows = freshBahan.filter((b: Row) => String(b.spesifikasi_id) === String(fresh.id));
-      const freshWoData = freshWos.find((w: Row) => String(w.id) === String(wo.id));
-      const freshOrder = freshWoData ? freshOrders.find((o: Row) => String(o.id) === String(freshWoData.order_id)) : null;
+      const fresh = freshSpecsArr[0] || spec;
+      const rows = freshBahan;
+      const freshWoData = freshWosArr[0];
+      const freshOrder = freshOrdersArr[0] || null;
       if (freshWoData) {
         setFreshWo({
           ...wo,
@@ -1218,10 +1223,9 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
         keterangan, keterangan_jahit: keteranganJahit,
         approval_admin: approvalAdmin,
       });
-      // Delete old bahan rows from DB (fetch fresh to avoid stale data)
-      const freshBahanAll = await dbGet('wo_spesifikasi_bahan');
-      const oldBahan = freshBahanAll.filter((b: Row) => String(b.spesifikasi_id) === String(editSpec.id));
-      for (const ob of oldBahan) { await dbDelete('wo_spesifikasi_bahan', Number(ob.id)); }
+      // Delete old bahan rows for this spec (filtered server-side)
+      const oldBahan = await dbGet<Row>('wo_spesifikasi_bahan', undefined, { spesifikasi_id: editSpec.id });
+      await Promise.all(oldBahan.map((ob: Row) => dbDelete('wo_spesifikasi_bahan', Number(ob.id))));
       for (const row of bahanRows) {
         if (row.bagian.trim()) {
           await dbCreate('wo_spesifikasi_bahan', {
