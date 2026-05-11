@@ -408,7 +408,7 @@ export default function WorkOrderDetailPage() {
           const arr = bagianMap.get(bg)!;
           if (bh && !arr.includes(bh)) arr.push(bh);
         }
-        const bagianCols = Array.from(bagianMap.keys()).map(bagian => ({ bagian }));
+        const rawBagianList = Array.from(bagianMap.keys());
 
         const parsedRows = freshDetail.map((item: Row) => ({
           nama: item.nama || '',
@@ -417,7 +417,37 @@ export default function WorkOrderDetailPage() {
           kets: parseKets(item.keterangan),
           penjahit: item.kerah || '',
         }));
-        const numKetCols = Math.max(1, ...parsedRows.map(r => r.kets.length));
+
+        // Read user customizations from localStorage (set by TabWO3)
+        let ketNamesMap: Record<number, string> = {};
+        let savedColOrder: string[] = [];
+        let savedHiddenBagians: string[] = [];
+        let savedCustomParents: { id: string; parent: string; subs: [string, string] }[] = [];
+        try {
+          const raw = localStorage.getItem(`wo3_ket_names_${wo.id}`);
+          if (raw) ketNamesMap = JSON.parse(raw);
+        } catch {}
+        try {
+          const raw = localStorage.getItem(`wo3_col_order_${wo.id}`);
+          if (raw) savedColOrder = JSON.parse(raw);
+        } catch {}
+        try {
+          const raw = localStorage.getItem(`wo3_hidden_bagians_${wo.id}`);
+          if (raw) savedHiddenBagians = JSON.parse(raw);
+        } catch {}
+        try {
+          const raw = localStorage.getItem(`wo3_custom_parents_${wo.id}`);
+          if (raw) savedCustomParents = JSON.parse(raw);
+        } catch {}
+        const hiddenBagianSet = new Set(savedHiddenBagians);
+        const visibleBagianList = rawBagianList.filter(b => !hiddenBagianSet.has(b));
+        const parentMapP = new Map(savedCustomParents.map(p => [p.id, p]));
+
+        const ketNameKeys = Object.keys(ketNamesMap).map(Number).filter(n => !isNaN(n));
+        const fromNames = ketNameKeys.length > 0 ? Math.max(...ketNameKeys) + 1 : 1;
+        const fromRows = Math.max(1, ...parsedRows.map(r => r.kets.length));
+        const numKetCols = Math.max(fromRows, fromNames);
+        const ketName = (i: number) => i === 0 ? 'KET' : (ketNamesMap[i] ?? 'unknown');
 
         const BAGIAN_CONFIG: Record<string, { label: string; subCols?: string[] }> = {
           'FRONT BODY': { label: 'BD' },
@@ -430,35 +460,68 @@ export default function WorkOrderDetailPage() {
           'PANTS': { label: 'CELANA' },
         };
 
-        const topRow: Array<string | { content: string; colSpan?: number; rowSpan?: number }> = [];
-        const subRow: string[] = [];
-        const dataCols: number[] = [];
-        for (const col of bagianCols) {
-          const cfg = BAGIAN_CONFIG[col.bagian] || { label: col.bagian };
-          if (cfg.subCols && cfg.subCols.length > 0) {
-            topRow.push({ content: cfg.label, colSpan: cfg.subCols.length });
-            for (const sub of cfg.subCols) subRow.push(sub);
-            dataCols.push(cfg.subCols.length);
-          } else {
-            topRow.push({ content: cfg.label, rowSpan: 2 });
-            dataCols.push(1);
-          }
-        }
-        const totalBagianCells = dataCols.reduce((a, b) => a + b, 0);
-        const fixedLeftCols = 4 + numKetCols;
-        const penjahitIdx = fixedLeftCols + totalBagianCells;
+        // Build the unified effective column list (KET 2+, bagian, parent), respecting savedColOrder
+        type ColRefP =
+          | { kind: 'ket'; idx: number }
+          | { kind: 'bagian'; bagian: string }
+          | { kind: 'parent'; id: string };
+        const naturalCols: ColRefP[] = [
+          ...Array.from({ length: numKetCols }, (_, i) => i).filter(i => i > 0).map(i => ({ kind: 'ket' as const, idx: i })),
+          ...visibleBagianList.map(b => ({ kind: 'bagian' as const, bagian: b })),
+          ...savedCustomParents.map(p => ({ kind: 'parent' as const, id: p.id })),
+        ];
+        const keyOfP = (r: ColRefP): string => {
+          if (r.kind === 'ket') return `ket:${r.idx}`;
+          if (r.kind === 'bagian') return `bagian:${r.bagian}`;
+          return `parent:${r.id}`;
+        };
+        const effective: ColRefP[] = savedColOrder.length === 0
+          ? naturalCols
+          : (() => {
+              const ordMap = new Map(savedColOrder.map((k, i) => [k, i]));
+              return naturalCols.slice().sort((a, b) => (ordMap.get(keyOfP(a)) ?? Number.MAX_SAFE_INTEGER) - (ordMap.get(keyOfP(b)) ?? Number.MAX_SAFE_INTEGER));
+            })();
 
-        const ketCells = Array.from({ length: numKetCols }, (_, i) => ({ content: i === 0 ? 'KET' : `KET ${i + 1}`, rowSpan: 2 }));
-        const headRow1 = [
+        // Build head/body in effective order
+        const headTop: Array<string | { content: string; colSpan?: number; rowSpan?: number }> = [
           { content: 'NO', rowSpan: 2 },
           { content: 'NAMA', rowSpan: 2 },
           { content: 'NP', rowSpan: 2 },
           { content: 'SIZE', rowSpan: 2 },
-          ...ketCells,
-          ...topRow,
-          { content: 'PENJAHIT', rowSpan: 2 },
+          { content: 'KET', rowSpan: 2 },
         ];
-        const head = subRow.length > 0 ? [headRow1, subRow] : [headRow1];
+        const headSub: string[] = [];
+        let dataCount = 0;
+        let hasSubRow = false;
+        for (const ref of effective) {
+          if (ref.kind === 'ket') {
+            headTop.push({ content: ketName(ref.idx), rowSpan: 2 });
+            dataCount += 1;
+          } else if (ref.kind === 'parent') {
+            const p = parentMapP.get(ref.id);
+            const label = p?.parent || 'PARENT';
+            const subs = p?.subs || ['', ''];
+            headTop.push({ content: label, colSpan: 2 });
+            headSub.push(subs[0], subs[1]);
+            dataCount += 2;
+            hasSubRow = true;
+          } else {
+            const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+            if (cfg.subCols && cfg.subCols.length > 0) {
+              headTop.push({ content: cfg.label, colSpan: cfg.subCols.length });
+              for (const sub of cfg.subCols) headSub.push(sub);
+              dataCount += cfg.subCols.length;
+              hasSubRow = true;
+            } else {
+              headTop.push({ content: cfg.label, rowSpan: 2 });
+              dataCount += 1;
+            }
+          }
+        }
+        headTop.push({ content: 'PENJAHIT', rowSpan: 2 });
+        const head = hasSubRow ? [headTop, headSub] : [headTop];
+        const fixedLeft = 5;
+        const penjahitIdx = fixedLeft + dataCount;
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const columnStyles: Record<number, any> = {
@@ -466,22 +529,46 @@ export default function WorkOrderDetailPage() {
           1: { cellWidth: 28, halign: 'left' },
           2: { cellWidth: 12 },
           3: { cellWidth: 12 },
+          4: { cellWidth: 20, halign: 'left' },
           [penjahitIdx]: { cellWidth: 22, halign: 'left' },
         };
-        for (let i = 0; i < numKetCols; i++) {
-          columnStyles[4 + i] = { cellWidth: 20, halign: 'left' };
+        {
+          let idx = fixedLeft;
+          for (const ref of effective) {
+            if (ref.kind === 'ket') {
+              columnStyles[idx] = { cellWidth: 20, halign: 'left' };
+              idx += 1;
+            } else if (ref.kind === 'parent') {
+              idx += 2;
+            } else {
+              const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+              idx += cfg.subCols?.length || 1;
+            }
+          }
         }
 
         autoTable(pdf, {
           startY: 32,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           head: head as any,
-          body: parsedRows.map((r, i) => [
-            i + 1, r.nama, r.np, r.ukuran,
-            ...Array.from({ length: numKetCols }, (_, k) => r.kets[k] ?? ''),
-            ...Array(totalBagianCells).fill(''),
-            r.penjahit,
-          ]),
+          body: parsedRows.map((r, i) => {
+            const cells: (string | number)[] = [
+              i + 1, r.nama, r.np, r.ukuran, r.kets[0] ?? '',
+            ];
+            for (const ref of effective) {
+              if (ref.kind === 'ket') {
+                cells.push(r.kets[ref.idx] ?? '');
+              } else if (ref.kind === 'parent') {
+                cells.push('', '');
+              } else {
+                const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+                const count = cfg.subCols?.length || 1;
+                for (let j = 0; j < count; j++) cells.push('');
+              }
+            }
+            cells.push(r.penjahit);
+            return cells;
+          }),
           styles: { fontSize: 7, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
           headStyles: { fillColor: [30, 58, 95], fontSize: 7, halign: 'center', valign: 'middle', lineWidth: 0.3, lineColor: [0, 0, 0] },
           bodyStyles: { halign: 'center' },
@@ -2169,9 +2256,37 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
   const [specBahan, setSpecBahan] = useState<Row[]>(propSpecBahan);
   const toast = useToast();
 
+  // Custom column names for KET 2+ (idx 0 stays "KET"). Persisted per WO in localStorage.
+  const ketNamesKey = `wo3_ket_names_${wo.id}`;
+  const [ketColNames, setKetColNames] = useState<Record<number, string>>({});
+
   const numKetCols = useMemo(() => {
-    return Math.max(1, ...rows.map(r => r.keterangans?.length || 1));
-  }, [rows]);
+    const fromRows = Math.max(1, ...rows.map(r => r.keterangans?.length || 1));
+    const ketNameKeys = Object.keys(ketColNames).map(Number).filter(n => !isNaN(n));
+    const fromNames = ketNameKeys.length > 0 ? Math.max(...ketNameKeys) + 1 : 1;
+    return Math.max(fromRows, fromNames);
+  }, [rows, ketColNames]);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(ketNamesKey);
+      if (saved) setKetColNames(JSON.parse(saved));
+    } catch {}
+  }, [ketNamesKey]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(ketNamesKey, JSON.stringify(ketColNames));
+    } catch {}
+  }, [ketColNames, ketNamesKey]);
+
+  function getKetColName(idx: number): string {
+    if (idx === 0) return 'KET';
+    return ketColNames[idx] ?? 'unknown';
+  }
+
+  function setKetColName(idx: number, name: string) {
+    setKetColNames(prev => ({ ...prev, [idx]: name }));
+  }
 
   // Fetch fresh spec data so any changes in WO1 reflect here
   useEffect(() => {
@@ -2184,8 +2299,23 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
     })();
   }, [wo.id]);
 
-  // Derive dynamic columns from WO1 spesifikasi bahan — one column per bagian
-  const bagianCols = (() => {
+  // Hidden bagians (user-deleted from this WO3 view; spec_bahan in WO1 stays intact).
+  const hiddenBagiansKey = `wo3_hidden_bagians_${wo.id}`;
+  const [hiddenBagians, setHiddenBagians] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(hiddenBagiansKey);
+      if (saved) setHiddenBagians(JSON.parse(saved));
+    } catch {}
+  }, [hiddenBagiansKey]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(hiddenBagiansKey, JSON.stringify(hiddenBagians));
+    } catch {}
+  }, [hiddenBagians, hiddenBagiansKey]);
+
+  // Raw bagian list derived from WO1 spec_bahan (natural insertion order), minus hidden.
+  const rawBagianCols = useMemo(() => {
     const specIds = new Set(specs.map(s => String(s.id)));
     const rel = specBahan.filter(b => specIds.has(String(b.spesifikasi_id)));
     const map = new Map<string, string[]>();
@@ -2198,12 +2328,141 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       if (bh && !arr.includes(bh)) arr.push(bh);
     }
     const abbrev = (s: string) => s.split(/\s+/).map(w => w[0] || '').join('').toUpperCase();
-    return Array.from(map.entries()).map(([bagian, bahans]) => ({
-      bagian,
-      header: abbrev(bagian),
-      value: bahans.join(' / '),
-    }));
-  })();
+    const hide = new Set(hiddenBagians);
+    return Array.from(map.entries())
+      .filter(([bagian]) => !hide.has(bagian))
+      .map(([bagian, bahans]) => ({
+        bagian,
+        header: abbrev(bagian),
+        value: bahans.join(' / '),
+      }));
+  }, [specs, specBahan, hiddenBagians]);
+
+  // Custom parent columns (user-defined grouped columns with 2 sub-columns).
+  type ParentCol = { id: string; parent: string; subs: [string, string] };
+  const customParentsKey = `wo3_custom_parents_${wo.id}`;
+  const [customParents, setCustomParents] = useState<ParentCol[]>([]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(customParentsKey);
+      if (saved) setCustomParents(JSON.parse(saved));
+    } catch {}
+  }, [customParentsKey]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(customParentsKey, JSON.stringify(customParents));
+    } catch {}
+  }, [customParents, customParentsKey]);
+
+  // Unified column order — KET 2+, bagian, and custom parent columns are interleavable.
+  // Keys: 'ket:<idx>' | 'bagian:<name>' | 'parent:<id>'.
+  const colOrderKey = `wo3_col_order_${wo.id}`;
+  const [colOrder, setColOrder] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(colOrderKey);
+      if (saved) setColOrder(JSON.parse(saved));
+    } catch {}
+  }, [colOrderKey]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(colOrderKey, JSON.stringify(colOrder));
+    } catch {}
+  }, [colOrder, colOrderKey]);
+
+  // Effective order: KET 2+ + bagian + parent columns, sorted by colOrder; unknown items at the end.
+  type ColRef =
+    | { kind: 'ket'; idx: number }
+    | { kind: 'bagian'; bagian: string }
+    | { kind: 'parent'; id: string };
+  const effectiveCols = useMemo<ColRef[]>(() => {
+    const natural: ColRef[] = [
+      ...Array.from({ length: numKetCols }, (_, i) => i).filter(i => i > 0).map(i => ({ kind: 'ket' as const, idx: i })),
+      ...rawBagianCols.map(c => ({ kind: 'bagian' as const, bagian: c.bagian })),
+      ...customParents.map(p => ({ kind: 'parent' as const, id: p.id })),
+    ];
+    const keyOf = (r: ColRef): string => {
+      if (r.kind === 'ket') return `ket:${r.idx}`;
+      if (r.kind === 'bagian') return `bagian:${r.bagian}`;
+      return `parent:${r.id}`;
+    };
+    if (colOrder.length === 0) return natural;
+    const ordIdx = new Map(colOrder.map((k, i) => [k, i]));
+    return natural.slice().sort((a, b) => {
+      const ai = ordIdx.get(keyOf(a)) ?? Number.MAX_SAFE_INTEGER;
+      const bi = ordIdx.get(keyOf(b)) ?? Number.MAX_SAFE_INTEGER;
+      return ai - bi;
+    });
+  }, [numKetCols, rawBagianCols, customParents, colOrder]);
+
+  // bagianCols (used by Excel/PDF export and buildBagianHeaders) follows effectiveCols.
+  const bagianCols = useMemo(() => {
+    return effectiveCols
+      .filter((r): r is { kind: 'bagian'; bagian: string } => r.kind === 'bagian')
+      .map(r => {
+        const found = rawBagianCols.find(c => c.bagian === r.bagian);
+        return found || { bagian: r.bagian, header: r.bagian, value: '' };
+      });
+  }, [effectiveCols, rawBagianCols]);
+
+  const parentMap = useMemo(() => new Map(customParents.map(p => [p.id, p])), [customParents]);
+
+  function keyOfRef(r: ColRef): string {
+    if (r.kind === 'ket') return `ket:${r.idx}`;
+    if (r.kind === 'bagian') return `bagian:${r.bagian}`;
+    return `parent:${r.id}`;
+  }
+
+  function moveCol(fromKey: string, toKey: string) {
+    if (fromKey === toKey) return;
+    const current = effectiveCols.map(keyOfRef);
+    const fromIdx = current.indexOf(fromKey);
+    const toIdx = current.indexOf(toKey);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const next = current.slice();
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, fromKey);
+    setColOrder(next);
+  }
+
+  async function confirmDeleteCol(ref: ColRef, label: string) {
+    const yes = await toast.confirm({
+      title: 'Hapus Kolom?',
+      message: `Kolom "${label}" akan dihapus dari tampilan WO 3.${ref.kind === 'bagian' ? ' Data spesifikasi di WO 1 tidak terpengaruh.' : ''}`,
+      type: 'danger',
+      confirmText: 'Ya, Hapus',
+    });
+    if (!yes) return;
+    if (ref.kind === 'ket') {
+      removeKetCol(ref.idx);
+    } else if (ref.kind === 'bagian') {
+      setHiddenBagians(prev => prev.includes(ref.bagian) ? prev : [...prev, ref.bagian]);
+    } else {
+      setCustomParents(prev => prev.filter(p => p.id !== ref.id));
+    }
+  }
+
+  const [draggedKey, setDraggedKey] = useState<string | null>(null);
+
+  // Add-parent modal state
+  const [parentModalOpen, setParentModalOpen] = useState(false);
+  const [newParentName, setNewParentName] = useState('');
+  const [newSub1, setNewSub1] = useState('');
+  const [newSub2, setNewSub2] = useState('');
+
+  function openParentModal() {
+    setNewParentName('');
+    setNewSub1('');
+    setNewSub2('');
+    setParentModalOpen(true);
+  }
+  function saveParentCol() {
+    if (!newParentName.trim()) { toast.warning('Validasi', 'Nama parent wajib diisi'); return; }
+    if (!newSub1.trim() || !newSub2.trim()) { toast.warning('Validasi', 'Sub kolom wajib diisi'); return; }
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    setCustomParents(prev => [...prev, { id, parent: newParentName.trim(), subs: [newSub1.trim(), newSub2.trim()] }]);
+    setParentModalOpen(false);
+  }
 
   // Fetch fresh data from DB
   async function fetchItems() {
@@ -2240,11 +2499,38 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
 
   function addKetCol() {
     setRows(prev => prev.map(r => ({ ...r, keterangans: [...r.keterangans, ''] })));
+    // Reserve an entry in ketColNames so the column persists even after a save
+    // that produces no row data (numKetCols would otherwise collapse to the row length).
+    const newIdx = numKetCols;
+    setKetColNames(prev => (newIdx in prev) ? prev : { ...prev, [newIdx]: '' });
   }
 
   function removeKetCol(idx: number) {
     if (numKetCols <= 1) return;
     setRows(prev => prev.map(r => ({ ...r, keterangans: r.keterangans.filter((_, i) => i !== idx) })));
+    setKetColNames(prev => {
+      const next: Record<number, string> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i === idx) continue;
+        next[i > idx ? i - 1 : i] = v;
+      }
+      return next;
+    });
+    // Update colOrder: remove ket:<idx> and shift higher ket indices down by 1.
+    setColOrder(prev => {
+      const next: string[] = [];
+      for (const key of prev) {
+        if (key === `ket:${idx}`) continue;
+        if (key.startsWith('ket:')) {
+          const i = Number(key.slice(4));
+          next.push(i > idx ? `ket:${i - 1}` : key);
+        } else {
+          next.push(key);
+        }
+      }
+      return next;
+    });
   }
 
   type PasteField = 'nama' | 'np' | 'ukuran' | 'penjahit' | { ketIdx: number };
@@ -2487,85 +2773,114 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
   async function handleExportExcel() {
     try {
       const XLSX = (await import('xlsx-js-style')).default;
-      const { topRow, dataCols } = buildBagianHeaders();
-      const totalBagianCells = dataCols.reduce((a, b) => a + b, 0);
-      const fixedLeftCols = 4 + numKetCols; // NO, NAMA, NP, SIZE + KET cols
-      const totalCols = fixedLeftCols + totalBagianCells + 1; // + PENJAHIT
 
-      // Row 0: title (merged across all cols)
-      // Row 1: customer (merged across all cols)
-      // Row 2: blank spacer
-      // Row 3: top header
-      // Row 4: sub header
-      // Row 5+: data rows
+      // Build columns in the same order as the on-page table (effectiveCols).
+      const fixedLeft = 5; // NO, NAMA, NP, SIZE, KET 1
+      let dataCount = 0;
+      const colWidths: { wch: number }[] = [
+        { wch: 5 }, { wch: 22 }, { wch: 8 }, { wch: 8 }, { wch: 18 },
+      ];
+      const ketColsSet = new Set<number>([4]); // KET 1
+      // Track each effective col's start index and how many cells it contributes
+      const effGroups: { ref: ColRef; startCol: number; span: number; subs?: string[]; label?: string }[] = [];
+      for (const ref of effectiveCols) {
+        const startCol = fixedLeft + dataCount;
+        if (ref.kind === 'ket') {
+          effGroups.push({ ref, startCol, span: 1 });
+          ketColsSet.add(startCol);
+          colWidths.push({ wch: 18 });
+          dataCount += 1;
+        } else if (ref.kind === 'parent') {
+          const p = parentMap.get(ref.id);
+          effGroups.push({ ref, startCol, span: 2, subs: p?.subs as unknown as string[] | undefined, label: p?.parent });
+          colWidths.push({ wch: 11 }, { wch: 11 });
+          dataCount += 2;
+        } else {
+          const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+          const span = cfg.subCols?.length || 1;
+          effGroups.push({ ref, startCol, span, subs: cfg.subCols });
+          for (let j = 0; j < span; j++) colWidths.push({ wch: 11 });
+          dataCount += span;
+        }
+      }
+      colWidths.push({ wch: 20 }); // PENJAHIT
+      const totalCols = fixedLeft + dataCount + 1;
+
+      // Row 0: title; Row 1: customer; Row 2: spacer; Row 3: top header; Row 4: sub header; Row 5+: data
       const titleRow: (string | null)[] = [`DETAIL ORDER ITEMS — ${wo.noWo}`, ...Array(totalCols - 1).fill('')];
       const custRow: (string | null)[] = [`Customer: ${wo.customer}`, ...Array(totalCols - 1).fill('')];
       const spacerRow: string[] = Array(totalCols).fill('');
 
-      const ketHeaders = Array.from({ length: numKetCols }, (_, i) => i === 0 ? 'KET' : `KET ${i + 1}`);
-      const topHeader: string[] = ['NO', 'NAMA', 'NP', 'SIZE', ...ketHeaders];
-      const subHeader: string[] = Array(fixedLeftCols).fill('');
-      for (const cell of topRow) {
-        if (typeof cell === 'object' && cell.colSpan) {
-          topHeader.push(cell.content);
-          for (let i = 1; i < cell.colSpan; i++) topHeader.push('');
+      const topHeader: string[] = ['NO', 'NAMA', 'NP', 'SIZE', 'KET'];
+      const subHeader: string[] = Array(fixedLeft).fill('');
+      for (const g of effGroups) {
+        if (g.ref.kind === 'ket') {
+          topHeader.push(getKetColName(g.ref.idx));
+          subHeader.push('');
+        } else if (g.ref.kind === 'parent') {
+          topHeader.push(g.label || 'PARENT');
+          topHeader.push('');
+          const subs = g.subs || ['', ''];
+          subHeader.push(subs[0] || '', subs[1] || '');
         } else {
-          const txt = typeof cell === 'object' ? cell.content : cell;
-          topHeader.push(txt);
+          const cfg = BAGIAN_CONFIG[g.ref.bagian] || { label: g.ref.bagian };
+          topHeader.push(cfg.label);
+          if (g.subs && g.subs.length > 0) {
+            for (let i = 1; i < g.subs.length; i++) topHeader.push('');
+            for (const s of g.subs) subHeader.push(s);
+          } else {
+            subHeader.push('');
+          }
         }
       }
       topHeader.push('PENJAHIT');
-
-      for (const col of bagianCols) {
-        const cfg = BAGIAN_CONFIG[col.bagian] || { label: col.bagian };
-        if (cfg.subCols && cfg.subCols.length > 0) {
-          for (const sub of cfg.subCols) subHeader.push(sub);
-        } else {
-          subHeader.push('');
-        }
-      }
       subHeader.push('');
 
-      const dataRows = rows.map((r, i) => [
-        i + 1, r.nama, r.np, r.ukuran,
-        ...Array.from({ length: numKetCols }, (_, k) => r.keterangans[k] ?? ''),
-        ...Array(totalBagianCells).fill(''),
-        r.penjahit,
-      ]);
+      const dataRows = rows.map((r, i) => {
+        const cells: (string | number)[] = [
+          i + 1, r.nama, r.np, r.ukuran, r.keterangans[0] ?? '',
+        ];
+        for (const g of effGroups) {
+          if (g.ref.kind === 'ket') {
+            cells.push(r.keterangans[g.ref.idx] ?? '');
+          } else {
+            for (let j = 0; j < g.span; j++) cells.push('');
+          }
+        }
+        cells.push(r.penjahit);
+        return cells;
+      });
 
       const aoa: (string | number | null)[][] = [titleRow, custRow, spacerRow, topHeader, subHeader, ...dataRows];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-      // Merges
       const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
-      // Title & customer across all cols
       merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } });
       merges.push({ s: { r: 1, c: 0 }, e: { r: 1, c: totalCols - 1 } });
-      // Fixed left header cols rowSpan=2 (rows 3-4)
-      for (let c = 0; c < fixedLeftCols; c++) merges.push({ s: { r: 3, c }, e: { r: 4, c } });
+      // Fixed left header cols rowSpan=2
+      for (let c = 0; c < fixedLeft; c++) merges.push({ s: { r: 3, c }, e: { r: 4, c } });
       // PENJAHIT rowSpan=2
-      const lastCol = fixedLeftCols + totalBagianCells;
+      const lastCol = fixedLeft + dataCount;
       merges.push({ s: { r: 3, c: lastCol }, e: { r: 4, c: lastCol } });
-      // Grouped bagian headers
-      let colOffset = fixedLeftCols;
-      for (const col of bagianCols) {
-        const cfg = BAGIAN_CONFIG[col.bagian] || { label: col.bagian };
-        const span = cfg.subCols?.length || 1;
-        if (cfg.subCols && cfg.subCols.length > 0) {
-          merges.push({ s: { r: 3, c: colOffset }, e: { r: 3, c: colOffset + span - 1 } });
+      // Per-group header merges
+      for (const g of effGroups) {
+        if (g.ref.kind === 'ket') {
+          // KET cell rowSpan=2 (single col)
+          merges.push({ s: { r: 3, c: g.startCol }, e: { r: 4, c: g.startCol } });
+        } else if (g.ref.kind === 'parent') {
+          // Parent: top row colSpan=2, sub row separate
+          merges.push({ s: { r: 3, c: g.startCol }, e: { r: 3, c: g.startCol + 1 } });
+        } else if (g.subs && g.subs.length > 0) {
+          // Top row colSpan; sub row has individual cells
+          merges.push({ s: { r: 3, c: g.startCol }, e: { r: 3, c: g.startCol + g.span - 1 } });
         } else {
-          merges.push({ s: { r: 3, c: colOffset }, e: { r: 4, c: colOffset } });
+          // No subCols → single col rowSpan=2
+          merges.push({ s: { r: 3, c: g.startCol }, e: { r: 4, c: g.startCol } });
         }
-        colOffset += span;
       }
       ws['!merges'] = merges;
 
-      ws['!cols'] = [
-        { wch: 5 }, { wch: 22 }, { wch: 8 }, { wch: 8 },
-        ...Array(numKetCols).fill({ wch: 18 }),
-        ...Array(totalBagianCells).fill({ wch: 11 }),
-        { wch: 20 },
-      ];
+      ws['!cols'] = colWidths;
       ws['!rows'] = [
         { hpt: 26 }, // title
         { hpt: 20 }, // customer
@@ -2605,8 +2920,8 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
         const stripe = r % 2 === 1 ? { fgColor: { rgb: 'F1F5F9' } } : undefined;
         for (let c = 0; c < totalCols; c++) {
           const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
-          const isKetCol = c >= 4 && c < 4 + numKetCols;
-          const isLeft = c === 1 || isKetCol || c === totalCols - 1; // NAMA, KET cols, PENJAHIT
+          const isKetColCell = ketColsSet.has(c);
+          const isLeft = c === 1 || isKetColCell || c === totalCols - 1; // NAMA, KET cols, PENJAHIT
           const align = { horizontal: isLeft ? 'left' : 'center', vertical: 'center', wrapText: true };
           const style: Record<string, unknown> = { border: BORDER, alignment: align, font: { sz: 10, color: { rgb: '1E293B' } } };
           if (stripe) style.fill = stripe;
@@ -2637,22 +2952,51 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
       pdf.setFontSize(10);
       pdf.text(`Customer: ${wo.customer}`, 14, 26);
 
-      const { topRow, subRow, dataCols } = buildBagianHeaders();
-      const totalBagianCells = dataCols.reduce((a, b) => a + b, 0);
-      const fixedLeftCols = 4 + numKetCols;
-      const penjahitIdx = fixedLeftCols + totalBagianCells;
-
-      const ketCells = Array.from({ length: numKetCols }, (_, i) => ({ content: i === 0 ? 'KET' : `KET ${i + 1}`, rowSpan: 2 }));
-      const headRow1: Array<string | { content: string; colSpan?: number; rowSpan?: number }> = [
+      // Build head/body in the same order as the on-page table (effectiveCols).
+      const hasSubRow = effectiveCols.some(r => {
+        if (r.kind === 'bagian') {
+          const cfg = BAGIAN_CONFIG[r.bagian] || { label: r.bagian };
+          return !!(cfg.subCols && cfg.subCols.length > 0);
+        }
+        if (r.kind === 'parent') return true;
+        return false;
+      });
+      const headTop: Array<string | { content: string; colSpan?: number; rowSpan?: number }> = [
         { content: 'NO', rowSpan: 2 },
         { content: 'NAMA', rowSpan: 2 },
         { content: 'NP', rowSpan: 2 },
         { content: 'SIZE', rowSpan: 2 },
-        ...ketCells,
-        ...topRow,
-        { content: 'PENJAHIT', rowSpan: 2 },
+        { content: 'KET', rowSpan: 2 },
       ];
-      const head = subRow.length > 0 ? [headRow1, subRow] : [headRow1];
+      const headSub: string[] = [];
+      let dataCount = 0;
+      for (const ref of effectiveCols) {
+        if (ref.kind === 'ket') {
+          headTop.push({ content: getKetColName(ref.idx), rowSpan: 2 });
+          dataCount += 1;
+        } else if (ref.kind === 'parent') {
+          const p = parentMap.get(ref.id);
+          const label = p?.parent || 'PARENT';
+          const subs = p?.subs || ['', ''];
+          headTop.push({ content: label, colSpan: 2 });
+          headSub.push(subs[0], subs[1]);
+          dataCount += 2;
+        } else {
+          const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+          if (cfg.subCols && cfg.subCols.length > 0) {
+            headTop.push({ content: cfg.label, colSpan: cfg.subCols.length });
+            for (const sub of cfg.subCols) headSub.push(sub);
+            dataCount += cfg.subCols.length;
+          } else {
+            headTop.push({ content: cfg.label, rowSpan: 2 });
+            dataCount += 1;
+          }
+        }
+      }
+      headTop.push({ content: 'PENJAHIT', rowSpan: 2 });
+      const head = hasSubRow ? [headTop, headSub] : [headTop];
+      const fixedLeft = 5; // NO, NAMA, NP, SIZE, KET 1
+      const penjahitIdx = fixedLeft + dataCount;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const columnStyles: Record<number, any> = {
@@ -2660,22 +3004,47 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
         1: { cellWidth: 28, halign: 'left' },
         2: { cellWidth: 12 },
         3: { cellWidth: 12 },
+        4: { cellWidth: 20, halign: 'left' },
         [penjahitIdx]: { cellWidth: 22, halign: 'left' },
       };
-      for (let i = 0; i < numKetCols; i++) {
-        columnStyles[4 + i] = { cellWidth: 20, halign: 'left' };
+      // KET 2+ cells in the effective order get left-aligned wider cells.
+      {
+        let idx = fixedLeft;
+        for (const ref of effectiveCols) {
+          if (ref.kind === 'ket') {
+            columnStyles[idx] = { cellWidth: 20, halign: 'left' };
+            idx += 1;
+          } else if (ref.kind === 'parent') {
+            idx += 2;
+          } else {
+            const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+            idx += cfg.subCols?.length || 1;
+          }
+        }
       }
 
       autoTable(pdf, {
         startY: 32,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         head: head as any,
-        body: rows.map((r, i) => [
-          i + 1, r.nama, r.np, r.ukuran,
-          ...Array.from({ length: numKetCols }, (_, k) => r.keterangans[k] ?? ''),
-          ...Array(totalBagianCells).fill(''),
-          r.penjahit,
-        ]),
+        body: rows.map((r, i) => {
+          const cells: (string | number)[] = [
+            i + 1, r.nama, r.np, r.ukuran, r.keterangans[0] ?? '',
+          ];
+          for (const ref of effectiveCols) {
+            if (ref.kind === 'ket') {
+              cells.push(r.keterangans[ref.idx] ?? '');
+            } else if (ref.kind === 'parent') {
+              cells.push('', '');
+            } else {
+              const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+              const count = cfg.subCols?.length || 1;
+              for (let j = 0; j < count; j++) cells.push('');
+            }
+          }
+          cells.push(r.penjahit);
+          return cells;
+        }),
         styles: { fontSize: 7, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
         headStyles: { fillColor: [30, 58, 95], fontSize: 7, halign: 'center', valign: 'middle', lineWidth: 0.3, lineColor: [0, 0, 0] },
         bodyStyles: { halign: 'center' },
@@ -2714,11 +3083,23 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
           </button>
           <button
             onClick={addKetCol}
-            title="Tambah kolom keterangan (KET 2, KET 3, ...)"
-            className="flex items-center gap-1.5 text-xs text-amber-400 border border-amber-500/20 px-3 py-1.5 rounded-lg hover:bg-amber-500/10 transition-colors"
+            title="Tambah kolom"
+            aria-label="Tambah kolom"
+            className="flex items-center justify-center text-amber-400 border border-amber-500/20 w-8 h-8 rounded-lg hover:bg-amber-500/10 transition-colors"
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-            Tambah Keterangan
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+          </button>
+          <button
+            onClick={openParentModal}
+            title="Tambah kolom parent (1 parent + 2 sub)"
+            aria-label="Tambah kolom parent"
+            className="flex items-center justify-center text-amber-400 border border-amber-500/20 w-8 h-8 rounded-lg hover:bg-amber-500/10 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <rect x="4" y="4" width="16" height="6" rx="1" />
+              <rect x="4" y="14" width="7" height="6" rx="1" />
+              <rect x="13" y="14" width="7" height="6" rx="1" />
+            </svg>
           </button>
           <button onClick={handleExportExcel} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Export Excel</button>
           <button onClick={handleDownloadPdfWO3} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
@@ -2729,73 +3110,276 @@ function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: pr
         </div>
       </div>
 
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px]">
-            <thead><tr className="border-b border-white/[0.06]">
-              <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">NO</th>
-              <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">NAMA</th>
-              <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">NP</th>
-              <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">
-                <span className="flex items-center gap-1">
-                  SIZE
-                  <button onClick={sortBySize} className="text-amber-400 hover:text-amber-300 transition-colors" title="Sort by Size">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5-4.5L16.5 16.5m0 0L12 12m4.5 4.5V3" /></svg>
-                  </button>
-                </span>
-              </th>
-              {Array.from({ length: numKetCols }, (_, idx) => (
-                <th key={`ket-h-${idx}`} className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">
-                  <span className="flex items-center gap-1">
-                    {idx === 0 ? 'KET' : `KET ${idx + 1}`}
-                    {idx > 0 && (
-                      <button onClick={() => removeKetCol(idx)} className="text-slate-600 hover:text-red-400 transition-colors" title={`Hapus KET ${idx + 1}`}>
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                      </button>
-                    )}
-                  </span>
-                </th>
-              ))}
-              <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider">PENJAHIT</th>
-              <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-3 uppercase tracking-wider"></th>
-            </tr></thead>
-            <tbody>
-              {rows.map((p, i) => (
-                <tr key={p.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                  <td className="px-4 py-3 text-sm text-blue-400">{i + 1}</td>
-                  <td className="px-4 py-3"><input value={p.nama} onChange={e => updateRow(p.id, 'nama', e.target.value)} onPaste={e => handlePaste(e, p.id, 'nama')} placeholder="Nama" className="bg-transparent text-sm text-emerald-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input value={p.np} onChange={e => updateRow(p.id, 'np', e.target.value)} onPaste={e => handlePaste(e, p.id, 'np')} placeholder="NP" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3"><input value={p.ukuran} onChange={e => updateRow(p.id, 'ukuran', e.target.value)} onPaste={e => handlePaste(e, p.id, 'ukuran')} placeholder="Size" className="bg-transparent text-sm font-bold text-white placeholder-slate-600 focus:outline-none w-full" /></td>
-                  {Array.from({ length: numKetCols }, (_, idx) => (
-                    <td key={`ket-${p.id}-${idx}`} className="px-4 py-3">
-                      <input
-                        value={p.keterangans[idx] ?? ''}
-                        onChange={e => updateKet(p.id, idx, e.target.value)}
-                        onPaste={e => handlePaste(e, p.id, { ketIdx: idx })}
-                        placeholder={idx === 0 ? 'Keterangan' : `Keterangan ${idx + 1}`}
-                        className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full"
-                      />
-                    </td>
+      {(() => {
+        const hasSubRow = effectiveCols.some(r => {
+          if (r.kind === 'bagian') {
+            const cfg = BAGIAN_CONFIG[r.bagian] || { label: r.bagian };
+            return !!(cfg.subCols && cfg.subCols.length > 0);
+          }
+          if (r.kind === 'parent') return true;
+          return false;
+        });
+        const thBase = 'text-[11px] text-slate-500 font-medium px-3 py-3 uppercase tracking-wider';
+        const thLeft = `${thBase} text-left`;
+        const thCenter = `${thBase} text-center`;
+        const onDragStartKey = (e: React.DragEvent, key: string) => {
+          setDraggedKey(key);
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', key);
+        };
+        const onDragOverAccept = (e: React.DragEvent) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+        };
+        const onDropTo = (e: React.DragEvent, targetKey: string) => {
+          e.preventDefault();
+          const from = e.dataTransfer.getData('text/plain');
+          if (from) moveCol(from, targetKey);
+          setDraggedKey(null);
+        };
+        return (
+          <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px]">
+                <thead>
+                  <tr className="border-b border-white/[0.06]">
+                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>NO</th>
+                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>NAMA</th>
+                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>NP</th>
+                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>
+                      <span className="flex items-center gap-1">
+                        SIZE
+                        <button onClick={sortBySize} className="text-amber-400 hover:text-amber-300 transition-colors" title="Sort by Size">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5-4.5L16.5 16.5m0 0L12 12m4.5 4.5V3" /></svg>
+                        </button>
+                      </span>
+                    </th>
+                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>KET</th>
+                    {effectiveCols.map(ref => {
+                      const key = keyOfRef(ref);
+                      const isDraggingThis = draggedKey === key;
+                      if (ref.kind === 'ket') {
+                        const colLabel = ketColNames[ref.idx] || 'unknown';
+                        return (
+                          <th
+                            key={`hdr-${key}`}
+                            rowSpan={hasSubRow ? 2 : 1}
+                            draggable
+                            onDragStart={e => onDragStartKey(e, key)}
+                            onDragEnd={() => setDraggedKey(null)}
+                            onDragOver={onDragOverAccept}
+                            onDrop={e => onDropTo(e, key)}
+                            onClick={() => confirmDeleteCol(ref, colLabel)}
+                            title="Klik untuk hapus kolom · tarik untuk pindah posisi"
+                            style={{ width: '1%', whiteSpace: 'nowrap' }}
+                            className={`text-[11px] text-slate-500 font-medium px-2 py-3 uppercase tracking-wider text-left cursor-grab active:cursor-grabbing select-none border-l border-white/[0.04] ${isDraggingThis ? 'opacity-40' : ''} ${draggedKey && draggedKey !== key ? 'hover:bg-blue-500/10' : ''}`}
+                          >
+                            <input
+                              value={ketColNames[ref.idx] ?? ''}
+                              onChange={e => setKetColName(ref.idx, e.target.value)}
+                              onMouseDown={e => e.stopPropagation()}
+                              onClick={e => e.stopPropagation()}
+                              placeholder="unknown"
+                              title="Klik untuk ubah nama kolom"
+                              draggable={false}
+                              size={Math.max(4, (ketColNames[ref.idx] ?? '').length || 4)}
+                              className="bg-transparent text-[11px] text-slate-500 font-medium uppercase tracking-wider focus:outline-none border-b border-transparent hover:border-white/10 focus:border-blue-500/40 min-w-0"
+                            />
+                          </th>
+                        );
+                      }
+                      if (ref.kind === 'parent') {
+                        const p = parentMap.get(ref.id);
+                        const label = p?.parent || 'PARENT';
+                        return (
+                          <th
+                            key={`hdr-${key}`}
+                            colSpan={2}
+                            draggable
+                            onDragStart={e => onDragStartKey(e, key)}
+                            onDragEnd={() => setDraggedKey(null)}
+                            onDragOver={onDragOverAccept}
+                            onDrop={e => onDropTo(e, key)}
+                            onClick={() => confirmDeleteCol(ref, label)}
+                            title="Klik untuk hapus kolom · tarik untuk pindah posisi"
+                            className={`${thCenter} border-l border-white/[0.04] cursor-grab active:cursor-grabbing select-none ${isDraggingThis ? 'opacity-40' : ''} ${draggedKey && draggedKey !== key ? 'hover:bg-blue-500/10' : ''}`}
+                          >
+                            {label}
+                          </th>
+                        );
+                      }
+                      // bagian
+                      const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+                      const hasSub = !!(cfg.subCols && cfg.subCols.length > 0);
+                      return (
+                        <th
+                          key={`hdr-${key}`}
+                          colSpan={hasSub ? cfg.subCols!.length : undefined}
+                          rowSpan={hasSub ? undefined : (hasSubRow ? 2 : 1)}
+                          draggable
+                          onDragStart={e => onDragStartKey(e, key)}
+                          onDragEnd={() => setDraggedKey(null)}
+                          onDragOver={onDragOverAccept}
+                          onDrop={e => onDropTo(e, key)}
+                          onClick={() => confirmDeleteCol(ref, cfg.label)}
+                          title="Klik untuk hapus kolom · tarik untuk pindah posisi"
+                          className={`${thCenter} border-l border-white/[0.04] cursor-grab active:cursor-grabbing select-none ${isDraggingThis ? 'opacity-40' : ''} ${draggedKey && draggedKey !== key ? 'hover:bg-blue-500/10' : ''}`}
+                        >
+                          {cfg.label}
+                        </th>
+                      );
+                    })}
+                    <th rowSpan={hasSubRow ? 2 : 1} className={`${thLeft} border-l border-white/[0.04]`}>PENJAHIT</th>
+                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}></th>
+                  </tr>
+                  {hasSubRow && (
+                    <tr className="border-b border-white/[0.06]">
+                      {effectiveCols.flatMap(ref => {
+                        if (ref.kind === 'ket') return [];
+                        if (ref.kind === 'parent') {
+                          const p = parentMap.get(ref.id);
+                          if (!p) return [];
+                          const parentKey = keyOfRef(ref);
+                          return p.subs.map((sub, i) => (
+                            <th
+                              key={`sub-${ref.id}-${i}`}
+                              onDragOver={onDragOverAccept}
+                              onDrop={e => onDropTo(e, parentKey)}
+                              className={`${thCenter} border-l border-white/[0.04] ${draggedKey && draggedKey !== parentKey ? 'hover:bg-blue-500/10' : ''}`}
+                            >
+                              {sub}
+                            </th>
+                          ));
+                        }
+                        const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+                        if (!cfg.subCols || cfg.subCols.length === 0) return [];
+                        const parentKey = keyOfRef(ref);
+                        return cfg.subCols.map((sub, i) => (
+                          <th
+                            key={`sub-${ref.bagian}-${i}`}
+                            onDragOver={onDragOverAccept}
+                            onDrop={e => onDropTo(e, parentKey)}
+                            className={`${thCenter} border-l border-white/[0.04] ${draggedKey && draggedKey !== parentKey ? 'hover:bg-blue-500/10' : ''}`}
+                          >
+                            {sub}
+                          </th>
+                        ));
+                      })}
+                    </tr>
+                  )}
+                </thead>
+                <tbody>
+                  {rows.map((p, i) => (
+                    <tr key={p.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                      <td className="px-3 py-3 text-sm text-blue-400">{i + 1}</td>
+                      <td className="px-3 py-3"><input value={p.nama} onChange={e => updateRow(p.id, 'nama', e.target.value)} onPaste={e => handlePaste(e, p.id, 'nama')} placeholder="Nama" className="bg-transparent text-sm text-emerald-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                      <td className="px-3 py-3"><input value={p.np} onChange={e => updateRow(p.id, 'np', e.target.value)} onPaste={e => handlePaste(e, p.id, 'np')} placeholder="NP" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
+                      <td className="px-3 py-3"><input value={p.ukuran} onChange={e => updateRow(p.id, 'ukuran', e.target.value)} onPaste={e => handlePaste(e, p.id, 'ukuran')} placeholder="Size" className="bg-transparent text-sm font-bold text-white placeholder-slate-600 focus:outline-none w-full" /></td>
+                      <td className="px-3 py-3">
+                        <input
+                          value={p.keterangans[0] ?? ''}
+                          onChange={e => updateKet(p.id, 0, e.target.value)}
+                          onPaste={e => handlePaste(e, p.id, { ketIdx: 0 })}
+                          placeholder="Keterangan"
+                          className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full"
+                        />
+                      </td>
+                      {effectiveCols.flatMap(ref => {
+                        if (ref.kind === 'ket') {
+                          return [(
+                            <td key={`ket-${p.id}-${ref.idx}`} className="px-3 py-3 border-l border-white/[0.04]">
+                              <input
+                                value={p.keterangans[ref.idx] ?? ''}
+                                onChange={e => updateKet(p.id, ref.idx, e.target.value)}
+                                onPaste={e => handlePaste(e, p.id, { ketIdx: ref.idx })}
+                                placeholder=""
+                                className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full"
+                              />
+                            </td>
+                          )];
+                        }
+                        if (ref.kind === 'parent') {
+                          return [0, 1].map(j => (
+                            <td key={`par-${p.id}-${ref.id}-${j}`} className="px-3 py-3 border-l border-white/[0.04]"></td>
+                          ));
+                        }
+                        const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
+                        const count = cfg.subCols?.length || 1;
+                        return Array.from({ length: count }, (_, j) => (
+                          <td key={`bg-${p.id}-${ref.bagian}-${j}`} className="px-3 py-3 border-l border-white/[0.04]"></td>
+                        ));
+                      })}
+                      <td className="px-3 py-3 border-l border-white/[0.04]"><input value={p.penjahit} onChange={e => updateRow(p.id, 'penjahit', e.target.value)} onPaste={e => handlePaste(e, p.id, 'penjahit')} placeholder="Penjahit" className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
+                      <td className="px-3 py-3">
+                        <button onClick={() => removeRow(p.id)} className="text-slate-600 hover:text-red-400 transition-colors">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                        </button>
+                      </td>
+                    </tr>
                   ))}
-                  <td className="px-4 py-3"><input value={p.penjahit} onChange={e => updateRow(p.id, 'penjahit', e.target.value)} onPaste={e => handlePaste(e, p.id, 'penjahit')} placeholder="Penjahit" className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => removeRow(p.id)} className="text-slate-600 hover:text-red-400 transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-5 py-4 flex items-center justify-between">
-          <button onClick={addRow} className="flex items-center gap-2 border border-white/10 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg hover:bg-white/[0.04] transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-            Tambah Baris
-          </button>
-          <span className="text-xs text-slate-500">Total: {rows.length} items</span>
-        </div>
-      </div>
+                </tbody>
+              </table>
+            </div>
+            <div className="px-5 py-4 flex items-center justify-between">
+              <button onClick={addRow} className="flex items-center gap-2 border border-white/10 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg hover:bg-white/[0.04] transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                Tambah Baris
+              </button>
+              <span className="text-xs text-slate-500">Total: {rows.length} items</span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {parentModalOpen && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setParentModalOpen(false)} />
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-[#0c1120] border border-white/[0.06] rounded-xl shadow-2xl">
+            <div className="px-6 py-5 border-b border-white/[0.06] flex items-center justify-between">
+              <h2 className="text-base font-bold text-white">Tambah Kolom Parent</h2>
+              <button onClick={() => setParentModalOpen(false)} className="text-slate-500 hover:text-white transition-colors p-1">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">Parent</label>
+                <input
+                  value={newParentName}
+                  onChange={e => setNewParentName(e.target.value)}
+                  placeholder="mis. LENGAN"
+                  className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 uppercase"
+                  autoFocus
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Sub Parent 1</label>
+                  <input
+                    value={newSub1}
+                    onChange={e => setNewSub1(e.target.value)}
+                    placeholder="mis. KANAN"
+                    className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Sub Parent 2</label>
+                  <input
+                    value={newSub2}
+                    onChange={e => setNewSub2(e.target.value)}
+                    placeholder="mis. KIRI"
+                    className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 uppercase"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-white/[0.06] flex justify-end gap-2">
+              <button onClick={() => setParentModalOpen(false)} className="px-4 py-2 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">Batal</button>
+              <button onClick={saveParentCol} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">Tambah</button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
