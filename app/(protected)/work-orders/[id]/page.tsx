@@ -1436,7 +1436,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 <h3 className="text-sm font-bold text-white mb-4">Aksesoris & Detail</h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
+                    <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>Ayres Pattern Lab</option><option>polos</option><option>custom</option></select></div>
                     <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress rubber</option><option>Ayress woven</option><option>Custom</option><option>Tanpa authentic</option></select></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -1545,7 +1545,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 <h3 className="text-sm font-bold text-white mb-4">Aksesoris & Detail</h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option></select></div>
+                    <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>Ayres Pattern Lab</option><option>polos</option><option>custom</option></select></div>
                     <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress rubber</option><option>Ayress woven</option><option>Custom</option><option>Tanpa authentic</option></select></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
