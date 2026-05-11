@@ -4,6 +4,7 @@ import { query } from '@/lib/db';
 interface WoRow {
   id: number;
   no_wo: string;
+  tracking_hash: string | null;
   order_id: number;
   customer_nama: string;
   paket: string;
@@ -40,12 +41,17 @@ interface StageRow {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const noWo = searchParams.get('no_wo');
-  if (!noWo) return NextResponse.json({ success: false, error: 'no_wo required' }, { status: 400 });
+  // The URL slug can be either a SHA-256 hash (new format) or a no_wo
+  // (legacy URLs). The client passes whichever value was in the URL via no_wo.
+  const slug = searchParams.get('no_wo');
+  if (!slug) return NextResponse.json({ success: false, error: 'no_wo required' }, { status: 400 });
 
   try {
-    // Find the work order
-    const wos = await query<WoRow>('SELECT * FROM work_orders WHERE no_wo = ? LIMIT 1', [noWo]);
+    // Try hash first (unguessable, new format), fall back to no_wo for legacy links.
+    let wos = await query<WoRow>('SELECT * FROM work_orders WHERE tracking_hash = ? LIMIT 1', [slug]);
+    if (wos.length === 0) {
+      wos = await query<WoRow>('SELECT * FROM work_orders WHERE no_wo = ? LIMIT 1', [slug]);
+    }
     if (wos.length === 0) {
       return NextResponse.json({ success: false, error: 'Work order tidak ditemukan' });
     }

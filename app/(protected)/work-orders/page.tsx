@@ -6,6 +6,7 @@ import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
 import { normBagian } from '@/lib/utils';
 import { Pagination, paginate } from '@/lib/pagination';
+import { sha256Hex } from '@/lib/hash';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -123,9 +124,13 @@ export default function WorkOrdersPage() {
       const sortedStages = stages.sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0));
       const firstStageId = sortedStages.length > 0 ? sortedStages[0].id : null;
 
+      // Hash the WO number to produce an unguessable tracking slug.
+      const trackingHash = await sha256Hex(noWo);
+
       // Create work order
       const woId = await dbCreate('work_orders', {
         no_wo: noWo,
+        tracking_hash: trackingHash,
         order_id: order.id,
         customer_nama: order.customer_nama,
         paket: paketNama,
@@ -146,9 +151,9 @@ export default function WorkOrdersPage() {
         });
       }
 
-      // Set tracking link + status proses on order
+      // Set tracking link + status proses on order (use hash so URL is unguessable)
       await dbUpdate('orders', order.id, {
-        tracking_link: `/tracking/${encodeURIComponent(noWo)}`,
+        tracking_link: `/tracking/${trackingHash}`,
         status: 'IN_PROGRESS',
       });
 
