@@ -687,8 +687,11 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   const [editOpen, setEditOpen] = useState(false);
   const [editSpec, setEditSpec] = useState<Row | null>(null);
   const [freshWo, setFreshWo] = useState<Row>(wo);
+  const [paketList, setPaketList] = useState<Row[]>([]);
   const printRef = useRef<Record<number, HTMLDivElement | null>>({});
   const toast = useToast();
+
+  useEffect(() => { dbGet('paket').then(setPaketList).catch(() => {}); }, []);
 
   async function refreshSpecs() {
     const filtered = await dbGet<Row>('wo_spesifikasi', undefined, { work_order_id: wo.id });
@@ -1192,6 +1195,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
 
       setEditSpec(fresh);
       setNamaSpec(fresh.nama_spesifikasi || '');
+      setPaket(String(freshWoData?.paket || wo.paket || '').split(',')[0].trim());
       setJumlah(String(fresh.jumlah || 0));
       setTagline(fresh.tagline || '');
       setAuthentic(fresh.authentic || '');
@@ -1242,7 +1246,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   }
 
   function resetForm() {
-    setNamaSpec(''); setJumlah(String(wo.jumlah || 0)); setTagline(''); setAuthentic('');
+    setNamaSpec(''); setPaket(''); setJumlah(''); setTagline(''); setAuthentic('');
     setInfoUkuran(''); setInfoLogo(''); setInfoPacking(''); setWebbing('');
     setFontNomor(''); setKeterangan(''); setKeteranganJahit(''); setApprovalAdmin('');
     setDokDesain(null); setDokPattern(null);
@@ -1251,7 +1255,8 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
 
   // Form state
   const [namaSpec, setNamaSpec] = useState('');
-  const [jumlah, setJumlah] = useState(String(wo.jumlah || 0));
+  const [paket, setPaket] = useState('');
+  const [jumlah, setJumlah] = useState('');
   const [tagline, setTagline] = useState('');
   const [authentic, setAuthentic] = useState('');
   const [infoUkuran, setInfoUkuran] = useState('');
@@ -1271,6 +1276,9 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   useEffect(() => { dbGet('barang').then(setBarangList).catch(() => {}); }, []);
 
   async function openCreateDrawer() {
+    // Pre-fill paket from the WO's first paket value (user can change via dropdown)
+    setPaket(String(wo.paket || '').split(',')[0].trim());
+    setJumlah('');
     try {
       const all = await dbGet('order_detail_bahan');
       const rows = all.filter((d: Row) => String(d.order_id) === String(wo.order_id));
@@ -1361,8 +1369,14 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                     <div><label className={lCls}>Nama Customer</label><input className={iCls} defaultValue={wo.customer} readOnly /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Paket</label><input className={iCls} defaultValue={wo.paket} readOnly /></div>
-                    <div><label className={lCls}>Jumlah</label><input value={jumlah} onChange={e => setJumlah(e.target.value)} className={iCls} readOnly /></div>
+                    <div>
+                      <label className={lCls}>Paket</label>
+                      <select value={paket} onChange={e => setPaket(e.target.value)} className={sCls}>
+                        <option value="">Pilih paket</option>
+                        {paketList.map(p => <option key={p.id as number} value={p.nama as string}>{p.nama as string}</option>)}
+                      </select>
+                    </div>
+                    <div><label className={lCls}>Jumlah</label><input type="number" min={0} value={jumlah} onChange={e => setJumlah(e.target.value)} className={iCls} placeholder="0" /></div>
                   </div>
                   <div><label className={lCls}>Deadline</label><input className={iCls} defaultValue={wo.deadline} readOnly /></div>
                 </div>
@@ -1494,8 +1508,14 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                     <div><label className={lCls}>Nama Customer</label><input className={iCls} value={freshWo.customer} readOnly /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className={lCls}>Paket</label><input className={iCls} value={freshWo.paket} readOnly /></div>
-                    <div><label className={lCls}>Jumlah</label><input value={jumlah} onChange={e => setJumlah(e.target.value)} className={iCls} /></div>
+                    <div>
+                      <label className={lCls}>Paket</label>
+                      <select value={paket} onChange={e => setPaket(e.target.value)} className={sCls}>
+                        <option value="">Pilih paket</option>
+                        {paketList.map(p => <option key={p.id as number} value={p.nama as string}>{p.nama as string}</option>)}
+                      </select>
+                    </div>
+                    <div><label className={lCls}>Jumlah</label><input type="number" min={0} value={jumlah} onChange={e => setJumlah(e.target.value)} className={iCls} placeholder="0" /></div>
                   </div>
                   <div><label className={lCls}>Deadline</label><input className={iCls} value={freshWo.deadline} readOnly /></div>
                 </div>
