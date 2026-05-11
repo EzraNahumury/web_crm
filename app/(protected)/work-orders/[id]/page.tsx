@@ -199,38 +199,43 @@ export default function WorkOrderDetailPage() {
 
   useEffect(() => {
     (async () => {
+      const woId = params.id;
       try {
-        const wos = await dbGet('work_orders');
-        const found = wos.find((w: Row) => String(w.id) === String(params.id));
-        if (found) {
-          // Fetch related order + items for real-time paket/bahan
-          const [orders, allItems] = await Promise.all([dbGet('orders'), dbGet('order_items')]);
-          const ord = orders.find((o: Row) => String(o.id) === String(found.order_id)) || null;
-          setOrder(ord);
-          // Merge paket/bahan from order_items
-          const oi = allItems.filter((i: Row) => String(i.order_id) === String(found.order_id));
-          if (oi.length > 0) {
-            found.paket = oi.map((i: Row) => String(i.paket_nama || '')).filter(Boolean).join(', ') || found.paket;
-            found.bahan = oi.map((i: Row) => String(i.bahan_kain || '')).filter(Boolean).join(', ') || found.bahan;
-          }
-          setWo(found);
-          // Fetch WO sub-data
-          try {
-            const g = await dbGet('wo_permintaan_gudang');
-            setGudangItems(g.filter((r: Row) => String(r.work_order_id) === String(found.id)));
-          } catch {}
-          try {
-            const d = await dbGet('wo_detail_items');
-            setDetailItems(d.filter((r: Row) => String(r.work_order_id) === String(found.id)));
-          } catch {}
-          try {
-            const s = await dbGet('wo_spesifikasi');
-            setSpecs(s.filter((r: Row) => String(r.work_order_id) === String(found.id)));
-          } catch {}
-          try {
-            const sb = await dbGet('wo_spesifikasi_bahan');
-            setSpecBahan(sb);
-          } catch {}
+        // Fetch the WO first (single-row, fast) so we know its order_id
+        const wos = await dbGet<Row>('work_orders', undefined, { id: woId as string });
+        const found = wos[0];
+        if (!found) { setLoading(false); return; }
+
+        // Fan out all related fetches in parallel using server-side filters.
+        // wo_spesifikasi_bahan can only be filtered by spesifikasi_id, so it's
+        // fetched after specs in a follow-up parallel step.
+        const [orders, orderItemsArr, gudang, detail, specRows] = await Promise.all([
+          dbGet<Row>('orders', undefined, { id: found.order_id as number }),
+          dbGet<Row>('order_items', undefined, { order_id: found.order_id as number }),
+          dbGet<Row>('wo_permintaan_gudang', undefined, { work_order_id: found.id as number }),
+          dbGet<Row>('wo_detail_items', undefined, { work_order_id: found.id as number }),
+          dbGet<Row>('wo_spesifikasi', undefined, { work_order_id: found.id as number }),
+        ]);
+
+        const ord = orders[0] || null;
+        setOrder(ord);
+        if (orderItemsArr.length > 0) {
+          found.paket = orderItemsArr.map((i: Row) => String(i.paket_nama || '')).filter(Boolean).join(', ') || found.paket;
+          found.bahan = orderItemsArr.map((i: Row) => String(i.bahan_kain || '')).filter(Boolean).join(', ') || found.bahan;
+        }
+        setWo(found);
+        setGudangItems(gudang);
+        setDetailItems(detail);
+        setSpecs(specRows);
+
+        // Fetch spec_bahan for the specs we just found (filtered per spec_id, then merged).
+        if (specRows.length > 0) {
+          const bahanBatches = await Promise.all(
+            specRows.map((s: Row) => dbGet('wo_spesifikasi_bahan', undefined, { spesifikasi_id: s.id }))
+          );
+          setSpecBahan(bahanBatches.flat());
+        } else {
+          setSpecBahan([]);
         }
       } catch {}
       setLoading(false);
@@ -686,11 +691,17 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   const toast = useToast();
 
   async function refreshSpecs() {
-    const allSpecs = await dbGet('wo_spesifikasi');
-    const filtered = allSpecs.filter((s: Row) => String(s.work_order_id) === String(wo.id));
+    const filtered = await dbGet<Row>('wo_spesifikasi', undefined, { work_order_id: wo.id });
     setSpecs(filtered);
-    const sb = await dbGet('wo_spesifikasi_bahan');
-    setAllSpecBahan(sb);
+    // Fetch spec_bahan filtered per spec in parallel (much smaller than full-table scan)
+    if (filtered.length > 0) {
+      const batches = await Promise.all(
+        filtered.map((s: Row) => dbGet<Row>('wo_spesifikasi_bahan', undefined, { spesifikasi_id: s.id }))
+      );
+      setAllSpecBahan(batches.flat());
+    } else {
+      setAllSpecBahan([]);
+    }
     // Update selectedSpecId if current selection no longer exists
     if (filtered.length > 0) {
       const ids = filtered.map((s: Row) => s.id);

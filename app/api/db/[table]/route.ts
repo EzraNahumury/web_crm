@@ -1,36 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, insert, execute } from '@/lib/db';
 
-// Whitelist of allowed tables to prevent SQL injection
-const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[] }> = {
-  customers:         { columns: '*', searchCols: ['nama', 'no_hp'] },
-  paket:             { columns: '*', searchCols: ['nama'] },
-  barang:            { columns: 'b.*, tb.nama AS tipe_nama', searchCols: ['b.nama'] },
-  tipe_barang:       { columns: '*', searchCols: ['nama'] },
-  ukuran:            { columns: '*', searchCols: ['nama'] },
-  pecah_pola:        { columns: '*', searchCols: ['nama'] },
-  jabatan:           { columns: '*', searchCols: ['nama'] },
-  karyawan:          { columns: 'k.*, j.nama AS jabatan_nama', searchCols: ['k.nama'] },
-  promo:             { columns: '*', searchCols: ['nama'] },
-  leads:             { columns: '*', searchCols: ['nama', 'no_hp'] },
-  production_stages: { columns: '*' },
-  roles:             { columns: '*', searchCols: ['nama'] },
-  role_menu_access:  { columns: '*' },
-  users:             { columns: 'u.id, u.nama, u.email, u.role_id, u.status, u.created_at, r.nama AS role_nama', searchCols: ['u.nama', 'u.email'] },
+// Whitelist of allowed tables to prevent SQL injection.
+// `filterCols` lists query param names that may be used as WHERE filters
+// (e.g. ?work_order_id=42 → WHERE work_order_id = 42). Only whitelisted
+// columns are accepted, so this is safe against SQL injection.
+const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; filterCols?: string[] }> = {
+  customers:         { columns: '*', searchCols: ['nama', 'no_hp'], filterCols: ['id'] },
+  paket:             { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
+  barang:            { columns: 'b.*, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['b.id'] },
+  tipe_barang:       { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
+  ukuran:            { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
+  pecah_pola:        { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
+  jabatan:           { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
+  karyawan:          { columns: 'k.*, j.nama AS jabatan_nama', searchCols: ['k.nama'], filterCols: ['k.id'] },
+  promo:             { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
+  leads:             { columns: '*', searchCols: ['nama', 'no_hp'], filterCols: ['id'] },
+  production_stages: { columns: '*', filterCols: ['id'] },
+  roles:             { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
+  role_menu_access:  { columns: '*', filterCols: ['role_id'] },
+  users:             { columns: 'u.id, u.nama, u.email, u.role_id, u.status, u.created_at, r.nama AS role_nama', searchCols: ['u.nama', 'u.email'], filterCols: ['u.id', 'u.role_id'] },
   settings:          { columns: '*' },
-  orders:            { columns: '*', searchCols: ['no_order', 'customer_nama'] },
-  order_items:       { columns: '*' },
-  order_promos:      { columns: '*' },
-  order_detail_bahan: { columns: '*' },
-  work_orders:       { columns: '*', searchCols: ['no_wo', 'customer_nama'] },
-  wo_spesifikasi:    { columns: '*' },
-  wo_spesifikasi_bahan: { columns: '*' },
-  wo_permintaan_gudang: { columns: '*' },
-  wo_detail_items:   { columns: '*' },
-  wo_pengiriman:     { columns: '*' },
-  wo_progress:       { columns: '*' },
-  stok:              { columns: 's.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'] },
-  stok_adjustment:   { columns: 'sa.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'] },
+  orders:            { columns: '*', searchCols: ['no_order', 'customer_nama'], filterCols: ['id', 'status'] },
+  order_items:       { columns: '*', filterCols: ['order_id'] },
+  order_promos:      { columns: '*', filterCols: ['order_id'] },
+  order_detail_bahan: { columns: '*', filterCols: ['order_id'] },
+  work_orders:       { columns: '*', searchCols: ['no_wo', 'customer_nama'], filterCols: ['id', 'order_id', 'status'] },
+  wo_spesifikasi:    { columns: '*', filterCols: ['id', 'work_order_id'] },
+  wo_spesifikasi_bahan: { columns: '*', filterCols: ['id', 'spesifikasi_id'] },
+  wo_permintaan_gudang: { columns: '*', filterCols: ['work_order_id'] },
+  wo_detail_items:   { columns: '*', filterCols: ['id', 'work_order_id'] },
+  wo_pengiriman:     { columns: '*', filterCols: ['work_order_id'] },
+  wo_progress:       { columns: '*', filterCols: ['work_order_id'] },
+  stok:              { columns: 's.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['s.id', 's.barang_id'] },
+  stok_adjustment:   { columns: 'sa.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['sa.id', 'sa.barang_id'] },
 };
 
 // JOIN clauses for tables with relations
@@ -67,13 +70,29 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ tabl
 
     let sql = `SELECT ${config.columns} FROM ${getFrom(table)}`;
     const values: unknown[] = [];
+    const whereParts: string[] = [];
 
     if (search && config.searchCols?.length) {
       const conditions = config.searchCols.map(col => `${col} LIKE ?`).join(' OR ');
-      sql += ` WHERE (${conditions})`;
+      whereParts.push(`(${conditions})`);
       config.searchCols.forEach(() => values.push(`%${search}%`));
     }
 
+    // Apply column filters from whitelist (e.g. ?work_order_id=42).
+    // Column names come from filterCols, never from user input, so this is injection-safe.
+    if (config.filterCols?.length) {
+      for (const col of config.filterCols) {
+        // The whitelist may use qualified names like "u.id" — match the unqualified param name.
+        const paramName = col.includes('.') ? col.split('.').slice(-1)[0] : col;
+        const val = searchParams.get(paramName);
+        if (val != null && val !== '') {
+          whereParts.push(`${col} = ?`);
+          values.push(val);
+        }
+      }
+    }
+
+    if (whereParts.length > 0) sql += ` WHERE ${whereParts.join(' AND ')}`;
     sql += ` ${getOrderBy(table)}`;
 
     const rows = await query(sql, values);

@@ -1,8 +1,17 @@
 // API client for database operations via /api/db/[table]
 
-export async function dbGet<T = Record<string, unknown>>(table: string, search?: string): Promise<T[]> {
+export async function dbGet<T = Record<string, unknown>>(
+  table: string,
+  search?: string,
+  filter?: Record<string, string | number | null | undefined>,
+): Promise<T[]> {
   const params = new URLSearchParams();
   if (search) params.set('search', search);
+  if (filter) {
+    for (const [k, v] of Object.entries(filter)) {
+      if (v != null && v !== '') params.set(k, String(v));
+    }
+  }
   const res = await fetch(`/api/db/${table}?${params}`);
   const json = await res.json();
   if (!json.success) throw new Error(json.error);
