@@ -266,46 +266,41 @@ function ExcelViewer({ fileUrl, fileName }: { fileUrl: string; fileName: string 
           buf = await res.arrayBuffer();
         }
 
-        // Render cells via SheetJS — prefer the sheet whose name matches the
-        // imported_file_name (set by the master importer); otherwise sheet 0.
         const sheetTarget = fileName.replace(/\.(xlsx|xls)$/i, '');
-        const XLSX = (await import('xlsx-js-style')).default;
-        const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
-        const wsName = wb.SheetNames.includes(sheetTarget) ? sheetTarget : wb.SheetNames[0];
-        const ws = wb.Sheets[wsName];
-        if (!ws) { if (!cancelled) setError('Sheet kosong'); return; }
-        if (!cancelled) setHtml(renderExcelSheet(XLSX, ws));
 
-        // Extract images via ExcelJS so we can overlay them on the table.
+        // Read column widths + row heights + images FIRST via ExcelJS (more
+        // reliable than SheetJS for these fields — SheetJS often drops `!cols`
+        // when files come from non-Excel writers).
+        const colWidthsFromXljs: Record<number, number> = {};
+        const rowHeightsFromXljs: Record<number, number> = {};
+        const overlaysList: Overlay[] = [];
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const ExcelJS = (await import('exceljs')).default as any;
           const wb2 = new ExcelJS.Workbook();
           await wb2.xlsx.load(buf);
-          const sheetTarget = fileName.replace(/\.(xlsx|xls)$/i, '');
           const ws2 = wb2.getWorksheet(sheetTarget) || wb2.worksheets[0];
           if (ws2) {
-            // Compute pixel offsets for each column / row index.
-            const colCount = ws2.columnCount || 0;
-            const rowCount = ws2.rowCount || 0;
-            const colPx: number[] = [];
-            for (let c = 1; c <= colCount + 50; c++) {
+            const colCount = Math.max(ws2.columnCount || 0, 30);
+            const rowCount = Math.max(ws2.rowCount || 0, 30);
+            for (let c = 1; c <= colCount + 5; c++) {
               const col = ws2.getColumn(c);
-              colPx.push(((col?.width as number | undefined) || 10) * 7.5);
+              const cw = col?.width as number | undefined;
+              if (cw != null) {
+                // Excel pixel width formula: round(width * 7 + 5) for Calibri 11pt.
+                colWidthsFromXljs[c - 1] = Math.max(2, Math.round(cw * 7 + 5));
+              }
             }
-            const rowPx: number[] = [];
-            for (let r = 1; r <= rowCount + 50; r++) {
+            for (let r = 1; r <= rowCount + 5; r++) {
               const row = ws2.getRow(r);
-              rowPx.push(((row?.height as number | undefined) || 15) * 1.33);
+              const rh = row?.height as number | undefined;
+              if (rh != null) {
+                // Points → pixels (1 pt = 1.333 px at 96 dpi).
+                rowHeightsFromXljs[r - 1] = Math.max(2, Math.round(rh * 1.333));
+              }
             }
-            const sumPx = (arr: number[], n: number) => {
-              let s = 0;
-              for (let i = 0; i < n && i < arr.length; i++) s += arr[i];
-              return s;
-            };
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const images: any[] = ws2.getImages ? ws2.getImages() : [];
-            const next: Overlay[] = [];
             for (const img of images) {
               const data = wb2.getImage(img.imageId);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -318,11 +313,10 @@ function ExcelViewer({ fileUrl, fileName }: { fileUrl: string; fileName: string 
               const blob = new Blob([arr.buffer], { type: `image/${data.extension || 'png'}` });
               const url = URL.createObjectURL(blob);
               objectUrls.current.push(url);
-
               const tl = img.range?.tl;
               const br = img.range?.br;
               if (!tl) continue;
-              next.push({
+              overlaysList.push({
                 url,
                 tlRow: tl.row, tlCol: tl.col,
                 tlOffX: (tl.nativeColOff || 0) / 9525,
@@ -335,11 +329,20 @@ function ExcelViewer({ fileUrl, fileName }: { fileUrl: string; fileName: string 
                 extH: (img.range?.ext?.height || 0) / 9525,
               });
             }
-            void colPx; void rowPx; void sumPx;
-            if (!cancelled) setOverlays(next);
           }
         } catch (e) {
           console.warn('Excel image extraction failed:', e);
+        }
+
+        // Now render cells via SheetJS, using ExcelJS widths/heights when present.
+        const XLSX = (await import('xlsx-js-style')).default;
+        const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+        const wsName = wb.SheetNames.includes(sheetTarget) ? sheetTarget : wb.SheetNames[0];
+        const ws = wb.Sheets[wsName];
+        if (!ws) { if (!cancelled) setError('Sheet kosong'); return; }
+        if (!cancelled) {
+          setHtml(renderExcelSheet(XLSX, ws, colWidthsFromXljs, rowHeightsFromXljs));
+          setOverlays(overlaysList);
         }
       } catch (e) {
         if (!cancelled) setError(String(e));
@@ -457,8 +460,14 @@ function ExcelViewer({ fileUrl, fileName }: { fileUrl: string; fileName: string 
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function renderExcelSheet(XLSX: any, ws: any): string {
+function renderExcelSheet(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  XLSX: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ws: any,
+  externalColWidths?: Record<number, number>,
+  externalRowHeights?: Record<number, number>,
+): string {
   const ref = ws['!ref'];
   if (!ref) return '';
   const range = XLSX.utils.decode_range(ref);
@@ -491,10 +500,17 @@ function renderExcelSheet(XLSX: any, ws: any): string {
   }
 
   const colWpx = (i: number) => {
+    if (externalColWidths && externalColWidths[i] != null) return externalColWidths[i];
     const c = cols[i];
     if (c?.wpx) return c.wpx;
     if (c?.wch) return Math.round(c.wch * 7.5);
     return 80;
+  };
+  const rowHpx = (i: number): number | undefined => {
+    if (externalRowHeights && externalRowHeights[i] != null) return externalRowHeights[i];
+    if (rows[i]?.hpx) return rows[i].hpx;
+    if (rows[i]?.hpt) return Math.round(rows[i].hpt! * 1.33);
+    return undefined;
   };
 
   const isLight = (rgb: string) => {
@@ -536,7 +552,7 @@ function renderExcelSheet(XLSX: any, ws: any): string {
   html += '</colgroup>';
 
   for (let r = range.s.r; r <= lastRow; r++) {
-    const hpx = rows[r]?.hpx || (rows[r]?.hpt ? Math.round(rows[r]!.hpt! * 1.33) : undefined);
+    const hpx = rowHpx(r);
     html += `<tr${hpx ? ` style="height:${hpx}px"` : ''}>`;
     for (let c = range.s.c; c <= range.e.c; c++) {
       const key = `${r},${c}`;
