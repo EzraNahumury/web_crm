@@ -771,6 +771,7 @@ export default function WorkOrderDetailPage() {
       await Promise.all([
         ...importedSpecs.map((s: Row) => dbDelete('wo_spesifikasi', Number(s.id))),
         ...sections.map((s: Row) => dbDelete('wo_section_imports', Number(s.id))),
+        dbUpdate('work_orders', Number(wo.id), { master_import_file: null, master_import_file_name: null }),
       ]);
       toast.deleted('Dihapus', `${importedSpecs.length + sections.length} file dihapus dari WO 1 - WO 4.`);
       window.location.reload();
@@ -1231,15 +1232,27 @@ export default function WorkOrderDetailPage() {
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
             {importingMaster ? 'Mengimport...' : 'Import Master Excel'}
           </button>
-          <button
-            onClick={handleDownloadAllPDF}
-            disabled={downloadingAll}
-            title="Download satu PDF gabungan WO 1 - WO 4"
-            className="flex items-center gap-1.5 text-xs text-blue-400 border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 rounded-full hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-            {downloadingAll ? 'Menyiapkan...' : 'Download All'}
-          </button>
+          {wo?.master_import_file ? (
+            <a
+              href={String(wo.master_import_file)}
+              download={String(wo.master_import_file_name || 'master.xlsx')}
+              title="Download file Excel master yang sebelumnya di-upload"
+              className="flex items-center gap-1.5 text-xs text-blue-400 border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 rounded-full hover:bg-blue-500/20 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              Download All
+            </a>
+          ) : (
+            <button
+              onClick={handleDownloadAllPDF}
+              disabled={downloadingAll}
+              title="Download satu PDF gabungan WO 1 - WO 4"
+              className="flex items-center gap-1.5 text-xs text-blue-400 border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 rounded-full hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              {downloadingAll ? 'Menyiapkan...' : 'Download All'}
+            </button>
+          )}
           <button
             onClick={handleDeleteAllImports}
             disabled={deletingAll}

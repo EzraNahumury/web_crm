@@ -68,6 +68,13 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
     ],
   },
+  {
+    name: '007_work_orders_master_import',
+    up: [
+      "ALTER TABLE `work_orders` ADD COLUMN `master_import_file` VARCHAR(500) NULL",
+      "ALTER TABLE `work_orders` ADD COLUMN `master_import_file_name` VARCHAR(255) NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
