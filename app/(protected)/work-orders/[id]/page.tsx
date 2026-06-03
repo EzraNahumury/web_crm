@@ -355,8 +355,11 @@ function ExcelViewer({ fileUrl, fileName }: { fileUrl: string; fileName: string 
     };
   }, [fileUrl, fileName]);
 
-  // After the table HTML is in the DOM, look up the actual pixel bounds of the
-  // anchor cells so the image overlays line up exactly with the rendered grid.
+  // After the table HTML is in the DOM, build per-row / per-column cumulative
+  // offsets from the actual rendered grid. Using <col> and <tr> bounds avoids
+  // the merge-cell problem where cellAt() returns the merged region's rect
+  // instead of the specific (row,col) position — that bug made image overlays
+  // collapse to thin strips when their anchor pointed into a merged area.
   useEffect(() => {
     if (!html || overlays.length === 0) return;
     const compute = () => {
@@ -365,44 +368,54 @@ function ExcelViewer({ fileUrl, fileName }: { fileUrl: string; fileName: string 
       const tableEl = root.querySelector('table');
       if (!tableEl) return;
       const tableRect = tableEl.getBoundingClientRect();
-      // Cache cell bounds by row/col with merge awareness — we look up the
-      // first td whose anchored area covers a given (r,c).
-      const cellAt = (row: number, col: number): DOMRect | null => {
-        // Try exact match first.
-        const direct = tableEl.querySelector(`td[data-r="${row}"][data-c="${col}"]`) as HTMLElement | null;
-        if (direct) return direct.getBoundingClientRect();
-        // Scan rows up to `row` for cells that span into (row, col) via row/colSpan.
-        const tds = tableEl.querySelectorAll('td[data-r][data-c]');
-        for (const td of Array.from(tds) as HTMLElement[]) {
-          const r0 = Number(td.dataset.r);
-          const c0 = Number(td.dataset.c);
-          const rs = Number(td.getAttribute('rowspan') || '1');
-          const cs = Number(td.getAttribute('colspan') || '1');
-          if (row >= r0 && row < r0 + rs && col >= c0 && col < c0 + cs) {
-            return td.getBoundingClientRect();
-          }
+
+      // Column boundaries from <colgroup><col style="width:Xpx"> — fixed-layout
+      // tables honor these exactly.
+      const cumColLeft: number[] = [0];
+      const cols = tableEl.querySelectorAll('colgroup col');
+      let cx = 0;
+      cols.forEach((col) => {
+        const w = parseFloat((col as HTMLElement).style.width) || 80;
+        cx += w;
+        cumColLeft.push(cx);
+      });
+
+      // Row boundaries from actual <tr> bounding rects — handles auto-sized
+      // rows correctly. Empty rows that collapse to 0 height fall back to
+      // the declared style height.
+      const cumRowTop: number[] = [0];
+      const trs = tableEl.querySelectorAll('tr');
+      const tableTop = tableRect.top;
+      let lastBottom = 0;
+      trs.forEach((tr) => {
+        const trEl = tr as HTMLElement;
+        const r = trEl.getBoundingClientRect();
+        let h = r.height;
+        if (!h) {
+          const styled = parseFloat(trEl.style.height);
+          if (!Number.isNaN(styled) && styled > 0) h = styled;
         }
-        return null;
-      };
+        const top = r.top - tableTop;
+        // Some empty rows report top=0 — only use measured top when reasonable.
+        if (top > lastBottom - 1 && top < lastBottom + 5000) {
+          cumRowTop.push(top + h);
+        } else {
+          cumRowTop.push(lastBottom + h);
+        }
+        lastBottom = cumRowTop[cumRowTop.length - 1];
+      });
+
+      const colLeftAt = (c: number) => cumColLeft[Math.max(0, Math.min(c, cumColLeft.length - 1))] || 0;
+      const rowTopAt = (r: number) => cumRowTop[Math.max(0, Math.min(r, cumRowTop.length - 1))] || 0;
+
       const out: ResolvedOverlay[] = [];
       for (const ov of overlays) {
-        const tlCell = cellAt(ov.tlRow, ov.tlCol);
-        if (!tlCell) continue;
-        const left = tlCell.left - tableRect.left + ov.tlOffX;
-        const top = tlCell.top - tableRect.top + ov.tlOffY;
+        const left = colLeftAt(ov.tlCol) + ov.tlOffX;
+        const top = rowTopAt(ov.tlRow) + ov.tlOffY;
         let right: number, bottom: number;
         if (ov.brRow != null && ov.brCol != null) {
-          const brCell = cellAt(ov.brRow, ov.brCol);
-          if (brCell) {
-            right = brCell.left - tableRect.left + (ov.brOffX || 0);
-            bottom = brCell.top - tableRect.top + (ov.brOffY || 0);
-          } else if (ov.extW && ov.extH) {
-            right = left + ov.extW;
-            bottom = top + ov.extH;
-          } else {
-            right = left + 100;
-            bottom = top + 100;
-          }
+          right = colLeftAt(ov.brCol) + (ov.brOffX || 0);
+          bottom = rowTopAt(ov.brRow) + (ov.brOffY || 0);
         } else if (ov.extW && ov.extH) {
           right = left + ov.extW;
           bottom = top + ov.extH;
@@ -410,15 +423,29 @@ function ExcelViewer({ fileUrl, fileName }: { fileUrl: string; fileName: string 
           right = left + 100;
           bottom = top + 100;
         }
-        out.push({ url: ov.url, left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) });
+        out.push({
+          url: ov.url,
+          left,
+          top,
+          width: Math.max(1, right - left),
+          height: Math.max(1, bottom - top),
+        });
       }
       setResolved(out);
     };
-    // Wait one frame for layout to settle.
-    const raf = requestAnimationFrame(() => compute());
+    // Two RAFs — first to paint, second to allow image-induced reflow.
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => compute());
+      (window as unknown as { __raf2?: number }).__raf2 = raf2;
+    });
     const onResize = () => compute();
     window.addEventListener('resize', onResize);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize); };
+    return () => {
+      cancelAnimationFrame(raf1);
+      const w = window as unknown as { __raf2?: number };
+      if (w.__raf2) cancelAnimationFrame(w.__raf2);
+      window.removeEventListener('resize', onResize);
+    };
   }, [html, overlays]);
 
   if (error) {
@@ -506,11 +533,11 @@ function renderExcelSheet(
     if (c?.wch) return Math.round(c.wch * 7.5);
     return 80;
   };
-  const rowHpx = (i: number): number | undefined => {
+  const rowHpx = (i: number): number => {
     if (externalRowHeights && externalRowHeights[i] != null) return externalRowHeights[i];
-    if (rows[i]?.hpx) return rows[i].hpx;
+    if (rows[i]?.hpx) return rows[i].hpx!;
     if (rows[i]?.hpt) return Math.round(rows[i].hpt! * 1.33);
-    return undefined;
+    return 20; // Excel default row height in px (~15pt) — always set so empty rows reserve vertical space for image overlays.
   };
 
   const isLight = (rgb: string) => {
@@ -553,7 +580,7 @@ function renderExcelSheet(
 
   for (let r = range.s.r; r <= lastRow; r++) {
     const hpx = rowHpx(r);
-    html += `<tr${hpx ? ` style="height:${hpx}px"` : ''}>`;
+    html += `<tr style="height:${hpx}px">`;
     for (let c = range.s.c; c <= range.e.c; c++) {
       const key = `${r},${c}`;
       if (skip.has(key) && !mergeAt.has(key)) continue;
