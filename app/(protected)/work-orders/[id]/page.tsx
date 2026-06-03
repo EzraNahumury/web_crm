@@ -2566,6 +2566,159 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   );
 }
 
+// Shows pre-existing rows from the legacy WO 2 / WO 3 / WO 4 tables
+// (wo_permintaan_gudang, wo_detail_items, wo_pengiriman) when no imported
+// file exists yet. Read-only — importing a file will supersede the view.
+function LegacySectionView({ wo, section, helper }: { wo: Row; section: 'wo2' | 'wo3' | 'wo4'; helper: string }) {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const table = section === 'wo2' ? 'wo_permintaan_gudang' : section === 'wo3' ? 'wo_detail_items' : 'wo_pengiriman';
+        const r = await dbGet<Row>(table, undefined, { work_order_id: wo.id });
+        if (!cancelled) setRows(r);
+      } catch {
+        if (!cancelled) setRows([]);
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [wo.id, section]);
+
+  if (loading) return <div className="h-32 bg-white/[0.03] rounded-xl animate-pulse" />;
+
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-xl border-2 border-dashed border-white/[0.08] py-14 text-center">
+        <svg className="w-10 h-10 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
+        <p className="text-sm font-semibold text-white mb-1">Belum ada file ter-import</p>
+        <p className="text-xs text-slate-500">{helper}</p>
+      </div>
+    );
+  }
+
+  // Section-specific column layout
+  if (section === 'wo2') {
+    const grouped: Record<string, Row[]> = { BAHAN_UTAMA: [], AKSESORIS: [], MATERIAL_TAMBAHAN: [] };
+    for (const r of rows) {
+      const k = String(r.kategori || 'BAHAN_UTAMA');
+      if (grouped[k]) grouped[k].push(r);
+      else grouped.BAHAN_UTAMA.push(r);
+    }
+    return (
+      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+        <div className="px-5 py-3 border-b border-white/[0.06] flex items-center justify-between">
+          <span className="text-xs text-slate-400">Data lama dari sebelum sistem import. Read-only — upload file baru untuk menggantikan.</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-white/[0.06] text-[11px] text-slate-500 uppercase tracking-wider">
+              <th className="text-left px-4 py-2 w-12">NO</th>
+              <th className="text-left px-4 py-2">BAGIAN</th>
+              <th className="text-left px-4 py-2">BAHAN</th>
+              <th className="text-left px-4 py-2">WARNA</th>
+              <th className="text-right px-4 py-2 w-24">KUANTITAS</th>
+            </tr></thead>
+            <tbody>
+              {(['BAHAN_UTAMA','AKSESORIS','MATERIAL_TAMBAHAN'] as const).flatMap((kat, gi) => {
+                const list = grouped[kat] || [];
+                if (list.length === 0) return [];
+                return [
+                  <tr key={`h-${kat}`} className="bg-white/[0.02]">
+                    <td colSpan={5} className="px-4 py-2 text-[11px] font-bold text-slate-300 uppercase tracking-wider">{kat.replace('_', ' ')}</td>
+                  </tr>,
+                  ...list.map((r, i) => (
+                    <tr key={`${gi}-${r.id}`} className="border-b border-white/[0.04]">
+                      <td className="px-4 py-2 text-blue-400">{i + 1}</td>
+                      <td className="px-4 py-2 text-slate-300">{String(r.bagian || '')}</td>
+                      <td className="px-4 py-2 text-white">{String(r.bahan || '')}</td>
+                      <td className="px-4 py-2 text-slate-400">{String(r.warna || '')}</td>
+                      <td className="px-4 py-2 text-right text-slate-300">{Number(r.kuantitas) || 0}</td>
+                    </tr>
+                  )),
+                ];
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  if (section === 'wo3') {
+    return (
+      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+        <div className="px-5 py-3 border-b border-white/[0.06]">
+          <span className="text-xs text-slate-400">Data lama dari sebelum sistem import. Read-only — upload file baru untuk menggantikan.</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-white/[0.06] text-[11px] text-slate-500 uppercase tracking-wider">
+              <th className="text-left px-4 py-2 w-12">NO</th>
+              <th className="text-left px-4 py-2">NAMA</th>
+              <th className="text-left px-4 py-2">NP</th>
+              <th className="text-left px-4 py-2">SIZE</th>
+              <th className="text-left px-4 py-2">KET</th>
+              <th className="text-left px-4 py-2">PENJAHIT</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={String(r.id)} className="border-b border-white/[0.04]">
+                  <td className="px-4 py-2 text-blue-400">{i + 1}</td>
+                  <td className="px-4 py-2 text-emerald-400">{String(r.nama || '')}</td>
+                  <td className="px-4 py-2 text-slate-400">{String(r.np || '')}</td>
+                  <td className="px-4 py-2 font-bold text-white">{String(r.ukuran || '')}</td>
+                  <td className="px-4 py-2 text-slate-400">{String(r.keterangan || '')}</td>
+                  <td className="px-4 py-2 text-slate-500">{String(r.kerah || '')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // wo4
+  return (
+    <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      <div className="px-5 py-3 border-b border-white/[0.06]">
+        <span className="text-xs text-slate-400">Data lama dari sebelum sistem import. Read-only — upload file baru untuk menggantikan.</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-white/[0.06] text-[11px] text-slate-500 uppercase tracking-wider">
+            <th className="text-left px-4 py-2 w-12">NO</th>
+            <th className="text-left px-4 py-2">NAMA</th>
+            <th className="text-left px-4 py-2">NP</th>
+            <th className="text-left px-4 py-2">SIZE</th>
+            <th className="text-left px-4 py-2">KET</th>
+            <th className="text-left px-4 py-2">BONUS</th>
+            <th className="text-center px-4 py-2 w-20">CHECK</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={String(r.id)} className="border-b border-white/[0.04]">
+                <td className="px-4 py-2 text-blue-400">{i + 1}</td>
+                <td className="px-4 py-2 text-emerald-400">{String(r.nama || '')}</td>
+                <td className="px-4 py-2 text-slate-400">{String(r.np || '')}</td>
+                <td className="px-4 py-2 font-bold text-white">{String(r.ukuran || '')}</td>
+                <td className="px-4 py-2 text-slate-400">{String(r.keterangan || '')}</td>
+                <td className="px-4 py-2 text-slate-300">{String(r.bonus || '')}</td>
+                <td className="px-4 py-2 text-center">{(r.checklist === 1 || r.checklist === true) ? '✓' : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* ═══ Tab WO 2 — Import Permintaan Gudang ═══ */
 // Generic per-section import tab (also reused by WO 3 / WO 4).
 function WoImportTab({ wo, section, accept, title, helper }: {
@@ -2667,14 +2820,7 @@ function WoImportTab({ wo, section, accept, title, helper }: {
             {importing ? 'Mengimport...' : `Import ${title}`}
           </button>
         </div>
-        <div className="rounded-xl border-2 border-dashed border-white/[0.08] py-14 text-center">
-          <svg className="w-10 h-10 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
-          <p className="text-sm font-semibold text-white mb-1">Belum ada file ter-import</p>
-          <p className="text-xs text-slate-500 mb-4">{helper}</p>
-          <button onClick={() => fileRef.current?.click()} disabled={importing} className="inline-flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-            {importing ? 'Mengimport...' : 'Import File'}
-          </button>
-        </div>
+        <LegacySectionView wo={wo} section={section} helper={helper} />
       </div>
     );
   }
