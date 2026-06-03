@@ -122,6 +122,524 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
 </div>`;
 }
 
+// For legacy specs uploaded before server-side rasterization existed:
+// trigger the conversion on view, save the resulting pages back to the spec,
+// then display them. Shows a loading state until conversion finishes.
+function LazyPdfPagesViewer({ fileUrl, spec }: { fileUrl: string; spec: Row }) {
+  const initial = (() => {
+    try {
+      const raw = spec.imported_file_pages;
+      if (typeof raw === 'string' && raw.trim()) return JSON.parse(raw) as string[];
+      if (Array.isArray(raw)) return raw as string[];
+    } catch {}
+    return [] as string[];
+  })();
+  const [pages, setPages] = useState<string[]>(initial);
+  const [tried, setTried] = useState(initial.length > 0);
+
+  useEffect(() => {
+    if (tried || pages.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/rasterize-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: fileUrl }),
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        const newPages: string[] = Array.isArray(json.pages) ? json.pages : [];
+        if (newPages.length > 0) {
+          setPages(newPages);
+          try {
+            await dbUpdate('wo_spesifikasi', Number(spec.id), { imported_file_pages: JSON.stringify(newPages) });
+          } catch {}
+        }
+      } catch {}
+      if (!cancelled) setTried(true);
+    })();
+    return () => { cancelled = true; };
+  }, [tried, pages.length, fileUrl, spec.id]);
+
+  if (pages.length > 0) {
+    return <PdfImagesViewer pages={pages} />;
+  }
+  if (!tried) {
+    return (
+      <div className="bg-white mt-4 max-w-5xl mx-auto py-12 text-center text-slate-500 text-sm">
+        Menyiapkan preview...
+      </div>
+    );
+  }
+  return (
+    <div className="bg-white mt-4 max-w-5xl mx-auto py-12 text-center text-slate-600 text-sm">
+      Preview tidak tersedia. Klik <strong>Download File</strong> untuk membuka PDF aslinya.
+    </div>
+  );
+}
+
+// Picks the right viewer (PDF images, Excel HTML, or fallback) based on the
+// imported file's extension. For PDFs that haven't been rasterized yet, lazily
+// trigger /api/rasterize-pdf so we still end up with PNG pages.
+function ImportContentViewer({ fileUrl, fileName, pages, onPagesUpdated }: {
+  fileUrl: string; fileName: string; pages: string[]; rowId: number;
+  onPagesUpdated: (pages: string[]) => Promise<void> | void;
+}) {
+  const ext = (fileName.match(/\.([a-z0-9]+)$/i)?.[1] || fileUrl.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+  const [livePages, setLivePages] = useState<string[]>(pages);
+  const [tried, setTried] = useState(pages.length > 0);
+
+  useEffect(() => { setLivePages(pages); setTried(pages.length > 0); }, [pages]);
+
+  useEffect(() => {
+    if (ext !== 'pdf') return;
+    if (tried || livePages.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/rasterize-pdf', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: fileUrl }),
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        const np: string[] = Array.isArray(json.pages) ? json.pages : [];
+        if (np.length > 0) {
+          setLivePages(np);
+          await onPagesUpdated(np);
+        }
+      } catch {}
+      if (!cancelled) setTried(true);
+    })();
+    return () => { cancelled = true; };
+  }, [ext, tried, livePages.length, fileUrl, onPagesUpdated]);
+
+  if (livePages.length > 0) {
+    return <PdfImagesViewer pages={livePages} />;
+  }
+  if (ext === 'xlsx' || ext === 'xls') {
+    return <ExcelViewer fileUrl={fileUrl} fileName={fileName} />;
+  }
+  if (ext === 'pdf' && !tried) {
+    return <div className="bg-white mt-4 max-w-5xl mx-auto py-12 text-center text-slate-500 text-sm">Menyiapkan preview...</div>;
+  }
+  return (
+    <div className="bg-white mt-4 max-w-5xl mx-auto py-12 text-center text-slate-600 text-sm">
+      Preview tidak tersedia. Klik <strong>Download File</strong> untuk membuka file aslinya.
+    </div>
+  );
+}
+
+// Excel viewer — renders the first sheet of an .xlsx as a styled HTML table
+// using SheetJS. Used when server-side rasterization isn't available.
+type Overlay = {
+  url: string;
+  tlRow: number; tlCol: number; tlOffX: number; tlOffY: number;
+  brRow?: number; brCol?: number; brOffX?: number; brOffY?: number;
+  extW: number; extH: number;
+};
+type ResolvedOverlay = { url: string; left: number; top: number; width: number; height: number };
+
+function ExcelViewer({ fileUrl, fileName }: { fileUrl: string; fileName: string }) {
+  const [html, setHtml] = useState('');
+  const [error, setError] = useState('');
+  const [overlays, setOverlays] = useState<Overlay[]>([]);
+  const [resolved, setResolved] = useState<ResolvedOverlay[]>([]);
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const objectUrls = useRef<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Fetch file once
+        let buf: ArrayBuffer;
+        if (fileUrl.startsWith('data:')) {
+          const base64 = fileUrl.split(',').pop() || '';
+          const bin = atob(base64);
+          const arr = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          buf = arr.buffer;
+        } else {
+          const res = await fetch(fileUrl);
+          buf = await res.arrayBuffer();
+        }
+
+        // Render cells via SheetJS — prefer the sheet whose name matches the
+        // imported_file_name (set by the master importer); otherwise sheet 0.
+        const sheetTarget = fileName.replace(/\.(xlsx|xls)$/i, '');
+        const XLSX = (await import('xlsx-js-style')).default;
+        const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+        const wsName = wb.SheetNames.includes(sheetTarget) ? sheetTarget : wb.SheetNames[0];
+        const ws = wb.Sheets[wsName];
+        if (!ws) { if (!cancelled) setError('Sheet kosong'); return; }
+        if (!cancelled) setHtml(renderExcelSheet(XLSX, ws));
+
+        // Extract images via ExcelJS so we can overlay them on the table.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const ExcelJS = (await import('exceljs')).default as any;
+          const wb2 = new ExcelJS.Workbook();
+          await wb2.xlsx.load(buf);
+          const sheetTarget = fileName.replace(/\.(xlsx|xls)$/i, '');
+          const ws2 = wb2.getWorksheet(sheetTarget) || wb2.worksheets[0];
+          if (ws2) {
+            // Compute pixel offsets for each column / row index.
+            const colCount = ws2.columnCount || 0;
+            const rowCount = ws2.rowCount || 0;
+            const colPx: number[] = [];
+            for (let c = 1; c <= colCount + 50; c++) {
+              const col = ws2.getColumn(c);
+              colPx.push(((col?.width as number | undefined) || 10) * 7.5);
+            }
+            const rowPx: number[] = [];
+            for (let r = 1; r <= rowCount + 50; r++) {
+              const row = ws2.getRow(r);
+              rowPx.push(((row?.height as number | undefined) || 15) * 1.33);
+            }
+            const sumPx = (arr: number[], n: number) => {
+              let s = 0;
+              for (let i = 0; i < n && i < arr.length; i++) s += arr[i];
+              return s;
+            };
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const images: any[] = ws2.getImages ? ws2.getImages() : [];
+            const next: Overlay[] = [];
+            for (const img of images) {
+              const data = wb2.getImage(img.imageId);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const raw: any = data.buffer;
+              const bytes = raw instanceof Uint8Array
+                ? raw
+                : raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(0);
+              const arr = new Uint8Array(bytes.byteLength);
+              arr.set(bytes);
+              const blob = new Blob([arr.buffer], { type: `image/${data.extension || 'png'}` });
+              const url = URL.createObjectURL(blob);
+              objectUrls.current.push(url);
+
+              const tl = img.range?.tl;
+              const br = img.range?.br;
+              if (!tl) continue;
+              next.push({
+                url,
+                tlRow: tl.row, tlCol: tl.col,
+                tlOffX: (tl.nativeColOff || 0) / 9525,
+                tlOffY: (tl.nativeRowOff || 0) / 9525,
+                brRow: br?.row ?? tl.row + 1,
+                brCol: br?.col ?? tl.col + 1,
+                brOffX: (br?.nativeColOff || 0) / 9525,
+                brOffY: (br?.nativeRowOff || 0) / 9525,
+                extW: (img.range?.ext?.width || 0) / 9525,
+                extH: (img.range?.ext?.height || 0) / 9525,
+              });
+            }
+            void colPx; void rowPx; void sumPx;
+            if (!cancelled) setOverlays(next);
+          }
+        } catch (e) {
+          console.warn('Excel image extraction failed:', e);
+        }
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+      objectUrls.current.forEach(u => URL.revokeObjectURL(u));
+      objectUrls.current = [];
+    };
+  }, [fileUrl, fileName]);
+
+  // After the table HTML is in the DOM, look up the actual pixel bounds of the
+  // anchor cells so the image overlays line up exactly with the rendered grid.
+  useEffect(() => {
+    if (!html || overlays.length === 0) return;
+    const compute = () => {
+      const root = tableWrapRef.current;
+      if (!root) return;
+      const tableEl = root.querySelector('table');
+      if (!tableEl) return;
+      const tableRect = tableEl.getBoundingClientRect();
+      // Cache cell bounds by row/col with merge awareness — we look up the
+      // first td whose anchored area covers a given (r,c).
+      const cellAt = (row: number, col: number): DOMRect | null => {
+        // Try exact match first.
+        const direct = tableEl.querySelector(`td[data-r="${row}"][data-c="${col}"]`) as HTMLElement | null;
+        if (direct) return direct.getBoundingClientRect();
+        // Scan rows up to `row` for cells that span into (row, col) via row/colSpan.
+        const tds = tableEl.querySelectorAll('td[data-r][data-c]');
+        for (const td of Array.from(tds) as HTMLElement[]) {
+          const r0 = Number(td.dataset.r);
+          const c0 = Number(td.dataset.c);
+          const rs = Number(td.getAttribute('rowspan') || '1');
+          const cs = Number(td.getAttribute('colspan') || '1');
+          if (row >= r0 && row < r0 + rs && col >= c0 && col < c0 + cs) {
+            return td.getBoundingClientRect();
+          }
+        }
+        return null;
+      };
+      const out: ResolvedOverlay[] = [];
+      for (const ov of overlays) {
+        const tlCell = cellAt(ov.tlRow, ov.tlCol);
+        if (!tlCell) continue;
+        const left = tlCell.left - tableRect.left + ov.tlOffX;
+        const top = tlCell.top - tableRect.top + ov.tlOffY;
+        let right: number, bottom: number;
+        if (ov.brRow != null && ov.brCol != null) {
+          const brCell = cellAt(ov.brRow, ov.brCol);
+          if (brCell) {
+            right = brCell.left - tableRect.left + (ov.brOffX || 0);
+            bottom = brCell.top - tableRect.top + (ov.brOffY || 0);
+          } else if (ov.extW && ov.extH) {
+            right = left + ov.extW;
+            bottom = top + ov.extH;
+          } else {
+            right = left + 100;
+            bottom = top + 100;
+          }
+        } else if (ov.extW && ov.extH) {
+          right = left + ov.extW;
+          bottom = top + ov.extH;
+        } else {
+          right = left + 100;
+          bottom = top + 100;
+        }
+        out.push({ url: ov.url, left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) });
+      }
+      setResolved(out);
+    };
+    // Wait one frame for layout to settle.
+    const raf = requestAnimationFrame(() => compute());
+    const onResize = () => compute();
+    window.addEventListener('resize', onResize);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize); };
+  }, [html, overlays]);
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-lg p-6 max-w-4xl mx-auto mt-4 text-center text-red-600 text-sm">
+        Gagal menampilkan Excel: {error}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white mt-4 max-w-6xl mx-auto p-4 overflow-x-auto">
+      {html ? (
+        <div ref={tableWrapRef} className="text-xs relative inline-block">
+          <div dangerouslySetInnerHTML={{ __html: html }} />
+          {resolved.map((img, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={i}
+              src={img.url}
+              alt=""
+              draggable={false}
+              style={{
+                position: 'absolute',
+                left: `${img.left}px`,
+                top: `${img.top}px`,
+                width: `${img.width}px`,
+                height: `${img.height}px`,
+                pointerEvents: 'none',
+                objectFit: 'fill',
+              }}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500 text-center py-8">Memuat preview {fileName}...</p>
+      )}
+    </div>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function renderExcelSheet(XLSX: any, ws: any): string {
+  const ref = ws['!ref'];
+  if (!ref) return '';
+  const range = XLSX.utils.decode_range(ref);
+  const cols: { wch?: number; wpx?: number }[] = ws['!cols'] || [];
+  const rows: { hpt?: number; hpx?: number }[] = ws['!rows'] || [];
+  const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = ws['!merges'] || [];
+
+  const skip = new Set<string>();
+  const mergeAt = new Map<string, { rowSpan: number; colSpan: number }>();
+  for (const m of merges) {
+    mergeAt.set(`${m.s.r},${m.s.c}`, { rowSpan: m.e.r - m.s.r + 1, colSpan: m.e.c - m.s.c + 1 });
+    for (let r = m.s.r; r <= m.e.r; r++) {
+      for (let c = m.s.c; c <= m.e.c; c++) {
+        if (r === m.s.r && c === m.s.c) continue;
+        skip.add(`${r},${c}`);
+      }
+    }
+  }
+
+  // Trim trailing rows that have no cell objects at all (preserves rows that
+  // are empty but still styled / bordered — common in Excel form layouts).
+  let lastRow = range.s.r;
+  for (let r = range.e.r; r >= range.s.r; r--) {
+    let any = false;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if (cell !== undefined) { any = true; break; }
+    }
+    if (any) { lastRow = r; break; }
+  }
+
+  const colWpx = (i: number) => {
+    const c = cols[i];
+    if (c?.wpx) return c.wpx;
+    if (c?.wch) return Math.round(c.wch * 7.5);
+    return 80;
+  };
+
+  const isLight = (rgb: string) => {
+    const r = parseInt(rgb.slice(0, 2), 16);
+    const g = parseInt(rgb.slice(2, 4), 16);
+    const b = parseInt(rgb.slice(4, 6), 16);
+    return (r + g + b) / 3 > 200;
+  };
+  const isWhiteish = (rgb: string) => {
+    const r = parseInt(rgb.slice(0, 2), 16);
+    const g = parseInt(rgb.slice(2, 4), 16);
+    const b = parseInt(rgb.slice(4, 6), 16);
+    return r > 240 && g > 240 && b > 240;
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const styleFor = (cell: any): string => {
+    if (!cell?.s) return 'color:#0f172a';
+    const s = cell.s;
+    const out: string[] = [];
+    if (s.font?.bold) out.push('font-weight:700');
+    if (s.font?.italic) out.push('font-style:italic');
+    const fontRgb: string | undefined = s.font?.color?.rgb;
+    if (fontRgb && !isLight(fontRgb)) out.push(`color:#${fontRgb}`);
+    else out.push('color:#0f172a');
+    if (s.font?.sz) out.push(`font-size:${Math.round(Number(s.font.sz))}px`);
+    // Background fills — skip near-white so we don't paint over the page bg.
+    const bgRgb: string | undefined = s.fill?.fgColor?.rgb;
+    if (bgRgb && !isWhiteish(bgRgb)) out.push(`background:#${bgRgb}`);
+    if (s.alignment?.horizontal) out.push(`text-align:${s.alignment.horizontal}`);
+    const vmap: Record<string, string> = { center: 'middle', top: 'top', bottom: 'bottom' };
+    if (s.alignment?.vertical) out.push(`vertical-align:${vmap[s.alignment.vertical] || s.alignment.vertical}`);
+    if (s.alignment?.wrapText) out.push('white-space:normal;word-break:break-word');
+    return out.join(';');
+  };
+
+  let html = '<table style="border-collapse:collapse;table-layout:fixed;font-family:Arial,Helvetica,sans-serif;background:#fff;margin:0 auto;font-size:12px"><colgroup>';
+  for (let c = range.s.c; c <= range.e.c; c++) html += `<col style="width:${colWpx(c)}px">`;
+  html += '</colgroup>';
+
+  for (let r = range.s.r; r <= lastRow; r++) {
+    const hpx = rows[r]?.hpx || (rows[r]?.hpt ? Math.round(rows[r]!.hpt! * 1.33) : undefined);
+    html += `<tr${hpx ? ` style="height:${hpx}px"` : ''}>`;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const key = `${r},${c}`;
+      if (skip.has(key) && !mergeAt.has(key)) continue;
+      const merge = mergeAt.get(key);
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      const rs = merge ? ` rowspan="${merge.rowSpan}"` : '';
+      const cs = merge ? ` colspan="${merge.colSpan}"` : '';
+      const value = cell?.w ?? (cell?.v ?? '');
+      const userStyle = styleFor(cell);
+      // Solid black borders to match the look of Excel print preview.
+      const baseStyle = 'border:1px solid #1f2937;padding:4px 8px;font-size:12px;vertical-align:middle;overflow:hidden;text-align:center';
+      html += `<td data-r="${r}" data-c="${c}"${rs}${cs} style="${baseStyle};${userStyle}">${String(value).replace(/</g, '&lt;')}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+  return html;
+}
+
+// Block Ctrl+Scroll zoom and touchscreen pinch-zoom inside the spec viewer.
+function PdfImagesViewer({ pages }: { pages: string[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) e.preventDefault();
+    };
+    const onGesture = (e: Event) => e.preventDefault();
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('gesturestart', onGesture);
+    el.addEventListener('gesturechange', onGesture);
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('gesturestart', onGesture);
+      el.removeEventListener('gesturechange', onGesture);
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className="bg-white mt-4 max-w-5xl mx-auto"
+      style={{ touchAction: 'pan-x pan-y' }}
+    >
+      {pages.map((url, i) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={url}
+          src={url}
+          alt={`Halaman ${i + 1}`}
+          className="block w-full bg-white select-none"
+          draggable={false}
+        />
+      ))}
+    </div>
+  );
+}
+
+// PDF preview SmallPDF-style: pages are rasterized server-side (pdf-to-img),
+// then shown as static images in white cards on a light gray surface.
+// Falls back to a clean iframe if the server-side rasterization is missing.
+function PdfPagesViewer({ fileUrl, pages }: { fileUrl: string; pages?: string[] }) {
+  if (pages && pages.length > 0) {
+    return <PdfImagesViewer pages={pages} />;
+  }
+  // Fallback: legacy specs without rasterized pages, or rasterization failed.
+  const src = `${fileUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
+  return (
+    <div className="bg-white mt-4 max-w-5xl mx-auto">
+      <iframe src={src} title="Spec PDF" className="block w-full" style={{ border: 'none', height: '90vh', background: '#fff' }} />
+    </div>
+  );
+}
+
+// Spec card for imported (Excel / PDF) specs — embeds PDF via pdf.js canvas
+// rendering or renders an Excel sheet via SheetJS sheet_to_html.
+function ImportedSpecViewer({ spec }: { spec: Row }) {
+  const fileUrl = String(spec.imported_file || '');
+  const fileName = String(spec.imported_file_name || spec.nama_spesifikasi || '');
+  const initialPages = (() => {
+    try {
+      const raw = spec.imported_file_pages;
+      if (typeof raw === 'string' && raw.trim()) return JSON.parse(raw) as string[];
+      if (Array.isArray(raw)) return raw as string[];
+    } catch {}
+    return [] as string[];
+  })();
+  return (
+    <ImportContentViewer
+      fileUrl={fileUrl}
+      fileName={fileName}
+      pages={initialPages}
+      rowId={Number(spec.id)}
+      onPagesUpdated={async (newPages) => {
+        try {
+          await dbUpdate('wo_spesifikasi', Number(spec.id), { imported_file_pages: JSON.stringify(newPages) });
+        } catch {}
+      }}
+    />
+  );
+}
+
 // Render an HTML string into an off-screen iframe and capture as canvas.
 async function renderHtmlToImage(html: string, width = 1400): Promise<{ data: string; w: number; h: number }> {
   const html2canvas = (await import('html2canvas')).default;
@@ -196,6 +714,72 @@ export default function WorkOrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const toast = useToast();
+
+  const [importingMaster, setImportingMaster] = useState(false);
+  const masterFileRef = useRef<HTMLInputElement>(null);
+
+  async function handleImportMaster(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !wo) return;
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error('File Terlalu Besar', 'Maksimum 50MB.');
+      if (masterFileRef.current) masterFileRef.current.value = '';
+      return;
+    }
+    setImportingMaster(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('work_order_id', String(wo.id));
+      const res = await fetch('/api/wo-import-master', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || 'Import gagal');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const results: any[] = Array.isArray(json.results) ? json.results : [];
+      const wo1 = results.filter(r => r.target === 'wo1').length;
+      const wo2 = results.filter(r => r.target === 'wo2').length;
+      const wo3 = results.filter(r => r.target === 'wo3').length;
+      const wo4 = results.filter(r => r.target === 'wo4').length;
+      toast.success('Import Berhasil', `WO 1: ${wo1} spec • WO 2: ${wo2} • WO 3: ${wo3} • WO 4: ${wo4}`);
+      window.location.reload();
+    } catch (err) {
+      toast.error('Gagal Import', String(err));
+    } finally {
+      setImportingMaster(false);
+      if (masterFileRef.current) masterFileRef.current.value = '';
+    }
+  }
+
+  const [deletingAll, setDeletingAll] = useState(false);
+
+  async function handleDeleteAllImports() {
+    if (!wo) return;
+    const yes = await toast.confirm({
+      title: 'Hapus Semua Import?',
+      message: 'Semua file di WO 1 - WO 4 akan dihapus. Aksi ini tidak bisa dibatalkan.',
+      type: 'danger',
+      confirmText: 'Ya, Hapus Semua',
+    });
+    if (!yes) return;
+    setDeletingAll(true);
+    try {
+      const [specs, sections] = await Promise.all([
+        dbGet<Row>('wo_spesifikasi', undefined, { work_order_id: wo.id }),
+        dbGet<Row>('wo_section_imports', undefined, { work_order_id: wo.id }),
+      ]);
+      const importedSpecs = specs.filter((s: Row) => s.imported_file);
+      await Promise.all([
+        ...importedSpecs.map((s: Row) => dbDelete('wo_spesifikasi', Number(s.id))),
+        ...sections.map((s: Row) => dbDelete('wo_section_imports', Number(s.id))),
+      ]);
+      toast.deleted('Dihapus', `${importedSpecs.length + sections.length} file dihapus dari WO 1 - WO 4.`);
+      window.location.reload();
+    } catch (e) {
+      toast.error('Gagal Hapus', String(e));
+    } finally {
+      setDeletingAll(false);
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -637,6 +1221,16 @@ export default function WorkOrderDetailPage() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <span className={`text-xs font-medium border px-3 py-1.5 rounded-full ${st.cls}`}>{st.label}</span>
+          <input ref={masterFileRef} type="file" accept=".xlsx,.xls" onChange={handleImportMaster} className="hidden" />
+          <button
+            onClick={() => masterFileRef.current?.click()}
+            disabled={importingMaster}
+            title="Upload satu Excel — sheets W1.x → WO 1 (multi spec), W2/W3/W4 → tab masing-masing"
+            className="flex items-center gap-1.5 text-xs text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 rounded-full hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
+            {importingMaster ? 'Mengimport...' : 'Import Master Excel'}
+          </button>
           <button
             onClick={handleDownloadAllPDF}
             disabled={downloadingAll}
@@ -645,6 +1239,15 @@ export default function WorkOrderDetailPage() {
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
             {downloadingAll ? 'Menyiapkan...' : 'Download All'}
+          </button>
+          <button
+            onClick={handleDeleteAllImports}
+            disabled={deletingAll}
+            title="Hapus semua file imported di WO 1 - WO 4"
+            className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/30 bg-red-500/10 px-3 py-1.5 rounded-full hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+            {deletingAll ? 'Menghapus...' : 'Delete All'}
           </button>
         </div>
       </div>
@@ -1427,13 +2030,86 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   const sCls = `${iCls} appearance-none cursor-pointer`;
   const lCls = 'block text-sm font-medium text-white mb-1.5';
 
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+
+  const [renameSpec, setRenameSpec] = useState<Row | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renaming, setRenaming] = useState(false);
+
+  function openRenameModal(spec: Row) {
+    setRenameSpec(spec);
+    setRenameValue(String(spec.nama_spesifikasi || ''));
+  }
+  async function saveRenameSpec() {
+    if (!renameSpec) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) { toast.warning('Validasi', 'Nama wajib diisi'); return; }
+    if (trimmed === String(renameSpec.nama_spesifikasi || '')) { setRenameSpec(null); return; }
+    setRenaming(true);
+    try {
+      await dbUpdate('wo_spesifikasi', renameSpec.id, { nama_spesifikasi: trimmed });
+      await refreshSpecs();
+      toast.success('Tersimpan', trimmed);
+      setRenameSpec(null);
+    } catch (e) {
+      toast.error('Gagal Rename', String(e));
+    }
+    setRenaming(false);
+  }
+
+  async function handleImportSpec(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error('File Terlalu Besar', 'Maksimum 50MB.');
+      if (importFileRef.current) importFileRef.current.value = '';
+      return;
+    }
+    setImporting(true);
+    try {
+      // Upload via multipart so we don't blow the JSON body-size limit on /api/db.
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok || !json.url) throw new Error(json.error || 'Upload gagal');
+
+      const name = file.name.replace(/\.pdf$/i, '');
+      const pages = Array.isArray(json.pages) ? json.pages : [];
+      if (json.rasterizeError) {
+        console.warn('[handleImportSpec] rasterize error from server:', json.rasterizeError);
+      }
+      const specId = await dbCreate('wo_spesifikasi', {
+        work_order_id: wo.id,
+        nama_spesifikasi: name,
+        imported_file: json.url,
+        imported_file_name: file.name,
+        imported_file_pages: pages.length > 0 ? JSON.stringify(pages) : null,
+      });
+      await refreshSpecs();
+      setSelectedSpecId(specId as number);
+      toast.success('Import Berhasil', file.name);
+    } catch (err) {
+      toast.error('Gagal Import', String(err));
+    } finally {
+      setImporting(false);
+      if (importFileRef.current) importFileRef.current.value = '';
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-white">Lembar Spesifikasi</h2>
-        <button onClick={openCreateDrawer} className="flex items-center gap-2 border border-white/10 hover:bg-white/[0.04] text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-          Buat Lembar Spesifikasi Baru
+        <input ref={importFileRef} type="file" accept=".pdf,application/pdf" onChange={handleImportSpec} className="hidden" />
+        <button
+          onClick={() => importFileRef.current?.click()}
+          disabled={importing}
+          className="flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
+          {importing ? 'Mengimport...' : 'Import Spec (PDF)'}
         </button>
       </div>
 
@@ -1685,11 +2361,15 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       {/* Content — empty state or spec cards */}
       {specs.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-white/[0.08] py-14 text-center">
-          <svg className="w-10 h-10 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+          <svg className="w-10 h-10 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
           <p className="text-sm font-semibold text-white mb-1">Belum ada lembar spesifikasi</p>
-          <p className="text-xs text-slate-500 mb-4">Buat lembar spesifikasi untuk mendefinisikan detail produksi.</p>
-          <button onClick={openCreateDrawer} className="inline-flex items-center gap-2 border border-white/10 hover:bg-white/[0.04] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-            Buat Lembar Spesifikasi
+          <p className="text-xs text-slate-500 mb-4">Import file PDF untuk memulai.</p>
+          <button
+            onClick={() => importFileRef.current?.click()}
+            disabled={importing}
+            className="inline-flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {importing ? 'Mengimport...' : 'Import Spec'}
           </button>
         </div>
       ) : (
@@ -1704,17 +2384,37 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 </button>
               ))}
             </div>
-            {specs.filter((s: Row) => s.id === selectedSpecId).map((spec: Row) => (
-              <div key={spec.id} className="flex items-center gap-2 pr-1">
-                <button onClick={() => handleExportExcel(spec.id)} className="flex items-center gap-1.5 text-xs text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg hover:bg-emerald-500/10 transition-colors">Export Excel</button>
-                <button onClick={() => handleDownloadPDF(spec.id)} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
-                <button onClick={() => openEditSpec(spec)} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Edit</button>
-                <button onClick={() => handleDeleteSpec(spec)} className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/20 bg-red-500/10 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-colors">Hapus</button>
-              </div>
-            ))}
+            {specs.filter((s: Row) => s.id === selectedSpecId).map((spec: Row) => {
+              const isImported = !!spec.imported_file;
+              return (
+                <div key={spec.id} className="flex items-center gap-2 pr-1">
+                  {isImported ? (
+                    <>
+                      <button onClick={() => openRenameModal(spec)} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Rename</button>
+                      <a
+                        href={spec.imported_file}
+                        download={spec.imported_file_name || `${spec.nama_spesifikasi}.bin`}
+                        className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors"
+                      >
+                        Download File
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => handleExportExcel(spec.id)} className="flex items-center gap-1.5 text-xs text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg hover:bg-emerald-500/10 transition-colors">Export Excel</button>
+                      <button onClick={() => handleDownloadPDF(spec.id)} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
+                      <button onClick={() => openEditSpec(spec)} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Edit</button>
+                    </>
+                  )}
+                  <button onClick={() => handleDeleteSpec(spec)} className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/20 bg-red-500/10 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-colors">Hapus</button>
+                </div>
+              );
+            })}
           </div>
           {/* Selected spec card - displayed directly */}
-          {specs.filter((spec: Row) => spec.id === selectedSpecId).map((spec: Row) => (
+          {specs.filter((spec: Row) => spec.id === selectedSpecId).map((spec: Row) => spec.imported_file ? (
+            <ImportedSpecViewer key={spec.id} spec={spec} />
+          ) : (
             <div key={spec.id}>
               <div ref={el => { printRef.current[spec.id] = el; }} className="bg-white rounded-lg p-6 text-black max-w-4xl mx-auto mt-4">
                   <div className="flex items-start justify-between border-b-2 border-black pb-3 mb-4">
@@ -1831,395 +2531,203 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
           ))}
         </>
       )}
+
+      {renameSpec && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => !renaming && setRenameSpec(null)} />
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-[#0c1120] border border-white/[0.06] rounded-xl shadow-2xl">
+            <div className="px-6 py-5 border-b border-white/[0.06] flex items-center justify-between">
+              <h2 className="text-base font-bold text-white">Rename Spec</h2>
+              <button onClick={() => !renaming && setRenameSpec(null)} className="text-slate-500 hover:text-white transition-colors p-1">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5">
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Nama Spec</label>
+              <input
+                value={renameValue}
+                onChange={e => setRenameValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveRenameSpec(); if (e.key === 'Escape') setRenameSpec(null); }}
+                placeholder="mis. Jersey Player"
+                autoFocus
+                className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40"
+              />
+            </div>
+            <div className="px-6 py-4 border-t border-white/[0.06] flex justify-end gap-2">
+              <button onClick={() => setRenameSpec(null)} disabled={renaming} className="px-4 py-2 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors disabled:opacity-50">Batal</button>
+              <button onClick={saveRenameSpec} disabled={renaming} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-50">
+                {renaming ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-/* ═══ Tab WO 2 — Form Permintaan Gudang ═══ */
-function TabWO2({ wo, gudangItems, specs: propSpecs, specBahan: propSpecBahan }: { wo: Row; gudangItems: Row[]; specs: Row[]; specBahan: Row[] }) {
-  type ExtraRow = { id: number; bagian: string; bahan: string; warna: string; kuantitas: number };
-  const [extraAks, setExtraAks] = useState<ExtraRow[]>([]);
-  const [extraMat, setExtraMat] = useState<ExtraRow[]>([{ id: 1, bagian: '', bahan: '', warna: '', kuantitas: 0 }]);
-  const [autoInputs, setAutoInputs] = useState<Record<string, { warna: string; kuantitas: number }>>({});
-  const [liveSpecs, setLiveSpecs] = useState(propSpecs);
-  const [liveSpecBahan, setLiveSpecBahan] = useState(propSpecBahan);
-  const [liveGudang, setLiveGudang] = useState<Row[]>(gudangItems);
-  const [barangList, setBarangList] = useState<Row[]>([]);
-  const [stokList, setStokList] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+/* ═══ Tab WO 2 — Import Permintaan Gudang ═══ */
+// Generic per-section import tab (also reused by WO 3 / WO 4).
+function WoImportTab({ wo, section, accept, title, helper }: {
+  wo: Row;
+  section: 'wo2' | 'wo3' | 'wo4';
+  accept: string;
+  title: string;
+  helper: string;
+}) {
+  const [importing, setImporting] = useState(false);
+  const [importRow, setImportRow] = useState<Row | null>(null);
+  const [loading, setLoading] = useState(true);
+  const fileRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
-  // Lookup barang by name (case-insensitive); returns barang row or null
-  const findBarang = (name: string): Row | null => {
-    if (!name) return null;
-    const lower = name.trim().toLowerCase();
-    return barangList.find((b: Row) => String(b.nama || '').trim().toLowerCase() === lower) || null;
-  };
-  const lookupBarangId = (name: string): number | null => {
-    const b = findBarang(name);
-    return b ? Number(b.id) : null;
-  };
-  // Get available stock for a bahan name. Returns null if no master record.
-  const getStokInfo = (name: string): { qty: number; satuan: string } | null => {
-    const b = findBarang(name);
-    if (!b) return null;
-    const s = stokList.find((st: Row) => String(st.barang_id) === String(b.id));
-    return { qty: s?.qty ?? 0, satuan: b.satuan || 'PCS' };
-  };
-  const delIcon = <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>;
 
-  // Fetch fresh data from DB on mount
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const [s, sb, g, b, st] = await Promise.all([
-          dbGet('wo_spesifikasi'), dbGet('wo_spesifikasi_bahan'),
-          dbGet('wo_permintaan_gudang'), dbGet('barang'), dbGet('stok'),
-        ]);
-        setLiveSpecs(s.filter((r: Row) => String(r.work_order_id) === String(wo.id)));
-        setLiveSpecBahan(sb);
-        setLiveGudang(g.filter((r: Row) => String(r.work_order_id) === String(wo.id)));
-        setBarangList(b);
-        setStokList(st);
-      } catch {}
-      setLoading(false);
-    })();
-  }, [wo.id]);
-
-  // Auto-generate from WO1 specs
-  const { bahanUtama, aksesorisRows } = useMemo(() => {
-    const bu: { bagian: string; bahan: string }[] = [];
-    const ak: { bagian: string; bahan: string }[] = [];
-    for (const spec of liveSpecs) {
-      const rows = liveSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
-      for (const r of rows) bu.push({ bagian: r.bagian, bahan: r.bahan || '-' });
-      if (spec.tagline) ak.push({ bagian: 'Tagline', bahan: spec.tagline });
-      if (spec.authentic) ak.push({ bagian: 'Keaslian', bahan: spec.authentic });
-      if (spec.info_ukuran) ak.push({ bagian: 'Info Ukuran', bahan: spec.info_ukuran });
-      if (spec.info_logo) ak.push({ bagian: 'Info Logo', bahan: spec.info_logo });
-      if (spec.info_packing) ak.push({ bagian: 'Info Packing', bahan: spec.info_packing });
-      if (spec.webbing) ak.push({ bagian: 'Webbing', bahan: spec.webbing });
-      if (spec.font_nomor) ak.push({ bagian: 'Font & Nomor', bahan: spec.font_nomor });
-    }
-    return { bahanUtama: bu, aksesorisRows: ak };
-  }, [liveSpecs, liveSpecBahan]);
-  const totalAuto = bahanUtama.length + aksesorisRows.length;
-  const hasData = liveSpecs.length > 0;
-
-  // Hydrate state from saved gudang data whenever liveGudang or auto rows change
-  useEffect(() => {
-    const initAuto: Record<string, { warna: string; kuantitas: number }> = {};
-    const buItems = liveGudang.filter((r: Row) => r.kategori === 'BAHAN_UTAMA');
-    bahanUtama.forEach((r, i) => {
-      const match = buItems.find((g: Row) => g.bagian === r.bagian && g.bahan === r.bahan);
-      if (match) initAuto[`bu-${i}`] = { warna: match.warna || '', kuantitas: Number(match.kuantitas) || 0 };
-    });
-    const akItems = liveGudang.filter((r: Row) => r.kategori === 'AKSESORIS');
-    aksesorisRows.forEach((r, i) => {
-      const match = akItems.find((g: Row) => g.bagian === r.bagian && g.bahan === r.bahan);
-      if (match) initAuto[`ak-${i}`] = { warna: match.warna || '', kuantitas: Number(match.kuantitas) || 0 };
-    });
-    setAutoInputs(initAuto);
-
-    const matchedAk = new Set(aksesorisRows.map(r => `${r.bagian}|${r.bahan}`));
-    const extraAkItems = akItems.filter((g: Row) => !matchedAk.has(`${g.bagian}|${g.bahan}`));
-    setExtraAks(extraAkItems.map((r: Row, i: number) => ({
-      id: Date.now() + i,
-      bagian: r.bagian || '', bahan: r.bahan || '',
-      warna: r.warna || '', kuantitas: Number(r.kuantitas) || 0,
-    })));
-
-    const mtItems = liveGudang.filter((r: Row) => r.kategori === 'MATERIAL_TAMBAHAN');
-    if (mtItems.length > 0) {
-      setExtraMat(mtItems.map((r: Row, i: number) => ({
-        id: Date.now() + 1000 + i,
-        bagian: r.bagian || '', bahan: r.bahan || '',
-        warna: r.warna || '', kuantitas: Number(r.kuantitas) || 0,
-      })));
-    }
-  }, [liveGudang, bahanUtama, aksesorisRows]);
-
-  const setAutoField = (key: string, field: 'warna' | 'kuantitas', value: string | number) => {
-    setAutoInputs(prev => ({
-      ...prev,
-      [key]: { ...(prev[key] || { warna: '', kuantitas: 0 }), [field]: value },
-    }));
-  };
-  const updateExtraAks = (id: number, field: keyof ExtraRow, value: string | number) => {
-    setExtraAks(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
-  };
-  const updateExtraMat = (id: number, field: keyof ExtraRow, value: string | number) => {
-    setExtraMat(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
-  };
-
-  async function handleSimpan() {
-    setSaving(true);
+  async function refresh() {
+    setLoading(true);
     try {
-      const existing = await dbGet('wo_permintaan_gudang');
-      const old = existing.filter((r: Row) => String(r.work_order_id) === String(wo.id));
-      for (const o of old) await dbDelete('wo_permintaan_gudang', Number(o.id));
-
-      let urutan = 1;
-      for (let i = 0; i < bahanUtama.length; i++) {
-        const r = bahanUtama[i];
-        const inp = autoInputs[`bu-${i}`] || { warna: '', kuantitas: 0 };
-        await dbCreate('wo_permintaan_gudang', {
-          work_order_id: wo.id, kategori: 'BAHAN_UTAMA', urutan: urutan++,
-          bagian: r.bagian, bahan: r.bahan, barang_id: lookupBarangId(r.bahan),
-          warna: inp.warna, kuantitas: Number(inp.kuantitas) || 0,
-        });
-      }
-      for (let i = 0; i < aksesorisRows.length; i++) {
-        const r = aksesorisRows[i];
-        const inp = autoInputs[`ak-${i}`] || { warna: '', kuantitas: 0 };
-        await dbCreate('wo_permintaan_gudang', {
-          work_order_id: wo.id, kategori: 'AKSESORIS', urutan: urutan++,
-          bagian: r.bagian, bahan: r.bahan, barang_id: lookupBarangId(r.bahan),
-          warna: inp.warna, kuantitas: Number(inp.kuantitas) || 0,
-        });
-      }
-      for (const r of extraAks) {
-        if (r.bagian.trim() || r.bahan.trim()) {
-          await dbCreate('wo_permintaan_gudang', {
-            work_order_id: wo.id, kategori: 'AKSESORIS', urutan: urutan++,
-            bagian: r.bagian, bahan: r.bahan, barang_id: lookupBarangId(r.bahan),
-            warna: r.warna, kuantitas: Number(r.kuantitas) || 0,
-          });
-        }
-      }
-      for (const r of extraMat) {
-        if (r.bagian.trim() || r.bahan.trim()) {
-          await dbCreate('wo_permintaan_gudang', {
-            work_order_id: wo.id, kategori: 'MATERIAL_TAMBAHAN', urutan: urutan++,
-            bagian: r.bagian, bahan: r.bahan, barang_id: lookupBarangId(r.bahan),
-            warna: r.warna, kuantitas: Number(r.kuantitas) || 0,
-          });
-        }
-      }
-
-      const refreshed = await dbGet('wo_permintaan_gudang');
-      setLiveGudang(refreshed.filter((r: Row) => String(r.work_order_id) === String(wo.id)));
-      toast.success('Disimpan', 'Data permintaan gudang berhasil disimpan.');
-    } catch (e) { toast.error('Gagal', String(e)); }
-    setSaving(false);
+      const rows = await dbGet<Row>('wo_section_imports', undefined, { work_order_id: wo.id, section });
+      setImportRow(rows[0] || null);
+    } catch {
+      setImportRow(null);
+    }
+    setLoading(false);
   }
 
-  async function handleDownloadPdfWO2() {
+  useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [wo.id, section]);
+
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error('File Terlalu Besar', 'Maksimum 50MB.');
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+    setImporting(true);
     try {
-      const { jsPDF } = await import('jspdf');
-      const { default: autoTable } = await import('jspdf-autotable');
-      const pdf = new jsPDF('l', 'mm', 'a4');
-      pdf.setFontSize(14);
-      pdf.text(`FORM PERMINTAAN GUDANG - ${wo.customer?.toUpperCase()}`, 14, 18);
-      pdf.setFontSize(10);
-      pdf.text(`No WO: ${wo.noWo}`, 14, 26);
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok || !json.url) throw new Error(json.error || 'Upload gagal');
+      const pages = Array.isArray(json.pages) ? json.pages : [];
 
-      const allRows: string[][] = [];
-      let no = 1;
-      // Bahan utama
-      for (let i = 0; i < bahanUtama.length; i++) {
-        const r = bahanUtama[i];
-        const inp = autoInputs[`bu-${i}`] || { warna: '', kuantitas: 0 };
-        allRows.push([String(no++), r.bagian, r.bahan, inp.warna || '', String(inp.kuantitas || 0)]);
+      // Replace any existing row for this WO + section (UNIQUE key would conflict otherwise).
+      if (importRow) {
+        await dbDelete('wo_section_imports', Number(importRow.id));
       }
-      // Aksesoris
-      const allAks = [...aksesorisRows.map((r, i) => ({ ...r, ...(autoInputs[`ak-${i}`] || { warna: '', kuantitas: 0 }) })), ...extraAks];
-      if (allAks.length > 0) {
-        allRows.push([{ content: 'AKSESORIS', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } } as unknown as string]);
-        for (const r of allAks) {
-          allRows.push([String(no++), r.bagian, r.bahan, r.warna || '', String(r.kuantitas || 0)]);
-        }
-      }
-      // Material Tambahan
-      const filledMat = extraMat.filter(r => r.bagian.trim() || r.bahan.trim());
-      if (filledMat.length > 0) {
-        allRows.push([{ content: 'MATERIAL TAMBAHAN', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } } as unknown as string]);
-        for (const r of filledMat) {
-          allRows.push([String(no++), r.bagian, r.bahan, r.warna || '', String(r.kuantitas || 0)]);
-        }
-      }
-
-      autoTable(pdf, {
-        startY: 32,
-        head: [['NO', 'BAGIAN', 'BAHAN', 'WARNA', 'KUANTITAS']],
-        body: allRows,
-        styles: { fontSize: 9 },
-        headStyles: { fillColor: [30, 58, 95] },
+      await dbCreate('wo_section_imports', {
+        work_order_id: wo.id,
+        section,
+        imported_file: json.url,
+        imported_file_name: file.name,
+        imported_file_pages: pages.length > 0 ? JSON.stringify(pages) : null,
       });
-
-      // Approval Finance box — bottom right, below table
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const finalY = (pdf as any).lastAutoTable?.finalY ?? 32;
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const boxW = 80;
-      const boxH = 40;
-      const boxX = pageW - boxW - 14;
-      let boxY = finalY + 10;
-      // If the box would overflow page height, push to a new page
-      if (boxY + boxH > pageH - 10) {
-        pdf.addPage();
-        boxY = 14;
-      }
-      // Title bar
-      pdf.setFillColor(30, 58, 95);
-      pdf.rect(boxX, boxY, boxW, 8, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('APPROVAL FINANCE', boxX + boxW / 2, boxY + 5.5, { align: 'center' });
-      // Signature area
-      pdf.setDrawColor(0, 0, 0);
-      pdf.setLineWidth(0.3);
-      pdf.rect(boxX, boxY + 8, boxW, boxH - 8);
-      // Reset fonts/colors for any subsequent rendering
-      pdf.setTextColor(0, 0, 0);
-      pdf.setFont('helvetica', 'normal');
-
-      pdf.save(`Permintaan-Gudang-${wo.noWo}.pdf`);
-      toast.success('PDF Berhasil', `Permintaan-Gudang-${wo.noWo}.pdf`);
-    } catch (e) { toast.error('Gagal Download PDF', String(e)); }
+      await refresh();
+      toast.success('Import Berhasil', file.name);
+    } catch (err) {
+      toast.error('Gagal Import', String(err));
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
   }
 
-  return (
-    <div className="space-y-5">
-      {/* Title bar */}
-      <div className="rounded-lg bg-amber-500/20 border border-amber-500/30 px-5 py-3 flex items-center justify-between">
-        <span className="text-sm font-bold text-white">FORM PERMINTAAN GUDANG – CUST: {wo.customer.toUpperCase()}</span>
-        <button onClick={handleDownloadPdfWO2} className="flex items-center gap-1.5 text-xs text-slate-300 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-          Download PDF
-        </button>
-      </div>
+  async function onDelete() {
+    if (!importRow) return;
+    const ok = await toast.confirm({
+      title: `Hapus ${title}?`,
+      message: 'File yang diimport akan dihapus dari WO ini.',
+      type: 'danger',
+      confirmText: 'Ya, Hapus',
+    });
+    if (!ok) return;
+    try {
+      await dbDelete('wo_section_imports', Number(importRow.id));
+      await refresh();
+      toast.deleted('Dihapus', importRow.imported_file_name || '');
+    } catch (e) {
+      toast.error('Gagal Hapus', String(e));
+    }
+  }
 
-      {/* Table */}
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
-            <thead><tr className="border-b border-white/[0.06]">
-              {['NO','BAGIAN','BAHAN','WARNA','KUANTITAS','AKSI'].map(h => (
-                <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {!hasData && extraMat.length <= 1 && (
-                <tr><td colSpan={6} className="px-5 py-10 text-center text-sm text-slate-500">Isi WO 1 Lembar Spesifikasi terlebih dahulu</td></tr>
-              )}
+  if (loading) return <div className="h-32 bg-white/[0.03] rounded-xl animate-pulse" />;
 
-              {/* Bahan utama from WO1 spec bahan */}
-              {bahanUtama.map((r, i) => {
-                const qty = autoInputs[`bu-${i}`]?.kuantitas || 0;
-                const stokInfo = getStokInfo(r.bahan);
-                const insufficient = stokInfo && qty > stokInfo.qty;
-                return (
-                <tr key={`bu-${i}`} className="border-b border-white/[0.04]">
-                  <td className="px-5 py-3.5 text-sm text-blue-400">{i + 1}</td>
-                  <td className="px-5 py-3.5 text-sm font-medium text-emerald-400">{normBagian(r.bagian)}</td>
-                  <td className="px-5 py-3.5 text-sm font-medium text-white">{r.bahan}</td>
-                  <td className="px-5 py-3.5"><input type="text" value={autoInputs[`bu-${i}`]?.warna ?? ''} onChange={e => setAutoField(`bu-${i}`, 'warna', e.target.value)} placeholder="Warna..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex flex-col">
-                      <input type="number" min={0} placeholder="0" value={autoInputs[`bu-${i}`]?.kuantitas || ''} onChange={e => setAutoField(`bu-${i}`, 'kuantitas', Number(e.target.value) || 0)} className={`no-spin bg-transparent text-sm focus:outline-none w-16 ${insufficient ? 'text-red-400' : 'text-slate-300'} placeholder-slate-600`} />
-                      {stokInfo ? (
-                        <span className={`text-[10px] mt-0.5 ${insufficient ? 'text-red-400' : 'text-slate-500'}`}>Stok: {stokInfo.qty} {stokInfo.satuan}</span>
-                      ) : (
-                        <span className="text-[10px] text-slate-600 mt-0.5">Tidak ada di master</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3.5" />
-                </tr>
-                );
-              })}
-
-              {/* Aksesoris separator */}
-              {hasData && (
-                <tr><td colSpan={6} className="px-5 py-3 text-center border-b border-white/[0.06]">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2">AKSESORIS</span>
-                  <button onClick={() => setExtraAks(prev => [...prev, { id: Date.now(), bagian: '', bahan: '', warna: '', kuantitas: 0 }])}
-                    className="text-xs text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded hover:bg-blue-500/10 transition-colors">+ Tambah</button>
-                </td></tr>
-              )}
-
-              {/* Aksesoris auto-generated from WO1 spec fields */}
-              {aksesorisRows.map((r, i) => {
-                const qty = autoInputs[`ak-${i}`]?.kuantitas || 0;
-                const stokInfo = getStokInfo(r.bahan);
-                const insufficient = stokInfo && qty > stokInfo.qty;
-                return (
-                <tr key={`ak-${i}`} className="border-b border-white/[0.04]">
-                  <td className="px-5 py-3.5 text-sm text-blue-400">{bahanUtama.length + i + 1}</td>
-                  <td className="px-5 py-3.5 text-sm font-medium text-emerald-400">{normBagian(r.bagian)}</td>
-                  <td className="px-5 py-3.5 text-sm font-medium text-white">{r.bahan}</td>
-                  <td className="px-5 py-3.5"><input type="text" value={autoInputs[`ak-${i}`]?.warna ?? ''} onChange={e => setAutoField(`ak-${i}`, 'warna', e.target.value)} placeholder="Warna..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex flex-col">
-                      <input type="number" min={0} placeholder="0" value={autoInputs[`ak-${i}`]?.kuantitas || ''} onChange={e => setAutoField(`ak-${i}`, 'kuantitas', Number(e.target.value) || 0)} className={`no-spin bg-transparent text-sm focus:outline-none w-16 ${insufficient ? 'text-red-400' : 'text-slate-300'} placeholder-slate-600`} />
-                      {stokInfo ? (
-                        <span className={`text-[10px] mt-0.5 ${insufficient ? 'text-red-400' : 'text-slate-500'}`}>Stok: {stokInfo.qty} {stokInfo.satuan}</span>
-                      ) : (
-                        <span className="text-[10px] text-slate-600 mt-0.5">Tidak ada di master</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3.5" />
-                </tr>
-                );
-              })}
-
-              {/* Aksesoris tambahan (editable) */}
-              {extraAks.map((row, i) => (
-                <tr key={`ea-${row.id}`} className="border-b border-white/[0.04] bg-white/[0.01]">
-                  <td className="px-5 py-2.5 text-sm text-blue-400 align-middle">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5" />
-                    {bahanUtama.length + aksesorisRows.length + i + 1}
-                  </td>
-                  <td className="px-5 py-2.5"><input type="text" value={row.bagian} onChange={e => updateExtraAks(row.id, 'bagian', e.target.value)} placeholder="Nama bagian..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-2.5"><input type="text" value={row.bahan} onChange={e => updateExtraAks(row.id, 'bahan', e.target.value)} placeholder="Nama bahan..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-2.5"><input type="text" value={row.warna} onChange={e => updateExtraAks(row.id, 'warna', e.target.value)} placeholder="Warna..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-2.5"><input type="number" min={0} placeholder="0" value={row.kuantitas || ''} onChange={e => updateExtraAks(row.id, 'kuantitas', Number(e.target.value) || 0)} className="no-spin bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-16" /></td>
-                  <td className="px-5 py-2.5">
-                    <button onClick={() => setExtraAks(prev => prev.filter(r => r.id !== row.id))} className="text-slate-600 hover:text-red-400 transition-colors">{delIcon}</button>
-                  </td>
-                </tr>
-              ))}
-
-              {/* Material Tambahan separator */}
-              <tr><td colSpan={6} className="px-5 py-3 text-center border-b border-white/[0.06]">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2">MATERIAL TAMBAHAN</span>
-                <button onClick={() => setExtraMat(prev => [...prev, { id: Date.now(), bagian: '', bahan: '', warna: '', kuantitas: 0 }])}
-                  className="text-xs text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded hover:bg-blue-500/10 transition-colors">+ Tambah</button>
-              </td></tr>
-
-              {/* Material tambahan rows (editable) */}
-              {extraMat.map((row, i) => (
-                <tr key={`em-${row.id}`} className="border-b border-white/[0.04] bg-white/[0.01]">
-                  <td className="px-5 py-2.5 text-sm text-blue-400 align-middle">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5" />
-                    {totalAuto + extraAks.length + i + 1}
-                  </td>
-                  <td className="px-5 py-2.5"><input type="text" value={row.bagian} onChange={e => updateExtraMat(row.id, 'bagian', e.target.value)} placeholder="Nama bagian..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-2.5"><input type="text" value={row.bahan} onChange={e => updateExtraMat(row.id, 'bahan', e.target.value)} placeholder="Nama bahan..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-2.5"><input type="text" value={row.warna} onChange={e => updateExtraMat(row.id, 'warna', e.target.value)} placeholder="Warna..." className="bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-full" /></td>
-                  <td className="px-5 py-2.5"><input type="number" min={0} placeholder="0" value={row.kuantitas || ''} onChange={e => updateExtraMat(row.id, 'kuantitas', Number(e.target.value) || 0)} className="no-spin bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none w-16" /></td>
-                  <td className="px-5 py-2.5">
-                    <button onClick={() => setExtraMat(prev => prev.filter(r => r.id !== row.id))} className="text-slate-600 hover:text-red-400 transition-colors">{delIcon}</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+  if (!importRow) {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white">{title}</h2>
+          <input ref={fileRef} type="file" accept={accept} onChange={onPickFile} className="hidden" />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
+            {importing ? 'Mengimport...' : `Import ${title}`}
+          </button>
         </div>
-        <div className="px-5 py-4">
-          <button onClick={handleSimpan} disabled={saving} className="flex items-center gap-2 bg-blue-600/10 border border-blue-500/20 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg hover:bg-blue-600/20 transition-colors disabled:opacity-50">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" /></svg>
-            {saving ? 'Menyimpan...' : 'Simpan'}
+        <div className="rounded-xl border-2 border-dashed border-white/[0.08] py-14 text-center">
+          <svg className="w-10 h-10 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
+          <p className="text-sm font-semibold text-white mb-1">Belum ada file ter-import</p>
+          <p className="text-xs text-slate-500 mb-4">{helper}</p>
+          <button onClick={() => fileRef.current?.click()} disabled={importing} className="inline-flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+            {importing ? 'Mengimport...' : 'Import File'}
           </button>
         </div>
       </div>
+    );
+  }
+
+  let pages: string[] = [];
+  try {
+    const raw = importRow.imported_file_pages;
+    if (typeof raw === 'string' && raw.trim()) pages = JSON.parse(raw);
+    else if (Array.isArray(raw)) pages = raw;
+  } catch {}
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-white">{title}</h2>
+          <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[640px]">{String(importRow.imported_file_name || '')}</p>
+        </div>
+        <input ref={fileRef} type="file" accept={accept} onChange={onPickFile} className="hidden" />
+        <div className="flex items-center gap-2">
+          <a
+            href={String(importRow.imported_file || '')}
+            download={String(importRow.imported_file_name || '')}
+            className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors"
+          >
+            Download File
+          </a>
+          <button onClick={() => fileRef.current?.click()} disabled={importing} className="flex items-center gap-1.5 text-xs text-amber-300 border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 rounded-lg hover:bg-amber-500/20 transition-colors disabled:opacity-50">
+            {importing ? 'Mengimport...' : 'Ganti File'}
+          </button>
+          <button onClick={onDelete} className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/20 bg-red-500/10 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-colors">
+            Hapus
+          </button>
+        </div>
+      </div>
+      <ImportContentViewer
+        fileUrl={String(importRow.imported_file || '')}
+        fileName={String(importRow.imported_file_name || '')}
+        pages={pages}
+        rowId={Number(importRow.id)}
+        onPagesUpdated={async (newPages) => {
+          try {
+            await dbUpdate('wo_section_imports', Number(importRow.id), { imported_file_pages: JSON.stringify(newPages) });
+            await refresh();
+          } catch {}
+        }}
+      />
     </div>
   );
+}
+
+function TabWO2({ wo }: { wo: Row; gudangItems: Row[]; specs: Row[]; specBahan: Row[] }) {
+  return <WoImportTab wo={wo} section="wo2" accept=".xlsx,.xls,.pdf" title="Permintaan Gudang" helper="Import file Excel (.xlsx) atau PDF — preview muncul otomatis setelah upload." />;
 }
 
 /* ═══ Tab WO 3 — Detail Order Items ═══ */
@@ -2245,1355 +2753,11 @@ function serializeKets(kets: string[]): string {
   return JSON.stringify(kets.map(k => k ?? ''));
 }
 
-function TabWO3({ wo, detailItems: initialItems, specs: propSpecs, specBahan: propSpecBahan }: { wo: Row; detailItems: Row[]; specs: Row[]; specBahan: Row[] }) {
-  type ItemRow = { id: number; nama: string; np: string; ukuran: string; keterangans: string[]; penjahit: string; isNew?: boolean };
-  const [rows, setRows] = useState<ItemRow[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [specs, setSpecs] = useState<Row[]>(propSpecs);
-  const [specBahan, setSpecBahan] = useState<Row[]>(propSpecBahan);
-  const toast = useToast();
-
-  // Custom column names for KET 2+ (idx 0 stays "KET"). Persisted per WO in localStorage.
-  const ketNamesKey = `wo3_ket_names_${wo.id}`;
-  const [ketColNames, setKetColNames] = useState<Record<number, string>>({});
-
-  const numKetCols = useMemo(() => {
-    const fromRows = Math.max(1, ...rows.map(r => r.keterangans?.length || 1));
-    const ketNameKeys = Object.keys(ketColNames).map(Number).filter(n => !isNaN(n));
-    const fromNames = ketNameKeys.length > 0 ? Math.max(...ketNameKeys) + 1 : 1;
-    return Math.max(fromRows, fromNames);
-  }, [rows, ketColNames]);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(ketNamesKey);
-      if (saved) setKetColNames(JSON.parse(saved));
-    } catch {}
-  }, [ketNamesKey]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(ketNamesKey, JSON.stringify(ketColNames));
-    } catch {}
-  }, [ketColNames, ketNamesKey]);
-
-  function getKetColName(idx: number): string {
-    if (idx === 0) return 'KET';
-    return ketColNames[idx] ?? 'unknown';
-  }
-
-  function setKetColName(idx: number, name: string) {
-    setKetColNames(prev => ({ ...prev, [idx]: name }));
-  }
-
-  // Fetch fresh spec data so any changes in WO1 reflect here
-  useEffect(() => {
-    (async () => {
-      try {
-        const [s, sb] = await Promise.all([dbGet('wo_spesifikasi'), dbGet('wo_spesifikasi_bahan')]);
-        setSpecs(s.filter((r: Row) => String(r.work_order_id) === String(wo.id)));
-        setSpecBahan(sb);
-      } catch {}
-    })();
-  }, [wo.id]);
-
-  // Hidden bagians (user-deleted from this WO3 view; spec_bahan in WO1 stays intact).
-  const hiddenBagiansKey = `wo3_hidden_bagians_${wo.id}`;
-  const [hiddenBagians, setHiddenBagians] = useState<string[]>([]);
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(hiddenBagiansKey);
-      if (saved) setHiddenBagians(JSON.parse(saved));
-    } catch {}
-  }, [hiddenBagiansKey]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(hiddenBagiansKey, JSON.stringify(hiddenBagians));
-    } catch {}
-  }, [hiddenBagians, hiddenBagiansKey]);
-
-  // Raw bagian list derived from WO1 spec_bahan (natural insertion order), minus hidden.
-  const rawBagianCols = useMemo(() => {
-    const specIds = new Set(specs.map(s => String(s.id)));
-    const rel = specBahan.filter(b => specIds.has(String(b.spesifikasi_id)));
-    const map = new Map<string, string[]>();
-    for (const b of rel) {
-      const bg = normBagian(b.bagian);
-      const bh = String(b.bahan || '').trim();
-      if (!bg) continue;
-      if (!map.has(bg)) map.set(bg, []);
-      const arr = map.get(bg)!;
-      if (bh && !arr.includes(bh)) arr.push(bh);
-    }
-    const abbrev = (s: string) => s.split(/\s+/).map(w => w[0] || '').join('').toUpperCase();
-    const hide = new Set(hiddenBagians);
-    return Array.from(map.entries())
-      .filter(([bagian]) => !hide.has(bagian))
-      .map(([bagian, bahans]) => ({
-        bagian,
-        header: abbrev(bagian),
-        value: bahans.join(' / '),
-      }));
-  }, [specs, specBahan, hiddenBagians]);
-
-  // Custom parent columns (user-defined grouped columns with 2 sub-columns).
-  type ParentCol = { id: string; parent: string; subs: [string, string] };
-  const customParentsKey = `wo3_custom_parents_${wo.id}`;
-  const [customParents, setCustomParents] = useState<ParentCol[]>([]);
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(customParentsKey);
-      if (saved) setCustomParents(JSON.parse(saved));
-    } catch {}
-  }, [customParentsKey]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(customParentsKey, JSON.stringify(customParents));
-    } catch {}
-  }, [customParents, customParentsKey]);
-
-  // Unified column order — KET 2+, bagian, and custom parent columns are interleavable.
-  // Keys: 'ket:<idx>' | 'bagian:<name>' | 'parent:<id>'.
-  const colOrderKey = `wo3_col_order_${wo.id}`;
-  const [colOrder, setColOrder] = useState<string[]>([]);
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(colOrderKey);
-      if (saved) setColOrder(JSON.parse(saved));
-    } catch {}
-  }, [colOrderKey]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(colOrderKey, JSON.stringify(colOrder));
-    } catch {}
-  }, [colOrder, colOrderKey]);
-
-  // Effective order: KET 2+ + bagian + parent columns, sorted by colOrder; unknown items at the end.
-  type ColRef =
-    | { kind: 'ket'; idx: number }
-    | { kind: 'bagian'; bagian: string }
-    | { kind: 'parent'; id: string };
-  const effectiveCols = useMemo<ColRef[]>(() => {
-    const natural: ColRef[] = [
-      ...Array.from({ length: numKetCols }, (_, i) => i).filter(i => i > 0).map(i => ({ kind: 'ket' as const, idx: i })),
-      ...rawBagianCols.map(c => ({ kind: 'bagian' as const, bagian: c.bagian })),
-      ...customParents.map(p => ({ kind: 'parent' as const, id: p.id })),
-    ];
-    const keyOf = (r: ColRef): string => {
-      if (r.kind === 'ket') return `ket:${r.idx}`;
-      if (r.kind === 'bagian') return `bagian:${r.bagian}`;
-      return `parent:${r.id}`;
-    };
-    if (colOrder.length === 0) return natural;
-    const ordIdx = new Map(colOrder.map((k, i) => [k, i]));
-    return natural.slice().sort((a, b) => {
-      const ai = ordIdx.get(keyOf(a)) ?? Number.MAX_SAFE_INTEGER;
-      const bi = ordIdx.get(keyOf(b)) ?? Number.MAX_SAFE_INTEGER;
-      return ai - bi;
-    });
-  }, [numKetCols, rawBagianCols, customParents, colOrder]);
-
-  // bagianCols (used by Excel/PDF export and buildBagianHeaders) follows effectiveCols.
-  const bagianCols = useMemo(() => {
-    return effectiveCols
-      .filter((r): r is { kind: 'bagian'; bagian: string } => r.kind === 'bagian')
-      .map(r => {
-        const found = rawBagianCols.find(c => c.bagian === r.bagian);
-        return found || { bagian: r.bagian, header: r.bagian, value: '' };
-      });
-  }, [effectiveCols, rawBagianCols]);
-
-  const parentMap = useMemo(() => new Map(customParents.map(p => [p.id, p])), [customParents]);
-
-  function keyOfRef(r: ColRef): string {
-    if (r.kind === 'ket') return `ket:${r.idx}`;
-    if (r.kind === 'bagian') return `bagian:${r.bagian}`;
-    return `parent:${r.id}`;
-  }
-
-  function moveCol(fromKey: string, toKey: string) {
-    if (fromKey === toKey) return;
-    const current = effectiveCols.map(keyOfRef);
-    const fromIdx = current.indexOf(fromKey);
-    const toIdx = current.indexOf(toKey);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const next = current.slice();
-    next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, fromKey);
-    setColOrder(next);
-  }
-
-  async function confirmDeleteCol(ref: ColRef, label: string) {
-    const yes = await toast.confirm({
-      title: 'Hapus Kolom?',
-      message: `Kolom "${label}" akan dihapus dari tampilan WO 3.${ref.kind === 'bagian' ? ' Data spesifikasi di WO 1 tidak terpengaruh.' : ''}`,
-      type: 'danger',
-      confirmText: 'Ya, Hapus',
-    });
-    if (!yes) return;
-    if (ref.kind === 'ket') {
-      removeKetCol(ref.idx);
-    } else if (ref.kind === 'bagian') {
-      setHiddenBagians(prev => prev.includes(ref.bagian) ? prev : [...prev, ref.bagian]);
-    } else {
-      setCustomParents(prev => prev.filter(p => p.id !== ref.id));
-    }
-  }
-
-  const [draggedKey, setDraggedKey] = useState<string | null>(null);
-
-  // Add-parent modal state
-  const [parentModalOpen, setParentModalOpen] = useState(false);
-  const [newParentName, setNewParentName] = useState('');
-  const [newSub1, setNewSub1] = useState('');
-  const [newSub2, setNewSub2] = useState('');
-
-  function openParentModal() {
-    setNewParentName('');
-    setNewSub1('');
-    setNewSub2('');
-    setParentModalOpen(true);
-  }
-  function saveParentCol() {
-    if (!newParentName.trim()) { toast.warning('Validasi', 'Nama parent wajib diisi'); return; }
-    if (!newSub1.trim() || !newSub2.trim()) { toast.warning('Validasi', 'Sub kolom wajib diisi'); return; }
-    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    setCustomParents(prev => [...prev, { id, parent: newParentName.trim(), subs: [newSub1.trim(), newSub2.trim()] }]);
-    setParentModalOpen(false);
-  }
-
-  // Fetch fresh data from DB
-  async function fetchItems() {
-    setLoading(true);
-    try {
-      const all = await dbGet('wo_detail_items');
-      const items = all.filter((r: Row) => String(r.work_order_id) === String(wo.id));
-      if (items.length > 0) {
-        const parsed = items.map((r: Row) => ({ id: r.id, nama: r.nama || '', np: r.np || '', ukuran: r.ukuran || '', keterangans: parseKets(r.keterangan), penjahit: r.kerah || '' }));
-        const maxKets = Math.max(1, ...parsed.map((r: ItemRow) => r.keterangans.length));
-        setRows(parsed.map((r: ItemRow) => ({ ...r, keterangans: Array.from({ length: maxKets }, (_, i) => r.keterangans[i] ?? '') })));
-      } else {
-        setRows(Array.from({ length: 5 }, (_, i) => ({ id: -(i + 1), nama: '', np: '', ukuran: '', keterangans: [''], penjahit: '', isNew: true })));
-      }
-    } catch { setRows([]); }
-    setLoading(false);
-  }
-
-  useEffect(() => { fetchItems(); }, []);
-
-  function updateRow(id: number, field: 'nama' | 'np' | 'ukuran' | 'penjahit', value: string) {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
-  }
-
-  function updateKet(rowId: number, ketIdx: number, value: string) {
-    setRows(prev => prev.map(r => {
-      if (r.id !== rowId) return r;
-      const next = [...r.keterangans];
-      while (next.length <= ketIdx) next.push('');
-      next[ketIdx] = value;
-      return { ...r, keterangans: next };
-    }));
-  }
-
-  function addKetCol() {
-    setRows(prev => prev.map(r => ({ ...r, keterangans: [...r.keterangans, ''] })));
-    // Reserve an entry in ketColNames so the column persists even after a save
-    // that produces no row data (numKetCols would otherwise collapse to the row length).
-    const newIdx = numKetCols;
-    setKetColNames(prev => (newIdx in prev) ? prev : { ...prev, [newIdx]: '' });
-  }
-
-  function removeKetCol(idx: number) {
-    if (numKetCols <= 1) return;
-    setRows(prev => prev.map(r => ({ ...r, keterangans: r.keterangans.filter((_, i) => i !== idx) })));
-    setKetColNames(prev => {
-      const next: Record<number, string> = {};
-      for (const [k, v] of Object.entries(prev)) {
-        const i = Number(k);
-        if (i === idx) continue;
-        next[i > idx ? i - 1 : i] = v;
-      }
-      return next;
-    });
-    // Update colOrder: remove ket:<idx> and shift higher ket indices down by 1.
-    setColOrder(prev => {
-      const next: string[] = [];
-      for (const key of prev) {
-        if (key === `ket:${idx}`) continue;
-        if (key.startsWith('ket:')) {
-          const i = Number(key.slice(4));
-          next.push(i > idx ? `ket:${i - 1}` : key);
-        } else {
-          next.push(key);
-        }
-      }
-      return next;
-    });
-  }
-
-  type PasteField = 'nama' | 'np' | 'ukuran' | 'penjahit' | { ketIdx: number };
-
-  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>, rowId: number, field: PasteField) {
-    const text = e.clipboardData.getData('text');
-    if (!text) return;
-
-    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
-    if (lines.length === 0) return;
-
-    const parsed = lines.map(l => l.split('\t'));
-    const maxCols = Math.max(...parsed.map(r => r.length));
-
-    // Single cell paste → let default behavior fill the field normally
-    if (lines.length === 1 && maxCols === 1) return;
-
-    e.preventDefault();
-
-    // Detect if first column is NO (all numeric) and should be skipped
-    const firstColAllNum = parsed.every(r => /^\d+$/.test((r[0] || '').trim()));
-    const startCol = firstColAllNum && maxCols >= 2 ? 1 : 0;
-
-    // When pasting multiple columns, columns map to NAMA → NP → SIZE → KET1 → KET2 ...
-    // When pasting a single column, fill into the field the user clicked.
-    const cols: PasteField[] = maxCols - startCol === 1
-      ? [field]
-      : ['nama', 'np', 'ukuran', ...Array.from({ length: numKetCols }, (_, i) => ({ ketIdx: i } as PasteField))];
-
-    type ParsedRow = { nama?: string; np?: string; ukuran?: string; penjahit?: string; kets?: Record<number, string> };
-    const newData: ParsedRow[] = parsed.map(r => {
-      const data = r.slice(startCol).map(c => c.trim());
-      const obj: ParsedRow = {};
-      for (let i = 0; i < cols.length && i < data.length; i++) {
-        const col = cols[i];
-        if (typeof col === 'object') {
-          if (!obj.kets) obj.kets = {};
-          obj.kets[col.ketIdx] = data[i];
-        } else {
-          obj[col] = data[i];
-        }
-      }
-      return obj;
-    });
-
-    setRows(prev => {
-      const startIdx = prev.findIndex(r => r.id === rowId);
-      if (startIdx < 0) return prev;
-      const next = [...prev];
-      for (let i = 0; i < newData.length; i++) {
-        const targetIdx = startIdx + i;
-        const d = newData[i];
-        const apply = (row: ItemRow): ItemRow => {
-          let kets = row.keterangans;
-          if (d.kets) {
-            kets = [...kets];
-            for (const [k, v] of Object.entries(d.kets)) {
-              const idx = Number(k);
-              while (kets.length <= idx) kets.push('');
-              kets[idx] = v;
-            }
-          }
-          return {
-            ...row,
-            ...(d.nama !== undefined ? { nama: d.nama } : {}),
-            ...(d.np !== undefined ? { np: d.np } : {}),
-            ...(d.ukuran !== undefined ? { ukuran: d.ukuran } : {}),
-            ...(d.penjahit !== undefined ? { penjahit: d.penjahit } : {}),
-            keterangans: kets,
-          };
-        };
-        if (targetIdx < next.length) {
-          next[targetIdx] = apply(next[targetIdx]);
-        } else {
-          next.push(apply({
-            id: -(Date.now() + i + 1),
-            nama: '', np: '', ukuran: '', keterangans: Array.from({ length: numKetCols }, () => ''), penjahit: '',
-            isNew: true,
-          }));
-        }
-      }
-      return next;
-    });
-
-    toast.success('Paste Berhasil', `${newData.length} baris dimasukkan.`);
-  }
-
-  function addRow() {
-    setRows(prev => [...prev, { id: -Date.now(), nama: '', np: '', ukuran: '', keterangans: Array.from({ length: numKetCols }, () => ''), penjahit: '', isNew: true }]);
-  }
-
-  const SIZE_ORDER: Record<string, number> = { 'XS': 1, 'S': 2, 'M': 3, 'L': 4, 'XL': 5, '2XL': 6, 'XXL': 6, '3XL': 7, 'XXXL': 7, '4XL': 8, '5XL': 9 };
-  function sortBySize() {
-    setRows(prev => [...prev].sort((a, b) => {
-      const sa = SIZE_ORDER[a.ukuran.trim().toUpperCase()] ?? 99;
-      const sb = SIZE_ORDER[b.ukuran.trim().toUpperCase()] ?? 99;
-      return sa - sb;
-    }));
-  }
-
-  function removeRow(id: number) {
-    setRows(prev => prev.filter(r => r.id !== id));
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      // Delete all existing rows for this WO
-      const existing = await dbGet('wo_detail_items');
-      const oldRows = existing.filter((r: Row) => String(r.work_order_id) === String(wo.id));
-      for (const old of oldRows) { await dbDelete('wo_detail_items', Number(old.id)); }
-      // Insert all current rows that have any data
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
-        const hasData = r.nama.trim() || r.np.trim() || r.ukuran.trim() || r.penjahit.trim() || r.keterangans.some(k => k.trim());
-        if (hasData) {
-          await dbCreate('wo_detail_items', {
-            work_order_id: wo.id, urutan: i + 1,
-            nama: r.nama, np: r.np, ukuran: r.ukuran,
-            keterangan: serializeKets(r.keterangans), kerah: r.penjahit,
-          });
-        }
-      }
-      toast.success('Data Tersimpan', `${rows.filter(r => r.nama.trim()).length} item berhasil disimpan.`);
-      await fetchItems();
-    } catch (e) { toast.error('Gagal Simpan', String(e)); }
-    setSaving(false);
-  }
-
-  async function handleUploadExcel(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const XLSX = (await import('xlsx-js-style')).default;
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-
-      // Prefer "Detail Order" sheet, otherwise first sheet
-      const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('detail order')) || wb.SheetNames[0];
-      const ws = wb.Sheets[sheetName];
-      if (!ws) throw new Error('Sheet tidak ditemukan');
-
-      const aoa: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
-
-      // Find header row (containing NAMA, NP, SIZE)
-      let headerIdx = -1;
-      const cols = { nama: -1, np: -1, size: -1, ket: -1 };
-      for (let i = 0; i < Math.min(aoa.length, 30); i++) {
-        const row = (aoa[i] || []).map(c => String(c ?? '').trim().toUpperCase());
-        const namaCol = row.findIndex(c => c === 'NAMA');
-        const npCol = row.findIndex(c => c === 'NP');
-        const sizeCol = row.findIndex(c => c === 'SIZE');
-        if (namaCol >= 0 && npCol >= 0 && sizeCol >= 0) {
-          headerIdx = i;
-          cols.nama = namaCol;
-          cols.np = npCol;
-          cols.size = sizeCol;
-          cols.ket = row.findIndex(c => c === 'KET' || c === 'KETERANGAN');
-          break;
-        }
-      }
-      if (headerIdx < 0) {
-        toast.error('Format Tidak Sesuai', 'Header NAMA / NP / SIZE tidak ditemukan di file.');
-        return;
-      }
-
-      // Skip subheader row if it looks like one (mostly empty under NAMA/NP/SIZE)
-      let startIdx = headerIdx + 1;
-      const next = aoa[startIdx] || [];
-      const nextNama = String(next[cols.nama] ?? '').trim();
-      const nextNp = String(next[cols.np] ?? '').trim();
-      const nextSize = String(next[cols.size] ?? '').trim();
-      if (!nextNama && !nextNp && !nextSize && next.length > 0) startIdx++;
-
-      const imported: ItemRow[] = [];
-      for (let i = startIdx; i < aoa.length; i++) {
-        const row = aoa[i] || [];
-        const nama = String(row[cols.nama] ?? '').trim();
-        const np = String(row[cols.np] ?? '').trim();
-        const size = String(row[cols.size] ?? '').trim();
-        const ket = cols.ket >= 0 ? String(row[cols.ket] ?? '').trim() : '';
-        if (!nama && !np && !size && !ket) continue;
-        const kets = Array.from({ length: numKetCols }, (_, idx) => idx === 0 ? ket : '');
-        imported.push({
-          id: -(Date.now() + imported.length),
-          nama, np, ukuran: size, keterangans: kets, penjahit: '', isNew: true,
-        });
-      }
-
-      if (imported.length === 0) {
-        toast.error('Data Kosong', 'Tidak ada baris data yang ditemukan di file.');
-        return;
-      }
-
-      // If existing rows are all empty placeholders, replace them; otherwise append
-      const allEmpty = rows.every(r => !r.nama.trim() && !r.np.trim() && !r.ukuran.trim() && r.keterangans.every(k => !k.trim()) && !r.penjahit.trim());
-      setRows(prev => allEmpty ? imported : [...prev, ...imported]);
-      toast.success('Upload Berhasil', `${imported.length} baris dimuat. Klik Simpan Data untuk menyimpan.`);
-    } catch (err) {
-      toast.error('Gagal Upload', String(err));
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  }
-
-  // Map normalized bagian → display label & optional sub-columns for PDF/Excel export
-  const BAGIAN_CONFIG: Record<string, { label: string; subCols?: string[] }> = {
-    'FRONT BODY': { label: 'BD' },
-    'BACK BODY': { label: 'BB' },
-    'COMBINATION': { label: 'VAR SAMPING', subCols: ['BD', 'BB'] },
-    'SLEEVE': { label: 'LENGAN', subCols: ['KANAN', 'KIRI'] },
-    'COLLAR': { label: 'KERAH' },
-    'SLEEVE ENDS': { label: 'LIS LENGAN' },
-    'SIDE PANTS STRIPE': { label: 'LIS CELANA' },
-    'PANTS': { label: 'CELANA' },
-  };
-
-  // Build grouped header structure for bagian columns
-  function buildBagianHeaders() {
-    const topRow: Array<string | { content: string; colSpan?: number; rowSpan?: number }> = [];
-    const subRow: string[] = [];
-    const dataCols: number[] = []; // per bagian, how many data cells
-    for (const col of bagianCols) {
-      const cfg = BAGIAN_CONFIG[col.bagian] || { label: col.bagian };
-      if (cfg.subCols && cfg.subCols.length > 0) {
-        topRow.push({ content: cfg.label, colSpan: cfg.subCols.length });
-        for (const sub of cfg.subCols) subRow.push(sub);
-        dataCols.push(cfg.subCols.length);
-      } else {
-        topRow.push({ content: cfg.label, rowSpan: 2 });
-        dataCols.push(1);
-      }
-    }
-    return { topRow, subRow, dataCols };
-  }
-
-  async function handleExportExcel() {
-    try {
-      const XLSX = (await import('xlsx-js-style')).default;
-
-      // Build columns in the same order as the on-page table (effectiveCols).
-      const fixedLeft = 5; // NO, NAMA, NP, SIZE, KET 1
-      let dataCount = 0;
-      const colWidths: { wch: number }[] = [
-        { wch: 5 }, { wch: 22 }, { wch: 8 }, { wch: 8 }, { wch: 18 },
-      ];
-      const ketColsSet = new Set<number>([4]); // KET 1
-      // Track each effective col's start index and how many cells it contributes
-      const effGroups: { ref: ColRef; startCol: number; span: number; subs?: string[]; label?: string }[] = [];
-      for (const ref of effectiveCols) {
-        const startCol = fixedLeft + dataCount;
-        if (ref.kind === 'ket') {
-          effGroups.push({ ref, startCol, span: 1 });
-          ketColsSet.add(startCol);
-          colWidths.push({ wch: 18 });
-          dataCount += 1;
-        } else if (ref.kind === 'parent') {
-          const p = parentMap.get(ref.id);
-          effGroups.push({ ref, startCol, span: 2, subs: p?.subs as unknown as string[] | undefined, label: p?.parent });
-          colWidths.push({ wch: 11 }, { wch: 11 });
-          dataCount += 2;
-        } else {
-          const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
-          const span = cfg.subCols?.length || 1;
-          effGroups.push({ ref, startCol, span, subs: cfg.subCols });
-          for (let j = 0; j < span; j++) colWidths.push({ wch: 11 });
-          dataCount += span;
-        }
-      }
-      colWidths.push({ wch: 20 }); // PENJAHIT
-      const totalCols = fixedLeft + dataCount + 1;
-
-      // Row 0: title; Row 1: customer; Row 2: spacer; Row 3: top header; Row 4: sub header; Row 5+: data
-      const titleRow: (string | null)[] = [`DETAIL ORDER ITEMS — ${wo.noWo}`, ...Array(totalCols - 1).fill('')];
-      const custRow: (string | null)[] = [`Customer: ${wo.customer}`, ...Array(totalCols - 1).fill('')];
-      const spacerRow: string[] = Array(totalCols).fill('');
-
-      const topHeader: string[] = ['NO', 'NAMA', 'NP', 'SIZE', 'KET'];
-      const subHeader: string[] = Array(fixedLeft).fill('');
-      for (const g of effGroups) {
-        if (g.ref.kind === 'ket') {
-          topHeader.push(getKetColName(g.ref.idx));
-          subHeader.push('');
-        } else if (g.ref.kind === 'parent') {
-          topHeader.push(g.label || 'PARENT');
-          topHeader.push('');
-          const subs = g.subs || ['', ''];
-          subHeader.push(subs[0] || '', subs[1] || '');
-        } else {
-          const cfg = BAGIAN_CONFIG[g.ref.bagian] || { label: g.ref.bagian };
-          topHeader.push(cfg.label);
-          if (g.subs && g.subs.length > 0) {
-            for (let i = 1; i < g.subs.length; i++) topHeader.push('');
-            for (const s of g.subs) subHeader.push(s);
-          } else {
-            subHeader.push('');
-          }
-        }
-      }
-      topHeader.push('PENJAHIT');
-      subHeader.push('');
-
-      const dataRows = rows.map((r, i) => {
-        const cells: (string | number)[] = [
-          i + 1, r.nama, r.np, r.ukuran, r.keterangans[0] ?? '',
-        ];
-        for (const g of effGroups) {
-          if (g.ref.kind === 'ket') {
-            cells.push(r.keterangans[g.ref.idx] ?? '');
-          } else {
-            for (let j = 0; j < g.span; j++) cells.push('');
-          }
-        }
-        cells.push(r.penjahit);
-        return cells;
-      });
-
-      const aoa: (string | number | null)[][] = [titleRow, custRow, spacerRow, topHeader, subHeader, ...dataRows];
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-      const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
-      merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } });
-      merges.push({ s: { r: 1, c: 0 }, e: { r: 1, c: totalCols - 1 } });
-      // Fixed left header cols rowSpan=2
-      for (let c = 0; c < fixedLeft; c++) merges.push({ s: { r: 3, c }, e: { r: 4, c } });
-      // PENJAHIT rowSpan=2
-      const lastCol = fixedLeft + dataCount;
-      merges.push({ s: { r: 3, c: lastCol }, e: { r: 4, c: lastCol } });
-      // Per-group header merges
-      for (const g of effGroups) {
-        if (g.ref.kind === 'ket') {
-          // KET cell rowSpan=2 (single col)
-          merges.push({ s: { r: 3, c: g.startCol }, e: { r: 4, c: g.startCol } });
-        } else if (g.ref.kind === 'parent') {
-          // Parent: top row colSpan=2, sub row separate
-          merges.push({ s: { r: 3, c: g.startCol }, e: { r: 3, c: g.startCol + 1 } });
-        } else if (g.subs && g.subs.length > 0) {
-          // Top row colSpan; sub row has individual cells
-          merges.push({ s: { r: 3, c: g.startCol }, e: { r: 3, c: g.startCol + g.span - 1 } });
-        } else {
-          // No subCols → single col rowSpan=2
-          merges.push({ s: { r: 3, c: g.startCol }, e: { r: 4, c: g.startCol } });
-        }
-      }
-      ws['!merges'] = merges;
-
-      ws['!cols'] = colWidths;
-      ws['!rows'] = [
-        { hpt: 26 }, // title
-        { hpt: 20 }, // customer
-        { hpt: 8 },  // spacer
-        { hpt: 22 }, // top header
-        { hpt: 22 }, // sub header
-        ...dataRows.map(() => ({ hpt: 20 })),
-      ];
-
-      // Styling
-      const BORDER = { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } };
-      const HEADER_FILL = { fgColor: { rgb: '1E3A5F' } };
-      const HEADER_FONT = { bold: true, color: { rgb: 'FFFFFF' }, sz: 10 };
-      const HEADER_ALIGN = { horizontal: 'center', vertical: 'center', wrapText: true };
-
-      const setCell = (addr: string, s: Record<string, unknown>) => {
-        if (!ws[addr]) ws[addr] = { v: '', t: 's' };
-        ws[addr].s = s;
-      };
-
-      // Title (row 0)
-      setCell('A1', { font: { bold: true, sz: 14, color: { rgb: '1E3A5F' } }, alignment: { horizontal: 'left', vertical: 'center' } });
-      // Customer (row 1)
-      setCell('A2', { font: { bold: true, sz: 11, color: { rgb: '334155' } }, alignment: { horizontal: 'left', vertical: 'center' } });
-
-      // Header rows (3 & 4, zero-indexed rows 3 & 4)
-      for (let c = 0; c < totalCols; c++) {
-        const addr3 = XLSX.utils.encode_cell({ r: 3, c });
-        const addr4 = XLSX.utils.encode_cell({ r: 4, c });
-        setCell(addr3, { fill: HEADER_FILL, font: HEADER_FONT, alignment: HEADER_ALIGN, border: BORDER });
-        setCell(addr4, { fill: HEADER_FILL, font: HEADER_FONT, alignment: HEADER_ALIGN, border: BORDER });
-      }
-
-      // Data rows
-      for (let r = 0; r < dataRows.length; r++) {
-        const rowIdx = 5 + r;
-        const stripe = r % 2 === 1 ? { fgColor: { rgb: 'F1F5F9' } } : undefined;
-        for (let c = 0; c < totalCols; c++) {
-          const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
-          const isKetColCell = ketColsSet.has(c);
-          const isLeft = c === 1 || isKetColCell || c === totalCols - 1; // NAMA, KET cols, PENJAHIT
-          const align = { horizontal: isLeft ? 'left' : 'center', vertical: 'center', wrapText: true };
-          const style: Record<string, unknown> = { border: BORDER, alignment: align, font: { sz: 10, color: { rgb: '1E293B' } } };
-          if (stripe) style.fill = stripe;
-          // NO column emphasis
-          if (c === 0) style.font = { sz: 10, bold: true, color: { rgb: '2563EB' } };
-          setCell(addr, style);
-        }
-      }
-
-      // Freeze panes: first 5 rows
-      ws['!freeze'] = { xSplit: 0, ySplit: 5 };
-      ws['!views'] = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Detail Order');
-      XLSX.writeFile(wb, `Detail-Order-${wo.noWo}.xlsx`);
-      toast.success('Export Berhasil', `Detail-Order-${wo.noWo}.xlsx`);
-    } catch (e) { toast.error('Gagal Export', String(e)); }
-  }
-
-  async function handleDownloadPdfWO3() {
-    try {
-      const { jsPDF } = await import('jspdf');
-      const { default: autoTable } = await import('jspdf-autotable');
-      const pdf = new jsPDF({ orientation: 'landscape' });
-      pdf.setFontSize(14);
-      pdf.text(`DETAIL ORDER ITEMS - ${wo.noWo}`, 14, 18);
-      pdf.setFontSize(10);
-      pdf.text(`Customer: ${wo.customer}`, 14, 26);
-
-      // Build head/body in the same order as the on-page table (effectiveCols).
-      const hasSubRow = effectiveCols.some(r => {
-        if (r.kind === 'bagian') {
-          const cfg = BAGIAN_CONFIG[r.bagian] || { label: r.bagian };
-          return !!(cfg.subCols && cfg.subCols.length > 0);
-        }
-        if (r.kind === 'parent') return true;
-        return false;
-      });
-      const headTop: Array<string | { content: string; colSpan?: number; rowSpan?: number }> = [
-        { content: 'NO', rowSpan: 2 },
-        { content: 'NAMA', rowSpan: 2 },
-        { content: 'NP', rowSpan: 2 },
-        { content: 'SIZE', rowSpan: 2 },
-        { content: 'KET', rowSpan: 2 },
-      ];
-      const headSub: string[] = [];
-      let dataCount = 0;
-      for (const ref of effectiveCols) {
-        if (ref.kind === 'ket') {
-          headTop.push({ content: getKetColName(ref.idx), rowSpan: 2 });
-          dataCount += 1;
-        } else if (ref.kind === 'parent') {
-          const p = parentMap.get(ref.id);
-          const label = p?.parent || 'PARENT';
-          const subs = p?.subs || ['', ''];
-          headTop.push({ content: label, colSpan: 2 });
-          headSub.push(subs[0], subs[1]);
-          dataCount += 2;
-        } else {
-          const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
-          if (cfg.subCols && cfg.subCols.length > 0) {
-            headTop.push({ content: cfg.label, colSpan: cfg.subCols.length });
-            for (const sub of cfg.subCols) headSub.push(sub);
-            dataCount += cfg.subCols.length;
-          } else {
-            headTop.push({ content: cfg.label, rowSpan: 2 });
-            dataCount += 1;
-          }
-        }
-      }
-      headTop.push({ content: 'PENJAHIT', rowSpan: 2 });
-      const head = hasSubRow ? [headTop, headSub] : [headTop];
-      const fixedLeft = 5; // NO, NAMA, NP, SIZE, KET 1
-      const penjahitIdx = fixedLeft + dataCount;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const columnStyles: Record<number, any> = {
-        0: { cellWidth: 10 },
-        1: { cellWidth: 28, halign: 'left' },
-        2: { cellWidth: 12 },
-        3: { cellWidth: 12 },
-        4: { cellWidth: 20, halign: 'left' },
-        [penjahitIdx]: { cellWidth: 22, halign: 'left' },
-      };
-      // KET 2+ cells in the effective order get left-aligned wider cells.
-      {
-        let idx = fixedLeft;
-        for (const ref of effectiveCols) {
-          if (ref.kind === 'ket') {
-            columnStyles[idx] = { cellWidth: 20, halign: 'left' };
-            idx += 1;
-          } else if (ref.kind === 'parent') {
-            idx += 2;
-          } else {
-            const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
-            idx += cfg.subCols?.length || 1;
-          }
-        }
-      }
-
-      autoTable(pdf, {
-        startY: 32,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        head: head as any,
-        body: rows.map((r, i) => {
-          const cells: (string | number)[] = [
-            i + 1, r.nama, r.np, r.ukuran, r.keterangans[0] ?? '',
-          ];
-          for (const ref of effectiveCols) {
-            if (ref.kind === 'ket') {
-              cells.push(r.keterangans[ref.idx] ?? '');
-            } else if (ref.kind === 'parent') {
-              cells.push('', '');
-            } else {
-              const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
-              const count = cfg.subCols?.length || 1;
-              for (let j = 0; j < count; j++) cells.push('');
-            }
-          }
-          cells.push(r.penjahit);
-          return cells;
-        }),
-        styles: { fontSize: 7, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
-        headStyles: { fillColor: [30, 58, 95], fontSize: 7, halign: 'center', valign: 'middle', lineWidth: 0.3, lineColor: [0, 0, 0] },
-        bodyStyles: { halign: 'center' },
-        columnStyles,
-      });
-      pdf.save(`Detail-Order-${wo.noWo}.pdf`);
-      toast.success('PDF Berhasil', `Detail-Order-${wo.noWo}.pdf`);
-    } catch (e) { toast.error('Gagal Download PDF', String(e)); }
-  }
-
-  if (loading) return <div className="h-32 bg-white/[0.03] rounded-xl animate-pulse" />;
-
-  return (
-    <div className="space-y-5">
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-slate-400">Customer: <strong className="text-white">{wo.customer}</strong></span>
-        </div>
-        <div className="text-lg font-bold text-white">DETAIL ORDER ITEMS</div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={handleUploadExcel}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            title="Upload Excel hasil isian customer (kolom NAMA, NP, SIZE)"
-            className="flex items-center gap-1.5 text-xs text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg hover:bg-emerald-500/10 disabled:opacity-50 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
-            {uploading ? 'Memproses...' : 'Upload Excel'}
-          </button>
-          <button
-            onClick={addKetCol}
-            title="Tambah kolom"
-            aria-label="Tambah kolom"
-            className="flex items-center justify-center text-amber-400 border border-amber-500/20 w-8 h-8 rounded-lg hover:bg-amber-500/10 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-          </button>
-          <button
-            onClick={openParentModal}
-            title="Tambah kolom parent (1 parent + 2 sub)"
-            aria-label="Tambah kolom parent"
-            className="flex items-center justify-center text-amber-400 border border-amber-500/20 w-8 h-8 rounded-lg hover:bg-amber-500/10 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <rect x="4" y="4" width="16" height="6" rx="1" />
-              <rect x="4" y="14" width="7" height="6" rx="1" />
-              <rect x="13" y="14" width="7" height="6" rx="1" />
-            </svg>
-          </button>
-          <button onClick={handleExportExcel} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Export Excel</button>
-          <button onClick={handleDownloadPdfWO3} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
-          <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" /></svg>
-            {saving ? 'Menyimpan...' : 'Simpan Data'}
-          </button>
-        </div>
-      </div>
-
-      {(() => {
-        const hasSubRow = effectiveCols.some(r => {
-          if (r.kind === 'bagian') {
-            const cfg = BAGIAN_CONFIG[r.bagian] || { label: r.bagian };
-            return !!(cfg.subCols && cfg.subCols.length > 0);
-          }
-          if (r.kind === 'parent') return true;
-          return false;
-        });
-        const thBase = 'text-[11px] text-slate-500 font-medium px-3 py-3 uppercase tracking-wider';
-        const thLeft = `${thBase} text-left`;
-        const thCenter = `${thBase} text-center`;
-        const onDragStartKey = (e: React.DragEvent, key: string) => {
-          setDraggedKey(key);
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', key);
-        };
-        const onDragOverAccept = (e: React.DragEvent) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-        };
-        const onDropTo = (e: React.DragEvent, targetKey: string) => {
-          e.preventDefault();
-          const from = e.dataTransfer.getData('text/plain');
-          if (from) moveCol(from, targetKey);
-          setDraggedKey(null);
-        };
-        return (
-          <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px]">
-                <thead>
-                  <tr className="border-b border-white/[0.06]">
-                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>NO</th>
-                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>NAMA</th>
-                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>NP</th>
-                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>
-                      <span className="flex items-center gap-1">
-                        SIZE
-                        <button onClick={sortBySize} className="text-amber-400 hover:text-amber-300 transition-colors" title="Sort by Size">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5-4.5L16.5 16.5m0 0L12 12m4.5 4.5V3" /></svg>
-                        </button>
-                      </span>
-                    </th>
-                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}>KET</th>
-                    {effectiveCols.map(ref => {
-                      const key = keyOfRef(ref);
-                      const isDraggingThis = draggedKey === key;
-                      if (ref.kind === 'ket') {
-                        const colLabel = ketColNames[ref.idx] || 'unknown';
-                        return (
-                          <th
-                            key={`hdr-${key}`}
-                            rowSpan={hasSubRow ? 2 : 1}
-                            draggable
-                            onDragStart={e => onDragStartKey(e, key)}
-                            onDragEnd={() => setDraggedKey(null)}
-                            onDragOver={onDragOverAccept}
-                            onDrop={e => onDropTo(e, key)}
-                            onClick={() => confirmDeleteCol(ref, colLabel)}
-                            title="Klik untuk hapus kolom · tarik untuk pindah posisi"
-                            style={{ width: '1%', whiteSpace: 'nowrap' }}
-                            className={`text-[11px] text-slate-500 font-medium px-2 py-3 uppercase tracking-wider text-left cursor-grab active:cursor-grabbing select-none border-l border-white/[0.04] ${isDraggingThis ? 'opacity-40' : ''} ${draggedKey && draggedKey !== key ? 'hover:bg-blue-500/10' : ''}`}
-                          >
-                            <input
-                              value={ketColNames[ref.idx] ?? ''}
-                              onChange={e => setKetColName(ref.idx, e.target.value)}
-                              onMouseDown={e => e.stopPropagation()}
-                              onClick={e => e.stopPropagation()}
-                              placeholder="unknown"
-                              title="Klik untuk ubah nama kolom"
-                              draggable={false}
-                              size={Math.max(4, (ketColNames[ref.idx] ?? '').length || 4)}
-                              className="bg-transparent text-[11px] text-slate-500 font-medium uppercase tracking-wider focus:outline-none border-b border-transparent hover:border-white/10 focus:border-blue-500/40 min-w-0"
-                            />
-                          </th>
-                        );
-                      }
-                      if (ref.kind === 'parent') {
-                        const p = parentMap.get(ref.id);
-                        const label = p?.parent || 'PARENT';
-                        return (
-                          <th
-                            key={`hdr-${key}`}
-                            colSpan={2}
-                            draggable
-                            onDragStart={e => onDragStartKey(e, key)}
-                            onDragEnd={() => setDraggedKey(null)}
-                            onDragOver={onDragOverAccept}
-                            onDrop={e => onDropTo(e, key)}
-                            onClick={() => confirmDeleteCol(ref, label)}
-                            title="Klik untuk hapus kolom · tarik untuk pindah posisi"
-                            className={`${thCenter} border-l border-white/[0.04] cursor-grab active:cursor-grabbing select-none ${isDraggingThis ? 'opacity-40' : ''} ${draggedKey && draggedKey !== key ? 'hover:bg-blue-500/10' : ''}`}
-                          >
-                            {label}
-                          </th>
-                        );
-                      }
-                      // bagian
-                      const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
-                      const hasSub = !!(cfg.subCols && cfg.subCols.length > 0);
-                      return (
-                        <th
-                          key={`hdr-${key}`}
-                          colSpan={hasSub ? cfg.subCols!.length : undefined}
-                          rowSpan={hasSub ? undefined : (hasSubRow ? 2 : 1)}
-                          draggable
-                          onDragStart={e => onDragStartKey(e, key)}
-                          onDragEnd={() => setDraggedKey(null)}
-                          onDragOver={onDragOverAccept}
-                          onDrop={e => onDropTo(e, key)}
-                          onClick={() => confirmDeleteCol(ref, cfg.label)}
-                          title="Klik untuk hapus kolom · tarik untuk pindah posisi"
-                          className={`${thCenter} border-l border-white/[0.04] cursor-grab active:cursor-grabbing select-none ${isDraggingThis ? 'opacity-40' : ''} ${draggedKey && draggedKey !== key ? 'hover:bg-blue-500/10' : ''}`}
-                        >
-                          {cfg.label}
-                        </th>
-                      );
-                    })}
-                    <th rowSpan={hasSubRow ? 2 : 1} className={`${thLeft} border-l border-white/[0.04]`}>PENJAHIT</th>
-                    <th rowSpan={hasSubRow ? 2 : 1} className={thLeft}></th>
-                  </tr>
-                  {hasSubRow && (
-                    <tr className="border-b border-white/[0.06]">
-                      {effectiveCols.flatMap(ref => {
-                        if (ref.kind === 'ket') return [];
-                        if (ref.kind === 'parent') {
-                          const p = parentMap.get(ref.id);
-                          if (!p) return [];
-                          const parentKey = keyOfRef(ref);
-                          return p.subs.map((sub, i) => (
-                            <th
-                              key={`sub-${ref.id}-${i}`}
-                              onDragOver={onDragOverAccept}
-                              onDrop={e => onDropTo(e, parentKey)}
-                              className={`${thCenter} border-l border-white/[0.04] ${draggedKey && draggedKey !== parentKey ? 'hover:bg-blue-500/10' : ''}`}
-                            >
-                              {sub}
-                            </th>
-                          ));
-                        }
-                        const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
-                        if (!cfg.subCols || cfg.subCols.length === 0) return [];
-                        const parentKey = keyOfRef(ref);
-                        return cfg.subCols.map((sub, i) => (
-                          <th
-                            key={`sub-${ref.bagian}-${i}`}
-                            onDragOver={onDragOverAccept}
-                            onDrop={e => onDropTo(e, parentKey)}
-                            className={`${thCenter} border-l border-white/[0.04] ${draggedKey && draggedKey !== parentKey ? 'hover:bg-blue-500/10' : ''}`}
-                          >
-                            {sub}
-                          </th>
-                        ));
-                      })}
-                    </tr>
-                  )}
-                </thead>
-                <tbody>
-                  {rows.map((p, i) => (
-                    <tr key={p.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                      <td className="px-3 py-3 text-sm text-blue-400">{i + 1}</td>
-                      <td className="px-3 py-3"><input value={p.nama} onChange={e => updateRow(p.id, 'nama', e.target.value)} onPaste={e => handlePaste(e, p.id, 'nama')} placeholder="Nama" className="bg-transparent text-sm text-emerald-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                      <td className="px-3 py-3"><input value={p.np} onChange={e => updateRow(p.id, 'np', e.target.value)} onPaste={e => handlePaste(e, p.id, 'np')} placeholder="NP" className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full" /></td>
-                      <td className="px-3 py-3"><input value={p.ukuran} onChange={e => updateRow(p.id, 'ukuran', e.target.value)} onPaste={e => handlePaste(e, p.id, 'ukuran')} placeholder="Size" className="bg-transparent text-sm font-bold text-white placeholder-slate-600 focus:outline-none w-full" /></td>
-                      <td className="px-3 py-3">
-                        <input
-                          value={p.keterangans[0] ?? ''}
-                          onChange={e => updateKet(p.id, 0, e.target.value)}
-                          onPaste={e => handlePaste(e, p.id, { ketIdx: 0 })}
-                          placeholder="Keterangan"
-                          className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full"
-                        />
-                      </td>
-                      {effectiveCols.flatMap(ref => {
-                        if (ref.kind === 'ket') {
-                          return [(
-                            <td key={`ket-${p.id}-${ref.idx}`} className="px-3 py-3 border-l border-white/[0.04]">
-                              <input
-                                value={p.keterangans[ref.idx] ?? ''}
-                                onChange={e => updateKet(p.id, ref.idx, e.target.value)}
-                                onPaste={e => handlePaste(e, p.id, { ketIdx: ref.idx })}
-                                placeholder=""
-                                className="bg-transparent text-sm text-slate-400 placeholder-slate-600 focus:outline-none w-full"
-                              />
-                            </td>
-                          )];
-                        }
-                        if (ref.kind === 'parent') {
-                          return [0, 1].map(j => (
-                            <td key={`par-${p.id}-${ref.id}-${j}`} className="px-3 py-3 border-l border-white/[0.04]"></td>
-                          ));
-                        }
-                        const cfg = BAGIAN_CONFIG[ref.bagian] || { label: ref.bagian };
-                        const count = cfg.subCols?.length || 1;
-                        return Array.from({ length: count }, (_, j) => (
-                          <td key={`bg-${p.id}-${ref.bagian}-${j}`} className="px-3 py-3 border-l border-white/[0.04]"></td>
-                        ));
-                      })}
-                      <td className="px-3 py-3 border-l border-white/[0.04]"><input value={p.penjahit} onChange={e => updateRow(p.id, 'penjahit', e.target.value)} onPaste={e => handlePaste(e, p.id, 'penjahit')} placeholder="Penjahit" className="bg-transparent text-sm text-slate-500 placeholder-slate-600 focus:outline-none w-full" /></td>
-                      <td className="px-3 py-3">
-                        <button onClick={() => removeRow(p.id)} className="text-slate-600 hover:text-red-400 transition-colors">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="px-5 py-4 flex items-center justify-between">
-              <button onClick={addRow} className="flex items-center gap-2 border border-white/10 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg hover:bg-white/[0.04] transition-colors">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                Tambah Baris
-              </button>
-              <span className="text-xs text-slate-500">Total: {rows.length} items</span>
-            </div>
-          </div>
-        );
-      })()}
-
-      {parentModalOpen && (
-        <>
-          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setParentModalOpen(false)} />
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-[#0c1120] border border-white/[0.06] rounded-xl shadow-2xl">
-            <div className="px-6 py-5 border-b border-white/[0.06] flex items-center justify-between">
-              <h2 className="text-base font-bold text-white">Tambah Kolom Parent</h2>
-              <button onClick={() => setParentModalOpen(false)} className="text-slate-500 hover:text-white transition-colors p-1">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Parent</label>
-                <input
-                  value={newParentName}
-                  onChange={e => setNewParentName(e.target.value)}
-                  placeholder="mis. LENGAN"
-                  className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 uppercase"
-                  autoFocus
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Sub Parent 1</label>
-                  <input
-                    value={newSub1}
-                    onChange={e => setNewSub1(e.target.value)}
-                    placeholder="mis. KANAN"
-                    className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 uppercase"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Sub Parent 2</label>
-                  <input
-                    value={newSub2}
-                    onChange={e => setNewSub2(e.target.value)}
-                    placeholder="mis. KIRI"
-                    className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 uppercase"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-white/[0.06] flex justify-end gap-2">
-              <button onClick={() => setParentModalOpen(false)} className="px-4 py-2 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">Batal</button>
-              <button onClick={saveParentCol} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">Tambah</button>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
+function TabWO3({ wo }: { wo: Row; detailItems: Row[]; specs: Row[]; specBahan: Row[] }) {
+  return <WoImportTab wo={wo} section="wo3" accept=".xlsx,.xls,.pdf" title="Detail Order Items" helper="Import file Excel (.xlsx) atau PDF — preview muncul otomatis setelah upload." />;
 }
 
 /* ═══ Tab WO 4 — Form Pengiriman ═══ */
 function TabWO4({ wo }: { wo: Row; detailItems: Row[] }) {
-  type ShipRow = { id: number; nama: string; np: string; ukuran: string; keterangan: string; bonus: string; checklist: boolean };
-  const [rows, setRows] = useState<ShipRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const printRef = useRef<HTMLDivElement>(null);
-  const toast = useToast();
-
-  async function fetchData() {
-    setLoading(true);
-    try {
-      // Fetch WO3 items from DB
-      const allItems = await dbGet('wo_detail_items');
-      const wo3Items = allItems.filter((r: Row) => String(r.work_order_id) === String(wo.id));
-      // Fetch existing WO4 pengiriman data
-      const allShip = await dbGet('wo_pengiriman');
-      const wo4Items = allShip.filter((r: Row) => String(r.work_order_id) === String(wo.id));
-
-      if (wo3Items.length === 0) { setRows([]); setLoading(false); return; }
-
-      // Build rows: merge WO3 data with existing WO4 bonus/checklist
-      const shipMap: Record<string, Row> = {};
-      for (const s of wo4Items) shipMap[String(s.urutan)] = s;
-
-      setRows(wo3Items.map((item: Row, i: number) => {
-        const existing = shipMap[String(i + 1)];
-        const kets = parseKets(item.keterangan).filter(k => k.trim());
-        return {
-          id: item.id,
-          nama: item.nama || '',
-          np: item.np || '',
-          ukuran: item.ukuran || '',
-          keterangan: kets.join(' | '),
-          bonus: existing?.bonus || '',
-          checklist: existing?.checklist === 1 || existing?.checklist === true,
-        };
-      }));
-    } catch { setRows([]); }
-    setLoading(false);
-  }
-
-  useEffect(() => { fetchData(); }, []);
-
-  const SIZE_ORDER: Record<string, number> = { 'XS': 1, 'S': 2, 'M': 3, 'L': 4, 'XL': 5, '2XL': 6, 'XXL': 6, '3XL': 7, 'XXXL': 7, '4XL': 8, '5XL': 9 };
-  function sortBySize() {
-    setRows(prev => [...prev].sort((a, b) => {
-      const sa = SIZE_ORDER[a.ukuran.trim().toUpperCase()] ?? 99;
-      const sb = SIZE_ORDER[b.ukuran.trim().toUpperCase()] ?? 99;
-      return sa - sb;
-    }));
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      // Delete old wo_pengiriman rows
-      const allShip = await dbGet('wo_pengiriman');
-      const old = allShip.filter((r: Row) => String(r.work_order_id) === String(wo.id));
-      for (const o of old) await dbDelete('wo_pengiriman', Number(o.id));
-      // Insert new rows
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
-        await dbCreate('wo_pengiriman', {
-          work_order_id: wo.id, detail_item_id: r.id, urutan: i + 1,
-          nama: r.nama, np: r.np, ukuran: r.ukuran,
-          keterangan: r.keterangan, bonus: r.bonus,
-          checklist: r.checklist ? 1 : 0,
-        });
-      }
-      toast.success('Tersimpan', 'Form pengiriman berhasil disimpan.');
-    } catch (e) { toast.error('Gagal', String(e)); }
-    setSaving(false);
-  }
-
-  async function handleDownloadPdf() {
-    try {
-      const { jsPDF } = await import('jspdf');
-      const { default: autoTable } = await import('jspdf-autotable');
-      const pdf = new jsPDF('l', 'mm', 'a4');
-      pdf.setFontSize(14);
-      pdf.text(`FORM PENGIRIMAN ${wo.customer?.toUpperCase()} (${wo.paket})`, 14, 18);
-      autoTable(pdf, {
-        startY: 26,
-        head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'BONUS', 'CHECK']],
-        body: rows.map((r, i) => [i + 1, r.nama, r.np, r.ukuran, r.keterangan, r.bonus, r.checklist ? '✓' : '']),
-        styles: { fontSize: 9 },
-        headStyles: { fillColor: [30, 58, 95] },
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const y = ((pdf as any).lastAutoTable?.finalY || 100) + 20;
-      pdf.setFontSize(10);
-      pdf.text('Dibuat Oleh,', 14, y);
-      pdf.text('Dicek Oleh,', 85, y);
-      pdf.text('Diterima Oleh,', 155, y);
-      pdf.text('( Admin )', 14, y + 25);
-      pdf.text('( QC / Packing )', 85, y + 25);
-      pdf.text(`( ${wo.customer} )`, 155, y + 25);
-      pdf.setFontSize(8);
-      pdf.text(`Dicetak pada: ${new Date().toLocaleDateString('id-ID')}`, 155, y + 32);
-      pdf.save(`Form-Pengiriman-${wo.noWo}.pdf`);
-      toast.success('PDF Berhasil', `Form-Pengiriman-${wo.noWo}.pdf`);
-    } catch (e) { toast.error('Gagal', String(e)); }
-  }
-
-  function handleCetakForm() {
-    const el = printRef.current;
-    if (!el) return;
-    const win = window.open('', '_blank');
-    if (!win) return;
-    win.document.write(`<html><head><title>Form Pengiriman</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;padding:30px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:6px 10px;text-align:left;font-size:12px}th{background:#f0f0f0}input[type=checkbox]{width:16px;height:16px}.sig{display:flex;justify-content:space-between;margin-top:40px;font-size:12px}.sig div{text-align:center;width:30%}.sig div p:last-child{margin-top:50px;font-weight:bold}</style></head><body>${el.innerHTML}</body></html>`);
-    win.document.close();
-    win.onload = () => { win.print(); };
-  }
-
-  if (loading) return <div className="h-32 bg-white/[0.03] rounded-xl animate-pulse" />;
-
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] px-6 py-12 text-center">
-        <p className="text-sm text-slate-400">Belum ada item detail (WO 3) untuk ditampilkan.</p>
-        <p className="text-xs text-slate-500 mt-1">Silakan isi data di tab WO 3 terlebih dahulu.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-bold text-white">Form Pengiriman</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Lengkapi checklist dan bonus item sebelum mencetak form.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" /></svg>
-            {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
-          </button>
-          <button onClick={handleDownloadPdf} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-            Download PDF
-          </button>
-          <button onClick={handleCetakForm} className="flex items-center gap-1.5 text-xs text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m0 0a48.159 48.159 0 018.5 0m-8.5 0V6.375c0-.621.504-1.125 1.125-1.125h6.75c.621 0 1.125.504 1.125 1.125v2.234" /></svg>
-            Cetak Form
-          </button>
-        </div>
-      </div>
-
-      {/* Printable form */}
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-        <div ref={printRef} className="bg-white text-black p-8 max-w-4xl mx-auto">
-          <h3 className="text-base font-bold text-center mb-4">FORM PENGIRIMAN {wo.customer?.toUpperCase()} ({wo.paket})</h3>
-          <table className="w-full border-collapse border border-black text-xs">
-            <thead>
-              <tr className="bg-slate-100">
-                {['NO','NAMA','NP','SIZE','KET','BONUS','CHECKLIST'].map(h => (
-                  <th key={h} className="border border-black px-3 py-2 text-left font-bold">
-                    {h === 'SIZE' ? (
-                      <span className="flex items-center gap-1">
-                        {h}
-                        <button onClick={sortBySize} className="text-amber-500 hover:text-amber-400 transition-colors print:hidden" title="Sort by Size">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5-4.5L16.5 16.5m0 0L12 12m4.5 4.5V3" /></svg>
-                        </button>
-                      </span>
-                    ) : h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.id}>
-                  <td className="border border-black px-3 py-2 text-blue-600 text-center">{i + 1}</td>
-                  <td className="border border-black px-3 py-2">{r.nama}</td>
-                  <td className="border border-black px-3 py-2">{r.np}</td>
-                  <td className="border border-black px-3 py-2 text-center">{r.ukuran}</td>
-                  <td className="border border-black px-3 py-2">{r.keterangan}</td>
-                  <td className="border border-black px-3 py-2">
-                    <input type="text" value={r.bonus} onChange={e => setRows(prev => prev.map(p => p.id === r.id ? { ...p, bonus: e.target.value } : p))} placeholder="Bonus..." className="w-full bg-transparent text-xs focus:outline-none" />
-                  </td>
-                  <td className="border border-black px-3 py-2 text-center">
-                    <input type="checkbox" checked={r.checklist} onChange={e => setRows(prev => prev.map(p => p.id === r.id ? { ...p, checklist: e.target.checked } : p))} className="w-4 h-4" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Signature section */}
-          <div className="flex justify-between mt-10 text-xs">
-            <div className="text-center w-1/3">
-              <p>Dibuat Oleh,</p>
-              <div className="h-16" />
-              <p className="font-bold">( Admin )</p>
-            </div>
-            <div className="text-center w-1/3">
-              <p>Dicek Oleh,</p>
-              <div className="h-16" />
-              <p className="font-bold">( QC / Packing )</p>
-            </div>
-            <div className="text-center w-1/3">
-              <p>Diterima Oleh,</p>
-              <div className="h-16" />
-              <p className="font-bold">( {wo.customer} )</p>
-            </div>
-          </div>
-          <p className="text-right text-[10px] text-slate-400 mt-2 italic">Dicetak pada: {new Date().toLocaleDateString('id-ID')}</p>
-        </div>
-      </div>
-    </div>
-  );
+  return <WoImportTab wo={wo} section="wo4" accept=".xlsx,.xls,.pdf" title="Form Pengiriman" helper="Import file Excel (.xlsx) atau PDF — preview muncul otomatis setelah upload." />;
 }

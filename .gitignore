@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# User uploads — never commit; keep folder via .gitkeep
+/public/uploads/*
+!/public/uploads/.gitkeep

@@ -29,6 +29,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   wo_spesifikasi:    { columns: '*', filterCols: ['id', 'work_order_id'] },
   wo_spesifikasi_bahan: { columns: '*', filterCols: ['id', 'spesifikasi_id'] },
   wo_permintaan_gudang: { columns: '*', filterCols: ['work_order_id'] },
+  wo_section_imports: { columns: '*', filterCols: ['id', 'work_order_id', 'section'] },
   wo_detail_items:   { columns: '*', filterCols: ['id', 'work_order_id'] },
   wo_pengiriman:     { columns: '*', filterCols: ['work_order_id'] },
   wo_progress:       { columns: '*', filterCols: ['work_order_id'] },

@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { writeFile, mkdir } from 'fs/promises';
+import path from 'path';
 
+// Save uploaded files to public/uploads/ and return the public URL.
+// PDFs are rasterized to PNG pages via pdf-to-img so they preview cleanly.
+// Excel files are stored as-is — the viewer renders them client-side via
+// SheetJS (text/table only; no images).
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -8,12 +14,46 @@ export async function POST(req: NextRequest) {
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const base64 = buffer.toString('base64');
-    const mimeType = file.type || 'image/png';
-    const dataUrl = `data:${mimeType};base64,${base64}`;
 
-    return NextResponse.json({ url: dataUrl });
+    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+    await mkdir(uploadsDir, { recursive: true });
+
+    const ext = (path.extname(file.name) || '').toLowerCase();
+    const baseName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const safeName = `${baseName}${ext}`;
+    const fullPath = path.join(uploadsDir, safeName);
+
+    await writeFile(fullPath, buffer);
+
+    let pages: string[] = [];
+    let rasterizeError: string | null = null;
+    if (ext === '.pdf') {
+      try {
+        const { pdf } = await import('pdf-to-img');
+        const doc = await pdf(fullPath, { scale: 3 });
+        let i = 1;
+        for await (const img of doc) {
+          const pageName = `${baseName}-p${i}.png`;
+          await writeFile(path.join(uploadsDir, pageName), img);
+          pages.push(`/uploads/${pageName}`);
+          i++;
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? `${e.message}\n${e.stack}` : String(e);
+        console.error('PDF rasterization failed:', msg);
+        rasterizeError = msg;
+        pages = [];
+      }
+    }
+
+    return NextResponse.json({
+      url: `/uploads/${safeName}`,
+      originalName: file.name,
+      pages,
+      rasterizeError,
+    });
   } catch (e) {
+    console.error('Upload error:', e);
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }
