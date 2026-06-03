@@ -1,9 +1,7 @@
-// Auto-migration runner. On app boot, this scans `database/migrations/`,
-// tracks which files have been applied in a `_migrations` table, and runs
-// any new ones in filename order. Safe to call multiple times.
+// Auto-migration runner. SQL statements are embedded as string literals so
+// the migrations always run in production regardless of whether the
+// `database/migrations/` folder ships with the build.
 
-import { readFile, readdir } from 'fs/promises';
-import path from 'path';
 import pool from './db';
 
 let migrationsPromise: Promise<void> | null = null;
@@ -11,7 +9,6 @@ let migrationsPromise: Promise<void> | null = null;
 export function runMigrationsOnce(): Promise<void> {
   if (!migrationsPromise) {
     migrationsPromise = runMigrations().catch(err => {
-      // Reset on failure so the next request retries.
       migrationsPromise = null;
       throw err;
     });
@@ -19,11 +16,62 @@ export function runMigrationsOnce(): Promise<void> {
   return migrationsPromise;
 }
 
-async function runMigrations(): Promise<void> {
-  const dir = path.join(process.cwd(), 'database', 'migrations');
+type Migration = { name: string; up: string[] };
 
-  // Ensure the tracking table exists
-  await pool.execute(
+// New migrations: append at the bottom. Each entry's `up` is an array of
+// SQL statements (no trailing `;`). Filename-style names are arbitrary —
+// the runner keys on `name` in the `_migrations` tracking table.
+const MIGRATIONS: Migration[] = [
+  {
+    name: '002_wo_spesifikasi_paket',
+    up: [
+      "ALTER TABLE `wo_spesifikasi` ADD COLUMN `paket` VARCHAR(100) NULL AFTER `nama_spesifikasi`",
+    ],
+  },
+  {
+    name: '003_work_orders_tracking_hash',
+    up: [
+      "ALTER TABLE `work_orders` ADD COLUMN `tracking_hash` VARCHAR(64) NULL UNIQUE AFTER `no_wo`",
+      "UPDATE `work_orders` SET `tracking_hash` = SHA2(`no_wo`, 256) WHERE `tracking_hash` IS NULL",
+      "UPDATE `orders` o JOIN `work_orders` w ON w.order_id = o.id SET o.tracking_link = CONCAT('/tracking/', w.tracking_hash) WHERE w.tracking_hash IS NOT NULL AND o.tracking_link IS NOT NULL AND o.tracking_link LIKE '/tracking/%'",
+    ],
+  },
+  {
+    name: '004_wo_spesifikasi_imported_file',
+    up: [
+      "ALTER TABLE `wo_spesifikasi` ADD COLUMN `imported_file` LONGTEXT NULL",
+      "ALTER TABLE `wo_spesifikasi` ADD COLUMN `imported_file_name` VARCHAR(255) NULL",
+    ],
+  },
+  {
+    name: '005_wo_spesifikasi_imported_file_pages',
+    up: [
+      "ALTER TABLE `wo_spesifikasi` ADD COLUMN `imported_file_pages` TEXT NULL",
+    ],
+  },
+  {
+    name: '006_wo_section_imports',
+    up: [
+      `CREATE TABLE IF NOT EXISTS \`wo_section_imports\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`work_order_id\` INT UNSIGNED NOT NULL,
+        \`section\` VARCHAR(20) NOT NULL,
+        \`imported_file\` VARCHAR(500) NULL,
+        \`imported_file_name\` VARCHAR(255) NULL,
+        \`imported_file_pages\` TEXT NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uniq_wo_section\` (\`work_order_id\`, \`section\`),
+        KEY \`fk_si_wo\` (\`work_order_id\`),
+        CONSTRAINT \`fk_si_wo\` FOREIGN KEY (\`work_order_id\`) REFERENCES \`work_orders\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
+];
+
+async function runMigrations(): Promise<void> {
+  await pool.query(
     `CREATE TABLE IF NOT EXISTS \`_migrations\` (
       \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
       \`filename\` VARCHAR(255) NOT NULL UNIQUE,
@@ -32,49 +80,26 @@ async function runMigrations(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`
   );
 
-  // Read applied migrations
-  const [appliedRows] = await pool.execute(
-    'SELECT `filename` FROM `_migrations`'
-  );
+  const [appliedRows] = await pool.execute('SELECT `filename` FROM `_migrations`');
   const applied = new Set<string>(
     (appliedRows as { filename: string }[]).map(r => r.filename)
   );
 
-  // Discover .sql files in chronological (filename) order
-  let files: string[];
-  try {
-    files = (await readdir(dir)).filter(f => f.endsWith('.sql')).sort();
-  } catch {
-    // No migrations folder shipped — nothing to do.
-    return;
-  }
-
-  for (const file of files) {
-    if (applied.has(file)) continue;
-    const sql = await readFile(path.join(dir, file), 'utf8');
-    // Naive split by `;` — works for our migrations (no semicolons inside
-    // string literals, no procedural blocks). Trim & skip empties / comments.
-    const statements = sql
-      .split(/;[\r\n]+/)
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !/^--/.test(s));
-
-    for (const stmt of statements) {
+  for (const mig of MIGRATIONS) {
+    if (applied.has(mig.name)) continue;
+    for (const stmt of mig.up) {
       try {
         await pool.query(stmt);
       } catch (err) {
-        // Tolerate idempotent failures (column already exists, etc.) so reruns
-        // and partial-prior-applies recover gracefully.
         const msg = err instanceof Error ? err.message : String(err);
         const benign = /Duplicate column|already exists|Duplicate key/i.test(msg);
         if (!benign) {
-          console.error(`[migrate] ${file} failed:`, msg);
+          console.error(`[migrate] ${mig.name} failed:`, msg);
           throw err;
         }
       }
     }
-
-    await pool.execute('INSERT IGNORE INTO `_migrations` (`filename`) VALUES (?)', [file]);
-    console.log(`[migrate] applied ${file}`);
+    await pool.execute('INSERT IGNORE INTO `_migrations` (`filename`) VALUES (?)', [mig.name]);
+    console.log(`[migrate] applied ${mig.name}`);
   }
 }
