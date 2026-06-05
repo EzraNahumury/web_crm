@@ -219,6 +219,16 @@ function ImportContentViewer({ fileUrl, fileName, pages, onPagesUpdated }: {
     return <PdfImagesViewer pages={livePages} />;
   }
   if (ext === 'xlsx' || ext === 'xls') {
+    // Prefer Microsoft Office Online viewer in production (renders embedded
+    // images identically to Excel). Falls back to inline ExcelViewer on
+    // localhost (Microsoft can't reach a local URL) and for data: URLs.
+    if (
+      typeof window !== 'undefined'
+      && !/^(localhost|127\.|0\.0\.0\.0|::1|\[::1\])/.test(window.location.hostname)
+      && !fileUrl.startsWith('data:')
+    ) {
+      return <OfficeOnlineExcelViewer fileUrl={fileUrl} />;
+    }
     return <ExcelViewer fileUrl={fileUrl} fileName={fileName} />;
   }
   if (ext === 'pdf' && !tried) {
@@ -227,6 +237,41 @@ function ImportContentViewer({ fileUrl, fileName, pages, onPagesUpdated }: {
   return (
     <div className="bg-white mt-4 max-w-5xl mx-auto py-12 text-center text-slate-600 text-sm">
       Preview tidak tersedia. Klik <strong>Download File</strong> untuk membuka file aslinya.
+    </div>
+  );
+}
+
+// Microsoft Office Online embed — full-fidelity Excel rendering with embedded
+// images, served by Microsoft. Requires the file URL to be publicly reachable
+// (the MS viewer fetches the file from the internet), so we only use it on
+// production. The file is hosted under /uploads/ which Next.js serves
+// publicly.
+function OfficeOnlineExcelViewer({ fileUrl }: { fileUrl: string }) {
+  const [absoluteUrl, setAbsoluteUrl] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (fileUrl.startsWith('http')) setAbsoluteUrl(fileUrl);
+    else if (fileUrl.startsWith('/')) setAbsoluteUrl(`${window.location.origin}${fileUrl}`);
+    else setAbsoluteUrl(fileUrl);
+  }, [fileUrl]);
+
+  if (!absoluteUrl) {
+    return <div className="bg-white mt-4 max-w-6xl mx-auto py-12 text-center text-slate-500 text-sm">Memuat preview...</div>;
+  }
+
+  const embedSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(absoluteUrl)}`;
+
+  return (
+    <div className="bg-white mt-4 max-w-6xl mx-auto">
+      <iframe
+        src={embedSrc}
+        width="100%"
+        height="800"
+        style={{ border: 0, display: 'block', minHeight: 720 }}
+        className="w-full"
+        title="Excel Preview"
+      />
     </div>
   );
 }
