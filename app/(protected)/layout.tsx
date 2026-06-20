@@ -92,6 +92,14 @@ const ADMIN_NAV: SideNavItem[] = [
     href: '/master', label: 'Master',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" /></svg>,
   },
+  {
+    label: 'Analisa',
+    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" /></svg>,
+    children: [
+      { href: '/analisa/grafik', label: 'Grafik' },
+      { href: '/analisa/all-customer', label: 'All Customer' },
+    ],
+  },
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -108,6 +116,7 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'Stok': ['/stok'],
   'Settings': ['/setting'],
   'Master Data': ['/master'],
+  'Analisa': ['/analisa/grafik', '/analisa/all-customer'],
 };
 
 function AdminLayout({ user, logout, children }: {
@@ -117,11 +126,24 @@ function AdminLayout({ user, logout, children }: {
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [laporanOpen, setLaporanOpen] = useState(false);
+  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const toggleMenu = (label: string) =>
+    setOpenMenus(prev => ({ ...prev, [label]: !prev[label] }));
+
+  // Auto-expand a parent menu when any of its children matches the current path.
   useEffect(() => {
-    if (pathname.startsWith('/laporan')) setLaporanOpen(true);
+    setOpenMenus(prev => {
+      const next = { ...prev };
+      for (const item of ADMIN_NAV) {
+        if (!item.children) continue;
+        if (item.children.some(c => pathname.startsWith(c.href))) {
+          next[item.label] = true;
+        }
+      }
+      return next;
+    });
   }, [pathname]);
 
   useEffect(() => { setMobileOpen(false); }, [pathname]);
@@ -167,17 +189,18 @@ function AdminLayout({ user, logout, children }: {
           {filteredNav.map((item) => {
             if (item.children) {
               const childActive = item.children.some(c => pathname === c.href);
+              const open = !!openMenus[item.label];
               return (
                 <div key={item.label}>
                   <button
-                    onClick={() => setLaporanOpen(v => !v)}
+                    onClick={() => toggleMenu(item.label)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${childActive ? 'text-white bg-white/[0.06]' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}
                   >
                     <span className="shrink-0 opacity-70">{item.icon}</span>
                     <span className="flex-1 text-left">{item.label}</span>
-                    <svg className={`w-4 h-4 transition-transform duration-200 opacity-50 ${laporanOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    <svg className={`w-4 h-4 transition-transform duration-200 opacity-50 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </button>
-                  {laporanOpen && (
+                  {open && (
                     <div className="ml-4 mt-0.5 space-y-0.5 border-l border-white/[0.06] pl-3">
                       {item.children.map(child => (
                         <Link key={child.href} href={child.href}
