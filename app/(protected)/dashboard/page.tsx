@@ -242,9 +242,14 @@ function StatCard({ label, value, icon, iconBg, iconColor, valueColor }: {
       <div className={`w-11 h-11 rounded-full ${iconBg} flex items-center justify-center shrink-0 ${iconColor}`}>
         {icon}
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="text-[11px] text-slate-500 font-medium tracking-wider uppercase">{label}</p>
-        <p className={`text-xl font-bold mt-0.5 ${valueColor || 'text-white'}`}>{value}</p>
+        <p
+          className={`text-base xl:text-lg font-bold mt-0.5 truncate ${valueColor || 'text-white'}`}
+          title={value}
+        >
+          {value}
+        </p>
       </div>
     </div>
   );

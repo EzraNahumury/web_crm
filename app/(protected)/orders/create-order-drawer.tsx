@@ -368,7 +368,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                         <select value={item.paket} onChange={e => updateItem(item.id, 'paket', e.target.value)}
                           className="flex-1 min-w-0 bg-transparent text-white text-sm px-4 py-2.5 focus:outline-none appearance-none cursor-pointer">
                           <option value="">Pilih paket</option>
-                          {paketList.map(p => <option key={p.id} value={p.nama}>{p.nama}</option>)}
+                          {[...paketList].sort((a, b) => String(a.nama).localeCompare(String(b.nama))).map(p => <option key={p.id} value={p.nama}>{p.nama}</option>)}
                         </select>
                         <div className="flex items-center gap-1.5 px-3 border-l border-white/10 bg-white/[0.02]">
                           <span className="text-xs font-medium text-slate-500 uppercase">Qty</span>
@@ -402,7 +402,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                       <select value={db.bahan} onChange={e => setDetailBahan(prev => prev.map(d => d.id === db.id ? { ...d, bahan: e.target.value } : d))}
                         className="flex-1 bg-transparent border-0 border-l border-white/[0.06] text-white text-sm px-3 py-2.5 focus:outline-none focus:bg-white/[0.02] appearance-none cursor-pointer">
                         <option value="">Pilih bahan</option>
-                        {barangList.map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
+                        {[...barangList].sort((a, b) => String(a.nama).localeCompare(String(b.nama))).map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
                       </select>
                       <button onClick={() => setDetailBahan(prev => prev.filter(d => d.id !== db.id))}
                         className="shrink-0 text-slate-500 hover:text-red-400 transition-colors px-2 py-2.5 border-l border-white/[0.06]">

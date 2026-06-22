@@ -322,7 +322,7 @@ function ItemsSection({ orderId, items, onRefresh }: { orderId: number; items: R
               <td className="py-2 pr-2">
                 <select value={newPaket} onChange={e => setNewPaket(e.target.value)} className={inp}>
                   <option value="">Pilih paket...</option>
-                  {paketList.map(p => <option key={p.id} value={p.nama}>{p.nama}</option>)}
+                  {[...paketList].sort((a, b) => String(a.nama).localeCompare(String(b.nama))).map(p => <option key={p.id} value={p.nama}>{p.nama}</option>)}
                 </select>
               </td>
               <td className="py-2 pr-2">
@@ -420,7 +420,7 @@ function DetailBahanSection({ orderId, detailBahan, onRefresh }: { orderId: numb
               <td className="py-2 pr-2">
                 <select value={newBahan} onChange={e => setNewBahan(e.target.value)} className={`${inp} appearance-none cursor-pointer`}>
                   <option value="">Pilih bahan...</option>
-                  {barangList.map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
+                  {[...barangList].sort((a, b) => String(a.nama).localeCompare(String(b.nama))).map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
                 </select>
               </td>
               <td className="py-2 text-right">
