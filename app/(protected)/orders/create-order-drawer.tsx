@@ -153,17 +153,10 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
     const missing: string[] = [];
     if (!customer.trim()) missing.push('Nama Customer');
     if (!alamat.trim()) missing.push('Alamat Lengkap');
-    if (!provinsi.trim()) missing.push('Provinsi');
-    if (!kabupaten.trim()) missing.push('Kabupaten/Kota');
-    if (!kecamatan.trim()) missing.push('Kecamatan');
     if (!noHp.trim()) missing.push('No HP');
     if (!leadId.trim()) missing.push('Leads');
-    if (!namaTim.trim()) missing.push('Nama Tim');
     if (!items.some(i => i.paket.trim() && i.qty > 0)) missing.push('Item Order (minimal 1 paket + qty)');
     if (!tglOrder) missing.push('Tanggal Order');
-    if (!deadline) missing.push('Estimasi Deadline');
-    if (nominalOrder <= 0) missing.push('Nominal Order');
-    if (dpDesain <= 0) missing.push('DP Desain');
     if (missing.length > 0) {
       toast.warning('Wajib Diisi', missing.join(', '));
       return;
@@ -317,7 +310,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                   placeholder="Jl. Contoh No. 123" className={inputCls} />
               </div>
               <div>
-                <label className={`${labelCls} text-amber-400`}>Provinsi<span className="text-red-500 ml-0.5">*</span></label>
+                <label className={`${labelCls} text-amber-400`}>Provinsi</label>
                 <select value={provId} onChange={e => {
                   const sel = provList.find(p => p.id === e.target.value);
                   setProvId(e.target.value); setProvinsi(sel?.name || '');
@@ -328,7 +321,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Kabupaten/Kota<span className="text-red-500 ml-0.5">*</span></label>
+                <label className={labelCls}>Kabupaten/Kota</label>
                 <select value={kabId} onChange={e => {
                   const sel = kabList.find(k => k.id === e.target.value);
                   setKabId(e.target.value); setKabupaten(sel?.name || '');
@@ -339,7 +332,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Kecamatan<span className="text-red-500 ml-0.5">*</span></label>
+                <label className={labelCls}>Kecamatan</label>
                 <select value={kecId} onChange={e => {
                     const sel = kecList.find(k => k.id === e.target.value);
                     setKecId(e.target.value); setKecamatan(sel?.name || '');
@@ -370,7 +363,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
             <h3 className="text-sm font-bold text-white mb-4">Data Order</h3>
             <div className="space-y-4">
               <div>
-                <label className={labelCls}>Nama Tim<span className="text-red-500 ml-0.5">*</span></label>
+                <label className={labelCls}>Nama Tim</label>
                 <input type="text" value={namaTim} onChange={e => setNamaTim(e.target.value)}
                   placeholder="Nama tim" className={inputCls} />
               </div>
@@ -443,7 +436,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                     className={`${inputCls} date-input`} />
                 </div>
                 <div>
-                  <label className={`${labelCls} text-amber-400`}>Estimasi Deadline<span className="text-red-500 ml-0.5">*</span></label>
+                  <label className={`${labelCls} text-amber-400`}>Estimasi Deadline</label>
                   <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
                     className={`${inputCls} date-input`} />
                 </div>
@@ -487,12 +480,12 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
             <h3 className="text-sm font-bold text-white mb-4 uppercase">Pembayaran</h3>
             <div className="space-y-4">
               <div>
-                <label className={`${labelCls} text-amber-400`}>Nominal Order<span className="text-red-500 ml-0.5">*</span></label>
+                <label className={`${labelCls} text-amber-400`}>Nominal Order</label>
                 <RupiahInput value={nominalOrder} onChange={setNominalOrder} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={`${labelCls} text-amber-400`}>DP Desain<span className="text-red-500 ml-0.5">*</span></label>
+                  <label className={`${labelCls} text-amber-400`}>DP Desain</label>
                   <RupiahInput value={dpDesain} onChange={setDpDesain} />
                 </div>
                 <div>
