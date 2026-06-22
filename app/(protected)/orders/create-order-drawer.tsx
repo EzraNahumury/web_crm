@@ -150,7 +150,24 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const toast = useToast();
 
   async function handleSave() {
-    if (!customer.trim()) { toast.warning('Validasi', 'Nama Customer wajib diisi'); return; }
+    const missing: string[] = [];
+    if (!customer.trim()) missing.push('Nama Customer');
+    if (!alamat.trim()) missing.push('Alamat Lengkap');
+    if (!provinsi.trim()) missing.push('Provinsi');
+    if (!kabupaten.trim()) missing.push('Kabupaten/Kota');
+    if (!kecamatan.trim()) missing.push('Kecamatan');
+    if (!noHp.trim()) missing.push('No HP');
+    if (!leadId.trim()) missing.push('Leads');
+    if (!namaTim.trim()) missing.push('Nama Tim');
+    if (!items.some(i => i.paket.trim() && i.qty > 0)) missing.push('Item Order (minimal 1 paket + qty)');
+    if (!tglOrder) missing.push('Tanggal Order');
+    if (!deadline) missing.push('Estimasi Deadline');
+    if (nominalOrder <= 0) missing.push('Nominal Order');
+    if (dpDesain <= 0) missing.push('DP Desain');
+    if (missing.length > 0) {
+      toast.warning('Wajib Diisi', missing.join(', '));
+      return;
+    }
     setSaving(true);
     try {
       // Auto-register / match customer in master
@@ -290,17 +307,17 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
             <h3 className="text-sm font-bold text-white mb-4">Data Customer</h3>
             <div className="space-y-4">
               <div>
-                <label className={labelCls}>Nama Customer</label>
+                <label className={labelCls}>Nama Customer<span className="text-red-500 ml-0.5">*</span></label>
                 <input type="text" value={customer} onChange={e => setCustomer(e.target.value)}
                   placeholder="Cari customer atau ketik nama baru..." className={inputCls} />
               </div>
               <div>
-                <label className={labelCls}>Alamat Lengkap</label>
+                <label className={labelCls}>Alamat Lengkap<span className="text-red-500 ml-0.5">*</span></label>
                 <input type="text" value={alamat} onChange={e => setAlamat(e.target.value)}
                   placeholder="Jl. Contoh No. 123" className={inputCls} />
               </div>
               <div>
-                <label className={`${labelCls} text-amber-400`}>Provinsi</label>
+                <label className={`${labelCls} text-amber-400`}>Provinsi<span className="text-red-500 ml-0.5">*</span></label>
                 <select value={provId} onChange={e => {
                   const sel = provList.find(p => p.id === e.target.value);
                   setProvId(e.target.value); setProvinsi(sel?.name || '');
@@ -311,7 +328,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Kabupaten/Kota</label>
+                <label className={labelCls}>Kabupaten/Kota<span className="text-red-500 ml-0.5">*</span></label>
                 <select value={kabId} onChange={e => {
                   const sel = kabList.find(k => k.id === e.target.value);
                   setKabId(e.target.value); setKabupaten(sel?.name || '');
@@ -322,7 +339,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Kecamatan</label>
+                <label className={labelCls}>Kecamatan<span className="text-red-500 ml-0.5">*</span></label>
                 <select value={kecId} onChange={e => {
                     const sel = kecList.find(k => k.id === e.target.value);
                     setKecId(e.target.value); setKecamatan(sel?.name || '');
@@ -332,12 +349,12 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 </select>
               </div>
               <div>
-                <label className={labelCls}>No HP</label>
+                <label className={labelCls}>No HP<span className="text-red-500 ml-0.5">*</span></label>
                 <input type="tel" value={noHp} onChange={e => setNoHp(e.target.value)}
                   placeholder="08123456789" className={inputCls} />
               </div>
               <div>
-                <label className={labelCls}>Leads</label>
+                <label className={labelCls}>Leads<span className="text-red-500 ml-0.5">*</span></label>
                 <select value={leadId} onChange={e => setLeadId(e.target.value)} className={selectCls}>
                   <option value="">Pilih leads...</option>
                   {leadsList.map(l => (
@@ -353,14 +370,14 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
             <h3 className="text-sm font-bold text-white mb-4">Data Order</h3>
             <div className="space-y-4">
               <div>
-                <label className={labelCls}>Nama Tim</label>
+                <label className={labelCls}>Nama Tim<span className="text-red-500 ml-0.5">*</span></label>
                 <input type="text" value={namaTim} onChange={e => setNamaTim(e.target.value)}
                   placeholder="Nama tim" className={inputCls} />
               </div>
 
               {/* Item Order */}
               <div>
-                <label className={labelCls}>Item Order</label>
+                <label className={labelCls}>Item Order<span className="text-red-500 ml-0.5">*</span></label>
                 <div className="space-y-2">
                   {items.map(item => (
                     <div key={item.id} className="flex gap-2 items-stretch">
@@ -421,12 +438,12 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
               {/* Dates */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={`${labelCls} text-amber-400`}>Tanggal Order</label>
+                  <label className={`${labelCls} text-amber-400`}>Tanggal Order<span className="text-red-500 ml-0.5">*</span></label>
                   <input type="date" value={tglOrder} onChange={e => setTglOrder(e.target.value)}
                     className={`${inputCls} date-input`} />
                 </div>
                 <div>
-                  <label className={`${labelCls} text-amber-400`}>Estimasi Deadline</label>
+                  <label className={`${labelCls} text-amber-400`}>Estimasi Deadline<span className="text-red-500 ml-0.5">*</span></label>
                   <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
                     className={`${inputCls} date-input`} />
                 </div>
@@ -470,12 +487,12 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
             <h3 className="text-sm font-bold text-white mb-4 uppercase">Pembayaran</h3>
             <div className="space-y-4">
               <div>
-                <label className={`${labelCls} text-amber-400`}>Nominal Order</label>
+                <label className={`${labelCls} text-amber-400`}>Nominal Order<span className="text-red-500 ml-0.5">*</span></label>
                 <RupiahInput value={nominalOrder} onChange={setNominalOrder} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={`${labelCls} text-amber-400`}>DP Desain</label>
+                  <label className={`${labelCls} text-amber-400`}>DP Desain<span className="text-red-500 ml-0.5">*</span></label>
                   <RupiahInput value={dpDesain} onChange={setDpDesain} />
                 </div>
                 <div>
