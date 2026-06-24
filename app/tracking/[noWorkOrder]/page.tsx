@@ -88,7 +88,7 @@ export default function TrackingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f5f1ea] px-3 sm:px-4 py-6 sm:py-8 text-slate-600">
+      <div className="tracking-page min-h-screen bg-[#f5f1ea] px-3 sm:px-4 py-6 sm:py-8 text-slate-600">
         <div className="mx-auto max-w-3xl rounded-[20px] border border-white/60 bg-white/70 p-6 sm:p-8 shadow-sm text-center">
           Memuat detail order...
         </div>
@@ -98,7 +98,7 @@ export default function TrackingPage() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-[#f5f1ea] px-3 sm:px-4 py-6 sm:py-8">
+      <div className="tracking-page min-h-screen bg-[#f5f1ea] px-3 sm:px-4 py-6 sm:py-8">
         <div className="mx-auto max-w-3xl rounded-[20px] border border-white/60 bg-white/80 p-6 sm:p-8 shadow-sm text-center">
           <h1 className="text-2xl font-semibold text-slate-800">Tracking Order</h1>
           <p className="mt-3 text-sm text-red-600">{error || 'Data order tidak ditemukan'}</p>
@@ -114,7 +114,7 @@ export default function TrackingPage() {
   const isComplete = pct >= 100;
 
   return (
-    <div className="min-h-screen bg-[#f5f1ea] px-3 sm:px-4 py-6 sm:py-8 text-slate-700">
+    <div className="tracking-page min-h-screen bg-[#f5f1ea] px-3 sm:px-4 py-6 sm:py-8 text-slate-700">
       <div className="mx-auto max-w-6xl">
         {/* Header */}
         <div className="mb-5 sm:mb-6 flex flex-wrap items-center justify-between gap-3">

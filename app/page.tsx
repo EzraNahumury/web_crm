@@ -235,7 +235,7 @@ export default function LoginPage() {
   if (loading) return null;
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-[#050508]">
+    <div className="login-page min-h-screen flex items-center justify-center relative overflow-hidden bg-[#050508]">
       {/* Canvas animated background */}
       <AnimatedBackground />
 
