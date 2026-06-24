@@ -199,11 +199,8 @@ export default function TrackingPage() {
                           <p className={`text-sm font-semibold ${isDone ? 'text-slate-800' : isActive ? 'text-amber-700' : 'text-slate-400'}`}>
                             {stage.nama}
                           </p>
-                          {isActive && stage.status === 'SEDANG' && (
+                          {isActive && (
                             <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Sedang dikerjakan</span>
-                          )}
-                          {isActive && stage.status === 'TERSEDIA' && (
-                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Menunggu</span>
                           )}
                         </div>
                         {isDone && stage.completed_at && (
