@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Cell, LabelList,
+  Legend, LabelList,
 } from 'recharts';
 import DateRangePicker, { daysAgo, today, formatPeriod } from '../../laporan/date-range-picker';
 
@@ -15,6 +15,7 @@ type LeadRow = {
   order_count: number;
   customer_count: number;
 };
+type MatrixRow = { paket: string; lead_nama: string; qty: number };
 type Totals = { orders: number; qty: number; paket_count: number; leads_count: number };
 
 const PALETTE = [
@@ -28,6 +29,7 @@ export default function GrafikCsPage() {
   const [to, setTo] = useState(today());
   const [paket, setPaket] = useState<PaketRow[]>([]);
   const [leads, setLeads] = useState<LeadRow[]>([]);
+  const [matrix, setMatrix] = useState<MatrixRow[]>([]);
   const [totals, setTotals] = useState<Totals>({ orders: 0, qty: 0, paket_count: 0, leads_count: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -43,6 +45,7 @@ export default function GrafikCsPage() {
       if (!json.success) throw new Error(json.error || 'Gagal memuat data');
       setPaket(json.data.paket || []);
       setLeads(json.data.leads || []);
+      setMatrix(json.data.matrix || []);
       setTotals(json.data.totals || { orders: 0, qty: 0, paket_count: 0, leads_count: 0 });
       setError('');
     } catch (e) {
@@ -63,8 +66,32 @@ export default function GrafikCsPage() {
   const topPaket = paket[0];
   const topLead = leads[0];
 
-  const paketChartData = useMemo(() => paket.slice(0, 12), [paket]);
-  const leadsChartData = useMemo(() => leads.slice(0, 12), [leads]);
+  // Pivot matrix → one row per paket with one numeric key per lead source.
+  // Result feeds a stacked horizontal bar chart (1 bar per paket, segments
+  // colored per lead). Limited to top 12 paket by total qty.
+  const { stackedData, leadKeys } = useMemo(() => {
+    const topPaketNames = new Set(paket.slice(0, 12).map(p => p.paket));
+    const keys = leads.map(l => l.lead_nama);
+    const byPaket = new Map<string, Record<string, number | string>>();
+    for (const m of matrix) {
+      if (!topPaketNames.has(m.paket)) continue;
+      const row = byPaket.get(m.paket) || { paket: m.paket };
+      row[m.lead_nama] = (Number(row[m.lead_nama]) || 0) + m.qty;
+      byPaket.set(m.paket, row);
+    }
+    // Preserve paket order from `paket` (sorted by total_qty desc)
+    const data = paket
+      .filter(p => topPaketNames.has(p.paket))
+      .map(p => {
+        const row = byPaket.get(p.paket) || { paket: p.paket };
+        // Make sure every lead key exists so Recharts renders consistent bars
+        for (const k of keys) if (row[k] == null) row[k] = 0;
+        // Stash the total so the LabelList can show it on the last segment
+        row.__total = p.total_qty;
+        return row;
+      });
+    return { stackedData: data, leadKeys: keys };
+  }, [paket, leads, matrix]);
 
   if (loading) return (
     <div className="space-y-4">
@@ -136,113 +163,67 @@ export default function GrafikCsPage() {
         />
       </div>
 
-      {/* Paket Chart */}
+      {/* Combined: Paket × Leads stacked bar chart */}
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h2 className="text-base font-bold text-white">Penjualan per Paket</h2>
+            <h2 className="text-base font-bold text-white">Penjualan per Paket × Sumber Leads</h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Total qty per paket dalam periode. {paketChartData.length < paket.length && `Menampilkan top ${paketChartData.length} dari ${paket.length} paket.`}
+              Tiap bar = 1 paket. Tiap segmen warna = qty dari sumber leads tertentu.
+              {stackedData.length < paket.length && ` Menampilkan top ${stackedData.length} dari ${paket.length} paket.`}
             </p>
           </div>
-          <span className="text-xs text-slate-500 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.06]">
-            {paket.length} paket
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.06]">
+              {paket.length} paket
+            </span>
+            <span className="text-xs text-slate-500 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.06]">
+              {leads.length} leads
+            </span>
+          </div>
         </div>
         <div className="p-4">
-          {paketChartData.length === 0 ? (
-            <EmptyState text="Belum ada data paket pada periode ini." />
+          {stackedData.length === 0 ? (
+            <EmptyState text="Belum ada data pada periode ini." />
           ) : (
-            <div style={{ width: '100%', height: Math.max(320, paketChartData.length * 36 + 60) }}>
+            <div style={{ width: '100%', height: Math.max(360, stackedData.length * 38 + 100) }}>
               <ResponsiveContainer>
                 <BarChart
-                  data={paketChartData}
+                  data={stackedData}
                   layout="vertical"
-                  margin={{ top: 8, right: 60, bottom: 8, left: 8 }}
+                  margin={{ top: 8, right: 80, bottom: 8, left: 8 }}
                 >
                   <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" horizontal={false} />
                   <XAxis type="number" stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} />
                   <YAxis type="category" dataKey="paket" stroke="#64748b" width={140} tick={{ fontSize: 12, fill: '#cbd5e1' }} tickLine={{ stroke: '#334155' }} />
-                  <Tooltip content={<PaketTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                  <Bar dataKey="total_qty" radius={[0, 6, 6, 0]}>
-                    {paketChartData.map((_, i) => (
-                      <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-                    ))}
-                    <LabelList
-                      dataKey="total_qty"
-                      position="right"
-                      style={{ fill: '#e2e8f0', fontSize: 12, fontWeight: 600 }}
-                      formatter={(v: unknown) => Number(v).toLocaleString('id-ID')}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Leads Chart */}
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-        <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h2 className="text-base font-bold text-white">Sumber Leads</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Qty (bar) dan jumlah order (label) per sumber leads dalam periode.
-              {leadsChartData.length < leads.length && ` Menampilkan top ${leadsChartData.length} dari ${leads.length} leads.`}
-            </p>
-          </div>
-          <span className="text-xs text-slate-500 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.06]">
-            {leads.length} leads
-          </span>
-        </div>
-        <div className="p-4">
-          {leadsChartData.length === 0 ? (
-            <EmptyState text="Belum ada data leads pada periode ini." />
-          ) : (
-            <div style={{ width: '100%', height: Math.max(320, leadsChartData.length * 36 + 60) }}>
-              <ResponsiveContainer>
-                <BarChart
-                  data={leadsChartData}
-                  layout="vertical"
-                  margin={{ top: 8, right: 110, bottom: 8, left: 8 }}
-                >
-                  <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} />
-                  <YAxis type="category" dataKey="lead_nama" stroke="#64748b" width={170} tick={{ fontSize: 12, fill: '#cbd5e1' }} tickLine={{ stroke: '#334155' }} />
-                  <Tooltip content={<LeadsTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                  <Bar dataKey="total_qty" radius={[0, 6, 6, 0]}>
-                    {leadsChartData.map((_, i) => (
-                      <Cell key={i} fill={PALETTE[(i + 5) % PALETTE.length]} />
-                    ))}
-                    <LabelList
-                      dataKey="total_qty"
-                      position="right"
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      content={(props: any) => {
-                        const x = Number(props?.x ?? 0);
-                        const y = Number(props?.y ?? 0);
-                        const width = Number(props?.width ?? 0);
-                        const height = Number(props?.height ?? 0);
-                        const index = Number(props?.index ?? 0);
-                        const row = leadsChartData[index];
-                        if (!row) return null;
-                        return (
-                          <text
-                            x={x + width + 8}
-                            y={y + height / 2}
-                            dominantBaseline="middle"
+                  <Tooltip content={<StackedTooltip leadKeys={leadKeys} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                  <Legend
+                    verticalAlign="top"
+                    height={36}
+                    wrapperStyle={{ paddingBottom: 12 }}
+                    formatter={(value) => <span style={{ color: '#cbd5e1', fontSize: 12 }}>{value}</span>}
+                  />
+                  {leadKeys.map((leadName, i) => {
+                    const isLast = i === leadKeys.length - 1;
+                    return (
+                      <Bar
+                        key={leadName}
+                        dataKey={leadName}
+                        stackId="leads"
+                        fill={PALETTE[i % PALETTE.length]}
+                        radius={isLast ? [0, 6, 6, 0] : [0, 0, 0, 0]}
+                      >
+                        {isLast && (
+                          <LabelList
+                            dataKey="__total"
+                            position="right"
                             style={{ fill: '#e2e8f0', fontSize: 12, fontWeight: 600 }}
-                          >
-                            {row.total_qty.toLocaleString('id-ID')}
-                            <tspan style={{ fill: '#94a3b8', fontWeight: 400 }}>
-                              {` · ${row.order_count} order`}
-                            </tspan>
-                          </text>
-                        );
-                      }}
-                    />
-                  </Bar>
+                            formatter={(v: unknown) => Number(v).toLocaleString('id-ID')}
+                          />
+                        )}
+                      </Bar>
+                    );
+                  })}
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -263,9 +244,14 @@ export default function GrafikCsPage() {
                 </tr>
               </thead>
               <tbody>
-                {leads.map(row => (
+                {leads.map((row, i) => (
                   <tr key={`${row.lead_id ?? 'none'}-${row.lead_nama}`} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                    <td className="px-6 py-3 text-sm font-medium text-white">{row.lead_nama}</td>
+                    <td className="px-6 py-3 text-sm font-medium text-white">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: PALETTE[i % PALETTE.length] }} />
+                        {row.lead_nama}
+                      </span>
+                    </td>
                     <td className="px-6 py-3 text-sm text-slate-400">{row.jenis_cs || '—'}</td>
                     <td className="px-6 py-3 text-right text-sm text-emerald-400 font-semibold">{row.total_qty.toLocaleString('id-ID')}</td>
                     <td className="px-6 py-3 text-right text-sm text-slate-300">{row.order_count.toLocaleString('id-ID')}</td>
@@ -314,28 +300,35 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function PaketTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: PaketRow }> }) {
+function StackedTooltip({ active, payload, leadKeys }: {
+  active?: boolean;
+  payload?: Array<{ payload: Record<string, number | string>; name: string; value: number; color: string }>;
+  leadKeys: string[];
+}) {
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
+  const paketName = String(row.paket || '');
+  const segments = leadKeys
+    .map(k => ({ key: k, value: Number(row[k]) || 0 }))
+    .filter(s => s.value > 0)
+    .sort((a, b) => b.value - a.value);
+  const total = Number(row.__total) || segments.reduce((s, x) => s + x.value, 0);
   return (
-    <div className="rounded-lg bg-[#0c1120] border border-white/[0.1] px-3 py-2 shadow-xl">
-      <p className="text-sm font-semibold text-white">{row.paket}</p>
-      <p className="text-xs text-emerald-400 mt-1">{row.total_qty.toLocaleString('id-ID')} qty</p>
-      <p className="text-xs text-slate-400">{row.order_count} order</p>
-    </div>
-  );
-}
-
-function LeadsTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: LeadRow }> }) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload;
-  return (
-    <div className="rounded-lg bg-[#0c1120] border border-white/[0.1] px-3 py-2 shadow-xl">
-      <p className="text-sm font-semibold text-white">{row.lead_nama}</p>
-      {row.jenis_cs && <p className="text-[10px] text-slate-500 uppercase tracking-wider">{row.jenis_cs}</p>}
-      <p className="text-xs text-emerald-400 mt-1">{row.total_qty.toLocaleString('id-ID')} qty</p>
-      <p className="text-xs text-slate-300">{row.order_count} order</p>
-      <p className="text-xs text-slate-400">{row.customer_count} customer</p>
+    <div className="rounded-lg bg-[#0c1120] border border-white/[0.1] px-3 py-2 shadow-xl min-w-[200px]">
+      <p className="text-sm font-semibold text-white">{paketName}</p>
+      <p className="text-xs text-emerald-400 mt-1 mb-2">Total {total.toLocaleString('id-ID')} qty</p>
+      <div className="space-y-1">
+        {segments.map(s => {
+          const pl = payload.find(p => p.name === s.key);
+          return (
+            <div key={s.key} className="flex items-center gap-2 text-xs">
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: pl?.color || '#64748b' }} />
+              <span className="text-slate-300 flex-1 truncate">{s.key}</span>
+              <span className="text-white font-medium">{s.value.toLocaleString('id-ID')}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

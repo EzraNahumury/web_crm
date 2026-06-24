@@ -59,6 +59,23 @@ export async function GET(req: NextRequest) {
       dateParams
     );
 
+    // Paket × Leads matrix — one row per (paket, lead) cell of summed qty.
+    // The page pivots this into stacked bars (one bar per paket, segments
+    // per lead source).
+    const matrix = await query<{ paket: string; lead_nama: string | null; qty: number }>(
+      `SELECT
+         oi.paket_nama AS paket,
+         l.nama AS lead_nama,
+         COALESCE(SUM(oi.qty), 0) AS qty
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       LEFT JOIN leads l ON l.id = o.lead_id
+       WHERE oi.paket_nama IS NOT NULL AND TRIM(oi.paket_nama) <> ''${dateWhere}
+       GROUP BY oi.paket_nama, l.nama
+       ORDER BY oi.paket_nama, qty DESC`,
+      dateParams
+    );
+
     const totalOrders = paket.reduce((s, p) => s + Number(p.order_count || 0), 0);
     const totalQty = paket.reduce((s, p) => s + Number(p.total_qty || 0), 0);
 
@@ -77,6 +94,11 @@ export async function GET(req: NextRequest) {
           total_qty: Number(l.total_qty),
           order_count: Number(l.order_count),
           customer_count: Number(l.customer_count),
+        })),
+        matrix: matrix.map(m => ({
+          paket: m.paket,
+          lead_nama: m.lead_nama || '(Tanpa Leads)',
+          qty: Number(m.qty),
         })),
         totals: {
           orders: totalOrders,
