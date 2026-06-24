@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 // paket & barang now fetched from DB
 import { dbGet, dbCreate } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
@@ -120,14 +120,52 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const [promoList, setPromoList] = useState<Row[]>([]);
   const [paketList, setPaketList] = useState<Row[]>([]);
   const [barangList, setBarangList] = useState<Row[]>([]);
+  const [customersList, setCustomersList] = useState<Row[]>([]);
   useEffect(() => {
     if (open) {
       dbGet('leads').then(setLeadsList).catch(() => {});
       dbGet('promo').then(setPromoList).catch(() => {});
       dbGet('paket').then(setPaketList).catch(() => {});
       dbGet('barang').then(setBarangList).catch(() => {});
+      dbGet('customers').then(setCustomersList).catch(() => {});
     }
   }, [open]);
+
+  // Customer autocomplete — match by nama, prefer prefix matches at the top
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const customerWrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showCustomerDropdown) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (customerWrapRef.current && !customerWrapRef.current.contains(e.target as Node)) {
+        setShowCustomerDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [showCustomerDropdown]);
+
+  const customerSuggestions = useMemo(() => {
+    const q = customer.trim().toLowerCase();
+    if (!q) return [];
+    const matches = customersList.filter(c => String(c.nama || '').toLowerCase().includes(q));
+    matches.sort((a, b) => {
+      const an = String(a.nama || '').toLowerCase();
+      const bn = String(b.nama || '').toLowerCase();
+      const aStarts = an.startsWith(q) ? 0 : 1;
+      const bStarts = bn.startsWith(q) ? 0 : 1;
+      if (aStarts !== bStarts) return aStarts - bStarts;
+      return an.localeCompare(bn);
+    });
+    return matches.slice(0, 8);
+  }, [customer, customersList]);
+
+  function pickCustomer(c: Row) {
+    setCustomer(String(c.nama || ''));
+    setAlamat(String(c.alamat_lengkap || ''));
+    setNoHp(String(c.no_hp || ''));
+    setShowCustomerDropdown(false);
+  }
 
   function addItem() {
     setItems(prev => [...prev, { id: Date.now(), paket: '', qty: 0 }]);
@@ -299,10 +337,38 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
           <div>
             <h3 className="text-sm font-bold text-white mb-4">Data Customer</h3>
             <div className="space-y-4">
-              <div>
+              <div ref={customerWrapRef} className="relative">
                 <label className={labelCls}>Nama Customer<span className="text-red-500 ml-0.5">*</span></label>
-                <input type="text" value={customer} onChange={e => setCustomer(e.target.value)}
-                  placeholder="Cari customer atau ketik nama baru..." className={inputCls} />
+                <input
+                  type="text"
+                  value={customer}
+                  onChange={e => { setCustomer(e.target.value); setShowCustomerDropdown(true); }}
+                  onFocus={() => setShowCustomerDropdown(true)}
+                  placeholder="Cari customer atau ketik nama baru..."
+                  autoComplete="off"
+                  className={inputCls}
+                />
+                {showCustomerDropdown && customerSuggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 max-h-64 overflow-y-auto rounded-lg bg-[#0c1120] border border-white/10 shadow-xl shadow-black/50 z-20">
+                    <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-500 border-b border-white/[0.06]">
+                      Customer ditemukan ({customerSuggestions.length})
+                    </div>
+                    {customerSuggestions.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => pickCustomer(c)}
+                        className="w-full text-left px-4 py-2.5 hover:bg-white/[0.04] border-b border-white/[0.04] last:border-b-0 transition-colors"
+                      >
+                        <p className="text-sm font-medium text-white truncate">{c.nama}</p>
+                        <p className="text-xs text-slate-500 mt-0.5 truncate">
+                          {c.no_hp || '—'}
+                          {c.alamat_lengkap ? ` · ${c.alamat_lengkap}` : ''}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className={labelCls}>Alamat Lengkap<span className="text-red-500 ml-0.5">*</span></label>
