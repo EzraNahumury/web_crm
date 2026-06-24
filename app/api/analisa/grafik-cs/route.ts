@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
-// Read-only analytics endpoint. Aggregates orders + order_items inside an
-// optional date range (?from=YYYY-MM-DD&to=YYYY-MM-DD on orders.tanggal_order).
+// Read-only CS analytics endpoint:
+//   - paket aggregation (same shape as /api/analisa/grafik) but always
+//     constrained by leads — so the chart reflects orders that have an
+//     attributable CS/leads source
+//   - leads aggregation: per-leads qty, order count, customer count
+// Optional date range (?from=YYYY-MM-DD&to=YYYY-MM-DD on orders.tanggal_order).
 // No writes, no schema changes.
 export async function GET(req: NextRequest) {
   try {
@@ -29,16 +33,28 @@ export async function GET(req: NextRequest) {
       dateParams
     );
 
-    const provinsi = await query<{ provinsi: string; total_qty: number; customer_count: number; order_count: number }>(
+    // Leads aggregation. LEFT JOIN so orders without a lead are bucketed
+    // under "(Tanpa Leads)".
+    const leads = await query<{
+      lead_id: number | null;
+      lead_nama: string | null;
+      jenis_cs: string | null;
+      total_qty: number;
+      order_count: number;
+      customer_count: number;
+    }>(
       `SELECT
-         o.customer_provinsi AS provinsi,
+         o.lead_id AS lead_id,
+         l.nama AS lead_nama,
+         l.jenis_cs AS jenis_cs,
          COALESCE(SUM(oi.qty), 0) AS total_qty,
-         COUNT(DISTINCT o.customer_id) AS customer_count,
-         COUNT(DISTINCT o.id) AS order_count
+         COUNT(DISTINCT o.id) AS order_count,
+         COUNT(DISTINCT o.customer_id) AS customer_count
        FROM orders o
-       JOIN order_items oi ON oi.order_id = o.id
-       WHERE o.customer_provinsi IS NOT NULL AND TRIM(o.customer_provinsi) <> ''${dateWhere}
-       GROUP BY o.customer_provinsi
+       LEFT JOIN leads l ON l.id = o.lead_id
+       LEFT JOIN order_items oi ON oi.order_id = o.id
+       WHERE 1=1${dateWhere}
+       GROUP BY o.lead_id, l.nama, l.jenis_cs
        ORDER BY total_qty DESC`,
       dateParams
     );
@@ -49,23 +65,29 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        paket: paket.map(p => ({ ...p, total_qty: Number(p.total_qty), order_count: Number(p.order_count) })),
-        provinsi: provinsi.map(p => ({
+        paket: paket.map(p => ({
           ...p,
           total_qty: Number(p.total_qty),
-          customer_count: Number(p.customer_count),
           order_count: Number(p.order_count),
+        })),
+        leads: leads.map(l => ({
+          lead_id: l.lead_id,
+          lead_nama: l.lead_nama || '(Tanpa Leads)',
+          jenis_cs: l.jenis_cs || '',
+          total_qty: Number(l.total_qty),
+          order_count: Number(l.order_count),
+          customer_count: Number(l.customer_count),
         })),
         totals: {
           orders: totalOrders,
           qty: totalQty,
           paket_count: paket.length,
-          provinsi_count: provinsi.length,
+          leads_count: leads.length,
         },
       },
     });
   } catch (err) {
-    console.error('GET /api/analisa/grafik error:', err);
+    console.error('GET /api/analisa/grafik-cs error:', err);
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 });
   }
 }

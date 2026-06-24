@@ -98,6 +98,7 @@ const ADMIN_NAV: SideNavItem[] = [
     children: [
       { href: '/analisa/grafik', label: 'Grafik' },
       { href: '/analisa/all-customer', label: 'All Customer' },
+      { href: '/analisa/grafik-cs', label: 'Grafik CS' },
     ],
   },
 ];
@@ -116,7 +117,7 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'Stok': ['/stok'],
   'Settings': ['/setting'],
   'Master Data': ['/master'],
-  'Analisa': ['/analisa/grafik', '/analisa/all-customer'],
+  'Analisa': ['/analisa/grafik', '/analisa/all-customer', '/analisa/grafik-cs'],
 };
 
 function AdminLayout({ user, logout, children }: {
