@@ -17,7 +17,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (user && user.role !== 'admin') {
-      router.replace(user.role === 'cs' ? '/orders' : '/production');
+      router.replace(user.role === 'cs' ? '/orders' : '/produksi');
       return;
     }
     fetchData();

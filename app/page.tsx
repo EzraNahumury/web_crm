@@ -209,7 +209,7 @@ export default function LoginPage() {
   const redirectByRole = useCallback((role: Role) => {
     if (role === 'admin') router.replace('/dashboard');
     else if (role === 'cs') router.replace('/orders');
-    else router.replace('/production');
+    else router.replace('/produksi');
   }, [router]);
 
   useEffect(() => {

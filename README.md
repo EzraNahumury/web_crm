@@ -409,21 +409,56 @@ Migrasi juga dijalankan **lazy** dari `lib/db.ts` sebelum query pertama, jadi ka
 
 ## Role & Akses
 
-| Fitur | Admin | CS | Produksi |
-|---|:---:|:---:|:---:|
-| Dashboard | ✅ | ❌ | ❌ |
-| Lihat orders | ✅ | ✅ | ✅ |
-| Input/edit order | ✅ | ✅ | ❌ |
-| Work Orders (semua) | ✅ | ✅ | ❌ |
-| Import Master Excel | ✅ | ✅ | ✅ |
-| Update Produksi stage | ✅ | ❌ | ✅ (per stage_access) |
-| Monitoring Produksi | ✅ | ❌ | ❌ |
-| Analisa (Grafik/Customer/CS) | ✅ | ❌ | ❌ |
-| Stok & Master | ✅ | ❌ | ❌ |
-| Setting | ✅ | ❌ | ❌ |
-| Laporan | ✅ | ❌ | ❌ |
+### Matrix Akses Fitur
 
-Super Admin dapat menu lengkap hardcoded di `app/api/auth/login/route.ts`. Non-super-admin dapat menu berdasarkan `role_menu_access`. Stage-level access via `role_stage_access` (mis. karyawan Sewing cuma bisa manage stage Sewing di halaman Produksi).
+| Fitur | Admin / Super Admin | CS | Produksi |
+|---|:---:|:---:|:---:|
+| Login redirect | `/dashboard` | `/orders` | `/produksi` |
+| Dashboard (KPI + peringatan deadline) | ✅ | ❌ auto-redirect | ❌ auto-redirect |
+| Orders — lihat list | ✅ | ✅ | ✅ (read-only) |
+| Orders — tombol create | ✅ "Order Baru" (biru) | ✅ "Input Order" (indigo) | ❌ |
+| Orders — Export PDF (2 mingguan / bulanan) | ✅ | ❌ | ❌ |
+| Order Detail — edit customer, items, DP, promo | ✅ | ✅ | ❌ |
+| Work Orders — list + detail | ✅ | ✅ | ✅ (read-only) |
+| WO — Import Master Excel | ✅ | ✅ | ✅ |
+| WO — Download All / Delete All | ✅ | ✅ | ✅ |
+| Produksi (kanban 15 tahap) | ✅ semua stage | ❌ | ✅ per `role_stage_access` |
+| Produksi — button "Selesai & Lanjut" | ✅ | ❌ | ✅ (hanya stage yang di-assign) |
+| Monitoring Produksi (3 submenu) | ✅ | ❌ | ❌ |
+| Analisa — Grafik, All Customer, Grafik CS | ✅ | ❌ | ❌ |
+| Laporan — Produksi, Penggunaan Bahan | ✅ | ❌ | ❌ |
+| Stok — Aktual + Adjustment | ✅ | ❌ | ❌ |
+| Master Data (10 entitas) | ✅ | ❌ | ❌ |
+| Setting — user + role + akses | ✅ | ❌ | ❌ |
+
+### Detail per Role
+
+**Admin / Super Admin** (`role_nama` contains "admin" atau `is_super_admin=1`)
+- Login → `/dashboard`
+- Super Admin: menuAccess di-hardcode full list di `app/api/auth/login/route.ts`, `stageAccess=[]` (interpretasi: semua stage)
+- Admin biasa: menuAccess dari `role_menu_access`, stageAccess dari `role_stage_access` (bisa dibatasi via `/setting`)
+- Full CRUD ke semua master data, orders, work orders, produksi stages
+- Satu-satunya role yang bisa buka **Analisa**, **Monitoring Produksi**, **Laporan**, **Stok**, **Master**, **Setting**
+
+**CS** (`role_nama` contains "cs" atau "customer")
+- Login → `/orders` (guard di `/dashboard` bounce back ke `/orders`)
+- Bisa **input & edit order** (tombol "Input Order" indigo)
+- Bisa upload Master Excel per WO (WO detail page tidak role-check)
+- **Tidak bisa** update stage produksi, akses analitik, master data, stok, laporan, setting
+- Sidebar menampilkan hanya menu-menu yang di-assign di `role_menu_access` (biasanya: Orders + Work Orders)
+
+**Produksi** (`role_nama` contains "produksi")
+- Login → `/produksi` (guard di `/dashboard` bounce ke `/produksi`)
+- Halaman utama: kanban 15 tahap dengan filter berdasarkan `stageAccess`
+- Bisa klik "Selesai & Lanjut" **hanya di stage yang di-assign** (contoh: karyawan Sewing hanya lihat aktif di stage Sewing; stage lain read-only dengan icon gembok)
+- Bisa lihat Orders + Work Orders (read-only untuk konteks) tapi tidak bisa create/edit order
+- `stageAccess` kosong = akses semua stage (super admin behavior)
+
+### Cara Mengubah Akses Role
+1. Buka `/setting` (admin only)
+2. Pilih role → checklist menu di section "Menu Access" (10 menu: Dashboard, Orders, Work Orders, Produksi, Monitoring Produksi, Laporan, Stok, Settings, Master Data, Analisa)
+3. Checklist stage di section "Stage Access" (15 tahap produksi)
+4. Save → user dengan role tersebut harus logout+login ulang agar cookie session dapat menuAccess/stageAccess baru
 
 ---
 
