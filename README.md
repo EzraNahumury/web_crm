@@ -63,31 +63,31 @@ flowchart TB
     subgraph NextJS[Next.js 16 Server]
         MW[middleware.ts<br/>HMAC session verify]
         subgraph Routes[Protected Routes]
-            Dash[/dashboard/]
-            Orders[/orders/]
-            WO[/work-orders/]
-            Prod[/produksi/]
-            Ana[/analisa/*/]
-            Mstr[/master/]
+            Dash["/dashboard"]
+            Orders["/orders"]
+            WO["/work-orders"]
+            Prod["/produksi"]
+            Ana["/analisa/*"]
+            Mstr["/master"]
         end
         subgraph APIs[API Routes]
-            AuthAPI[/api/auth/*/]
-            DBAPI[/api/db/table/]
-            Analytics[/api/analisa/*/]
-            Upload[/api/wo-import-master/]
-            Track[/api/tracking/]
+            AuthAPI["/api/auth/*"]
+            DBAPI["/api/db/&#91;table&#93;"]
+            Analytics["/api/analisa/*"]
+            Upload["/api/wo-import-master"]
+            Track["/api/tracking"]
         end
         Inst[instrumentation.ts<br/>auto-migration on boot]
     end
 
     subgraph Storage
-        MySQL[(MySQL 8+)]
-        FS[public/uploads/<br/>master xlsx + png pages]
+        MySQL[("MySQL 8+")]
+        FS["public/uploads (master xlsx + png pages)"]
     end
 
     subgraph External
-        MSOffice[view.officeapps.live.com<br/>WO 1 render in production]
-        Wilayah[emsifa API<br/>provinsi/kab/kec/desa]
+        MSOffice["view.officeapps.live.com (WO 1 render production)"]
+        Wilayah["emsifa API (provinsi/kab/kec/desa)"]
     end
 
     Browser -->|fetch| MW
@@ -248,24 +248,24 @@ Detail panduan: `PANDUAN_UPLOAD_MASTER_EXCEL.md`.
 sequenceDiagram
     actor User
     participant Browser
-    participant Login as /api/auth/login
+    participant Login as "/api/auth/login"
     participant DB as MySQL
-    participant MW as middleware.ts
+    participant MW as "middleware.ts"
 
     User->>Browser: email + password
     Browser->>Login: POST
     Login->>DB: SELECT users JOIN roles
     DB-->>Login: user + role + menuAccess + stageAccess
     Login->>Login: HMAC-SHA256 sign
-    Login-->>Browser: Set-Cookie: session (8h, httpOnly)
+    Login-->>Browser: Set-Cookie session (8h, httpOnly)
 
     Note over Browser,MW: Setiap request berikutnya
-    Browser->>MW: GET /(protected)/*
+    Browser->>MW: GET (protected route)
     MW->>MW: verify HMAC
     alt valid & tidak expired
         MW-->>Browser: proceed
     else
-        MW-->>Browser: 302 → /
+        MW-->>Browser: 302 redirect ke /
     end
 ```
 
@@ -273,19 +273,19 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A[Buat Order<br/>autocomplete customer] -->|PENDING| B[Konfirmasi Order]
-    B -->|PROSES_PRODUKSI| C[Buat Work Order<br/>no_wo auto-gen<br/>tracking_hash SHA-256]
-    C --> D[Auto-create<br/>15 wo_progress rows]
+    A["Buat Order (autocomplete customer)"] -->|PENDING| B[Konfirmasi Order]
+    B -->|PROSES_PRODUKSI| C["Buat Work Order (no_wo auto-gen, tracking_hash SHA-256)"]
+    C --> D["Auto-create 15 wo_progress rows"]
     D --> E[Import Master Excel]
-    E -->|W1.x| F1[WO 1 Spesifikasi]
-    E -->|W2| F2[WO 2 Gudang]
-    E -->|W3| F3[WO 3 Detail Item]
-    E -->|W4| F4[WO 4 Pengiriman]
+    E -->|"W1.x"| F1["WO 1 Spesifikasi"]
+    E -->|W2| F2["WO 2 Gudang"]
+    E -->|W3| F3["WO 3 Detail Item"]
+    E -->|W4| F4["WO 4 Pengiriman"]
 
     F1 & F2 & F3 & F4 --> G[Antrian Produksi]
-    G --> H[Klik Selesai & Lanjut<br/>15x per stage]
-    H -->|Fabric Cutting| I[Deduct Stok]
-    H -->|Shipment SELESAI| J[WO status: SELESAI]
+    G --> H["Klik Selesai dan Lanjut (15x per stage)"]
+    H -->|"Fabric Cutting"| I[Deduct Stok]
+    H -->|"Shipment SELESAI"| J["WO status SELESAI"]
 
     style A fill:#dbeafe,stroke:#1e40af
     style J fill:#d1fae5,stroke:#065f46
@@ -296,28 +296,28 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    U[User upload master.xlsx] --> API[/api/wo-import-master POST]
-    API --> Master[Simpan master.xlsx<br/>ke public/uploads/]
-    Master --> DBM[UPDATE work_orders<br/>master_import_file =...]
+    U[User upload master.xlsx] --> API["POST /api/wo-import-master"]
+    API --> Master["Simpan master.xlsx ke public/uploads"]
+    Master --> DBM["UPDATE work_orders SET master_import_file"]
 
-    API --> Probe[SheetJS probe<br/>daftar sheet names]
-    Probe --> Loop{Iterate sheets<br/>match ^W1-4}
+    API --> Probe["SheetJS probe: daftar sheet names"]
+    Probe --> Loop{"Iterate sheets, match regex ^W1-4"}
 
-    Loop -->|W1.x| Clone[ExcelJS clone<br/>hapus sheet lain<br/>pageSetup landscape]
-    Clone --> Sub[Simpan sub-xlsx]
-    Sub --> Lib{LibreOffice<br/>tersedia?}
-    Lib -->|ya - lokal| Convert[Excel → PDF]
-    Convert --> PNG[pdf-to-img → PNG pages]
-    PNG --> DB1[INSERT wo_spesifikasi<br/>imported_file, pages]
-    Lib -->|tidak - production| DB1
+    Loop -->|"W1.x"| Clone["ExcelJS clone: hapus sheet lain, pageSetup landscape"]
+    Clone --> Sub["Simpan sub-xlsx"]
+    Sub --> Lib{"LibreOffice tersedia?"}
+    Lib -->|"ya - lokal"| Convert["Excel to PDF"]
+    Convert --> PNG["pdf-to-img: rasterize PNG pages"]
+    PNG --> DB1["INSERT wo_spesifikasi: imported_file, pages"]
+    Lib -->|"tidak - production"| DB1
 
-    Loop -->|W2/3/4| DB2[INSERT wo_section_imports<br/>section = wo2/wo3/wo4]
+    Loop -->|"W2/3/4"| DB2["INSERT wo_section_imports: section wo2/wo3/wo4"]
 
     DB1 --> Viewer[Client Viewer]
     DB2 --> Viewer
-    Viewer -->|PNG ada| PdfImgs[PdfImagesViewer]
-    Viewer -->|xlsx + production| MSO[Office Online iframe]
-    Viewer -->|xlsx + local| Excel[ExcelViewer HTML overlay]
+    Viewer -->|"PNG ada"| PdfImgs[PdfImagesViewer]
+    Viewer -->|"xlsx production"| MSO["Office Online iframe"]
+    Viewer -->|"xlsx localhost"| Excel["ExcelViewer HTML overlay"]
 ```
 
 ### 4. Produksi 1-Click Flow
@@ -326,20 +326,20 @@ flowchart TB
 stateDiagram-v2
     [*] --> BELUM
     BELUM --> TERSEDIA: stage sebelumnya SELESAI
-    TERSEDIA --> SELESAI: klik "Selesai & Lanjut"
+    TERSEDIA --> SELESAI: klik Selesai dan Lanjut
     SELESAI --> [*]
 
     note right of TERSEDIA
-        Section "Antrian" di UI
-        Legacy SEDANG rows juga
-        muncul di sini (bisa 1-klik selesai)
+        Section Antrian di UI.
+        Legacy SEDANG rows juga muncul
+        di sini (bisa 1-klik selesai).
     end note
 
     note right of SELESAI
-        started_at = NOW
-        completed_at = NOW
-        Stage berikutnya → TERSEDIA
-        Fabric Cutting → deduct stok
+        started_at set NOW.
+        completed_at set NOW.
+        Stage berikutnya jadi TERSEDIA.
+        Fabric Cutting trigger deduct stok.
     end note
 ```
 
@@ -347,14 +347,14 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    User[Admin] -->|klik menu| Page[Analisa Page]
-    Page -->|from + to| API[/api/analisa/*]
-    API -->|SELECT GROUP BY| DB[(orders, order_items,<br/>leads, customers)]
+    User[Admin] -->|"klik menu"| Page[Analisa Page]
+    Page -->|"from + to"| API["/api/analisa/*"]
+    API -->|"SELECT GROUP BY"| DB[("orders, order_items, leads, customers")]
     DB -->|rows| API
     API -->|JSON| Page
-    Page --> Recharts[Recharts render]
-    Page -->|button| Excel[xlsx-js-style<br/>client-side generate]
-    Excel -->|download| File[all-customer-YYYY-MM-DD.xlsx]
+    Page --> Recharts["Recharts render"]
+    Page -->|"click download"| Excel["xlsx-js-style client-side"]
+    Excel -->|download| File["all-customer-YYYY-MM-DD.xlsx"]
 
     style API fill:#e0e7ff,stroke:#3730a3
     style DB fill:#fef3c7,stroke:#92400e
@@ -366,21 +366,21 @@ flowchart LR
 sequenceDiagram
     actor Customer
     participant Browser
-    participant Track as /api/tracking?hash=
+    participant Track as "GET /api/tracking"
     participant DB
 
-    Note over Customer,Browser: Link tracking dari CS<br/>(mis. /tracking/abc123def456)
+    Note over Customer,Browser: Link tracking dari CS (mis. /tracking/abc123)
     Customer->>Browser: buka link
-    Browser->>Track: GET dengan hash
-    Track->>DB: SELECT work_orders WHERE tracking_hash=?
+    Browser->>Track: GET dengan hash param
+    Track->>DB: SELECT work_orders WHERE tracking_hash
     alt found
         Track->>DB: SELECT wo_progress ORDER BY stage.urutan
         DB-->>Track: 15 stages + timestamps
-        Track-->>Browser: JSON {stages, currentStage, %}
+        Track-->>Browser: JSON stages + currentStage + percent
         Browser->>Customer: Timeline UI dengan status per tahap
     else not found
         Track-->>Browser: 404
-        Browser->>Customer: "WO tidak ditemukan"
+        Browser->>Customer: pesan WO tidak ditemukan
     end
 ```
 
@@ -388,17 +388,17 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-    Boot[Next.js Node runtime start] --> Inst[instrumentation.ts<br/>register]
+    Boot["Next.js Node runtime start"] --> Inst["instrumentation.ts register"]
     Inst --> Runner[runMigrationsOnce]
-    Runner --> Track[Ensure _migrations table exists]
-    Track --> Fetch[SELECT applied names]
-    Fetch --> Iter{Iterate MIGRATIONS array<br/>in lib/migrate.ts}
-    Iter -->|not applied| Execute[Run stmt list]
-    Execute -->|success| Record[INSERT _migrations name]
-    Execute -->|Duplicate column/exists| Skip[Idempotent skip]
+    Runner --> Track["Ensure _migrations table exists"]
+    Track --> Fetch["SELECT applied names"]
+    Fetch --> Iter{"Iterate MIGRATIONS array (lib/migrate.ts)"}
+    Iter -->|"not applied"| Execute["Run stmt list"]
+    Execute -->|success| Record["INSERT _migrations name"]
+    Execute -->|"Duplicate column or already exists"| Skip["Idempotent skip"]
     Record --> Iter
     Skip --> Iter
-    Iter -->|done| Ready[App siap terima traffic]
+    Iter -->|done| Ready["App siap terima traffic"]
 
     style Runner fill:#dbeafe,stroke:#1e40af
 ```
