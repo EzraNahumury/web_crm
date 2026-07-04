@@ -101,6 +101,18 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // Admin/CS contact number for the "Hubungi via WhatsApp" button.
+    // Prefer the `admin_whatsapp` row in the settings table so it can be
+    // edited without a redeploy; fall back to the ADMIN_WHATSAPP env var.
+    let adminWhatsapp = '';
+    try {
+      const setRows = await query<{ value: string | null }>(
+        "SELECT `value` FROM `settings` WHERE `key_name` = 'admin_whatsapp' LIMIT 1"
+      );
+      adminWhatsapp = String(setRows[0]?.value || '').trim();
+    } catch {}
+    if (!adminWhatsapp) adminWhatsapp = String(process.env.ADMIN_WHATSAPP || '').trim();
+
     return NextResponse.json({
       success: true,
       data: {
@@ -108,6 +120,7 @@ export async function GET(req: NextRequest) {
         no_order: order?.no_order || '',
         customer_nama: wo.customer_nama,
         customer_phone: order?.customer_phone || '',
+        admin_whatsapp: adminWhatsapp,
         paket: wo.paket,
         bahan: wo.bahan || '',
         jumlah: wo.jumlah,

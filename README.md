@@ -638,6 +638,13 @@ DB_NAME=ayres_crm
 
 SESSION_SECRET=random-string-min-32-chars
 
+# nomor WA admin/CS yang tampil di button "Hubungi via WhatsApp"
+# di halaman tracking customer. Format: 62812xxxx atau 0812xxxx.
+# Kalau kosong, tombol WA disembunyikan.
+# Bisa juga di-set via row settings key_name='admin_whatsapp' di DB
+# (row DB menang atas env var — bisa di-edit tanpa restart).
+ADMIN_WHATSAPP=
+
 # opsional — kalau ingin CloudConvert fallback WO 1
 CLOUDCONVERT_API_KEY=
 ```
