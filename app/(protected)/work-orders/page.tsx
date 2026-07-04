@@ -395,27 +395,35 @@ export default function WorkOrdersPage() {
               )}
             </div>
 
-            {/* Dropdown (filtered) */}
+            {/* Dropdown (filtered, always-open listbox) */}
             <div>
               <label className="block text-sm font-medium text-white mb-2">Pilih Order</label>
-              <select value={selectedOrderId} onChange={e => setSelectedOrderId(e.target.value)}
-                className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer">
-                <option value="">
-                  {pendingOrders.length === 0
-                    ? 'Tidak ada order pending'
-                    : filteredPending.length === 0
-                      ? 'Tidak ada order yang cocok'
-                      : 'Pilih order...'}
-                </option>
-                {filteredPending.map((o: Row) => (
-                  <option key={o.id} value={o.id}>{o.no_order} — {o.customer_nama}</option>
-                ))}
-              </select>
-              {pendingOrders.length === 0 && (
-                <div className="mt-2 inline-flex items-center gap-1.5 text-xs text-slate-500 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5">
+              {pendingOrders.length === 0 ? (
+                <div className="w-full bg-[#0d1117] border border-white/10 text-slate-500 rounded-lg px-4 py-6 text-sm text-center">
                   Tidak ada order pending
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                 </div>
+              ) : filteredPending.length === 0 ? (
+                <div className="w-full bg-[#0d1117] border border-white/10 text-slate-500 rounded-lg px-4 py-6 text-sm text-center">
+                  Tidak ada order yang cocok dengan pencarian
+                </div>
+              ) : (
+                <select
+                  value={selectedOrderId}
+                  onChange={e => setSelectedOrderId(e.target.value)}
+                  size={Math.min(10, filteredPending.length)}
+                  className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-blue-500/40 cursor-pointer"
+                >
+                  {filteredPending.map((o: Row) => (
+                    <option key={o.id} value={o.id} className="px-2 py-1">
+                      {o.no_order} — {o.customer_nama}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {selectedOrderId && (
+                <p className="mt-2 text-xs text-blue-400">
+                  Order dipilih. Klik &quot;Buat Work Order&quot; untuk lanjut.
+                </p>
               )}
             </div>
 
