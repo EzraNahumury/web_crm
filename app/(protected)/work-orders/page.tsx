@@ -27,6 +27,7 @@ export default function WorkOrdersPage() {
   const [customerFilter, setCustomerFilter] = useState('ALL');
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState('');
+  const [orderSearch, setOrderSearch] = useState('');
   const [creating, setCreating] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editWo, setEditWo] = useState<Row | null>(null);
@@ -40,6 +41,24 @@ export default function WorkOrdersPage() {
   const [page, setPage] = useState(1);
   const router = useRouter();
   const toast = useToast();
+
+  // Filter pending orders by no_order OR customer nama for the picker search
+  const filteredPending = useMemo(() => {
+    const q = orderSearch.trim().toLowerCase();
+    if (!q) return pendingOrders;
+    return pendingOrders.filter((o: Row) =>
+      String(o.no_order || '').toLowerCase().includes(q)
+      || String(o.customer_nama || '').toLowerCase().includes(q)
+    );
+  }, [pendingOrders, orderSearch]);
+
+  // Reset picker state whenever the modal closes
+  useEffect(() => {
+    if (!modalOpen) {
+      setOrderSearch('');
+      setSelectedOrderId('');
+    }
+  }, [modalOpen]);
 
   async function fetchData() {
     setLoading(true);
@@ -351,12 +370,44 @@ export default function WorkOrdersPage() {
               </button>
             </div>
             <p className="text-sm text-slate-400 mb-6">Pilih order yang akan dikonversi menjadi Work Order dan upload dokumen pendukung (opsional).</p>
+
+            {/* Search box */}
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-white mb-2">Cari Order</label>
+              <div className="relative">
+                <svg className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <input
+                  type="text"
+                  value={orderSearch}
+                  onChange={e => setOrderSearch(e.target.value)}
+                  placeholder="Ketik nomor order atau nama customer..."
+                  autoComplete="off"
+                  autoFocus
+                  className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 pl-10 pr-4 py-2.5 rounded-lg text-sm focus:outline-none focus:border-blue-500/40 transition-colors"
+                />
+              </div>
+              {orderSearch && (
+                <p className="mt-1.5 text-xs text-slate-500">
+                  {filteredPending.length} dari {pendingOrders.length} order cocok
+                </p>
+              )}
+            </div>
+
+            {/* Dropdown (filtered) */}
             <div>
               <label className="block text-sm font-medium text-white mb-2">Pilih Order</label>
               <select value={selectedOrderId} onChange={e => setSelectedOrderId(e.target.value)}
                 className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer">
-                <option value="">{pendingOrders.length === 0 ? 'Tidak ada order pending' : 'Pilih order...'}</option>
-                {pendingOrders.map((o: Row) => (
+                <option value="">
+                  {pendingOrders.length === 0
+                    ? 'Tidak ada order pending'
+                    : filteredPending.length === 0
+                      ? 'Tidak ada order yang cocok'
+                      : 'Pilih order...'}
+                </option>
+                {filteredPending.map((o: Row) => (
                   <option key={o.id} value={o.id}>{o.no_order} — {o.customer_nama}</option>
                 ))}
               </select>
@@ -367,13 +418,14 @@ export default function WorkOrdersPage() {
                 </div>
               )}
             </div>
+
             <div className="flex items-center justify-end gap-3 mt-8">
               <button onClick={() => setModalOpen(false)}
                 className="px-5 py-2.5 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">
                 Batal
               </button>
               <button onClick={handleCreateWO} disabled={creating || !selectedOrderId}
-                className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
                 {creating ? 'Membuat...' : 'Buat Work Order'}
               </button>
             </div>
