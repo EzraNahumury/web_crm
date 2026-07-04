@@ -75,6 +75,15 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `work_orders` ADD COLUMN `master_import_file_name` VARCHAR(255) NULL",
     ],
   },
+  {
+    name: '008_settings_admin_whatsapp',
+    up: [
+      // Seed admin/CS WhatsApp number for the tracking page "Hubungi via WhatsApp"
+      // button. INSERT IGNORE so a later manual edit to the settings row is
+      // respected (subsequent deploys won't overwrite it).
+      "INSERT IGNORE INTO `settings` (`key_name`, `value`) VALUES ('admin_whatsapp', '089526216529')",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

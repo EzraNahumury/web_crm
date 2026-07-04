@@ -496,6 +496,7 @@ Schema di **`database/ayres_crm.sql`** + auto-migrations di **`lib/migrate.ts`**
 | 005 | `wo_spesifikasi_imported_file_pages` | ADD `imported_file_pages` TEXT |
 | 006 | `wo_section_imports` | CREATE TABLE untuk WO 2/3/4 imports |
 | 007 | `work_orders_master_import` | ADD `master_import_file` + `master_import_file_name` |
+| 008 | `settings_admin_whatsapp` | Seed `settings` row `key_name='admin_whatsapp'` (INSERT IGNORE — respect manual edits) |
 
 Semua migrations **idempotent-safe** — error "Duplicate column"/"already exists" ditolerir. Cocok untuk redeploy berulang tanpa risiko.
 
