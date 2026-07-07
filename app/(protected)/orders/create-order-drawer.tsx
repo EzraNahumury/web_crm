@@ -101,6 +101,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const [noHp, setNoHp] = useState('');
   const [leadId, setLeadId] = useState('');
   const [pilihanPaket, setPilihanPaket] = useState('');
+  const [expressDurasi, setExpressDurasi] = useState('');
   const [namaTim, setNamaTim] = useState('');
   const [items, setItems] = useState<OrderItem[]>([{ id: 1, paket: '', qty: 0 }]);
   const [detailBahan, setDetailBahan] = useState<DetailBahanItem[]>(initDetailBahan);
@@ -194,7 +195,8 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
     if (!alamat.trim()) missing.push('Alamat Lengkap');
     if (!noHp.trim()) missing.push('No HP');
     if (!leadId.trim()) missing.push('Leads');
-    if (!pilihanPaket.trim()) missing.push('Pilihan Paket');
+    if (!pilihanPaket.trim()) missing.push('Pilihan Layanan');
+    if (pilihanPaket === 'Express' && !expressDurasi.trim()) missing.push('Durasi Express');
     if (!items.some(i => i.paket.trim() && i.qty > 0)) missing.push('Item Order (minimal 1 paket + qty)');
     if (!tglOrder) missing.push('Tanggal Order');
     if (missing.length > 0) {
@@ -243,7 +245,9 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
         customer_kabupaten: kabupaten,
         customer_provinsi: provinsi,
         lead_id: leadId || null,
-        pilihan_paket: pilihanPaket || null,
+        pilihan_paket: pilihanPaket
+          ? (pilihanPaket === 'Express' && expressDurasi ? `Express - ${expressDurasi}` : pilihanPaket)
+          : null,
         nama_tim: namaTim,
         tanggal_order: tglOrder,
         estimasi_deadline: deadline,
@@ -304,7 +308,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   function handleReset() {
     setCustomer(''); setAlamat(''); setProvId(''); setProvinsi('');
     setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
-    setNoHp(''); setLeadId(''); setPilihanPaket(''); setNamaTim('');
+    setNoHp(''); setLeadId(''); setPilihanPaket(''); setExpressDurasi(''); setNamaTim('');
     setItems([{ id: 1, paket: '', qty: 0 }]); setTglOrder(today());
     setDetailBahan(initDetailBahan());
     setDeadline(weekLater()); setTglAccProofing(''); setKeterangan('');
@@ -425,13 +429,33 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Pilihan Paket<span className="text-red-500 ml-0.5">*</span></label>
-                <select value={pilihanPaket} onChange={e => setPilihanPaket(e.target.value)} className={selectCls}>
-                  <option value="">Pilih paket layanan...</option>
+                <label className={labelCls}>Pilihan Layanan<span className="text-red-500 ml-0.5">*</span></label>
+                <select
+                  value={pilihanPaket}
+                  onChange={e => {
+                    setPilihanPaket(e.target.value);
+                    if (e.target.value !== 'Express') setExpressDurasi('');
+                  }}
+                  className={selectCls}
+                >
+                  <option value="">Pilih layanan...</option>
                   <option value="Reguler">Reguler</option>
                   <option value="Express">Express</option>
                   <option value="Prioritas">Prioritas</option>
                 </select>
+                {pilihanPaket === 'Express' && (
+                  <div className="mt-3">
+                    <label className={labelCls}>Durasi Express<span className="text-red-500 ml-0.5">*</span></label>
+                    <select value={expressDurasi} onChange={e => setExpressDurasi(e.target.value)} className={selectCls}>
+                      <option value="">Pilih durasi...</option>
+                      <option value="1 hari">1 hari</option>
+                      <option value="3 hari">3 hari</option>
+                      <option value="5 hari">5 hari</option>
+                      <option value="7 hari">7 hari</option>
+                      <option value="10 - 12 hari">10 - 12 hari</option>
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           </div>
