@@ -117,12 +117,18 @@ export default function WorkOrdersPage() {
       const order = pendingOrders.find((o: Row) => String(o.id) === selectedOrderId);
       if (!order) throw new Error('Order tidak ditemukan');
 
-      // Generate no_wo
+      // Generate no_wo based on the highest existing suffix for today's
+      // prefix. Count-based (length + 1) breaks after any WO is deleted
+      // because the counter reuses a number that's still in use elsewhere.
       const wos = await dbGet('work_orders');
       const now = new Date();
       const prefix = `WO${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-      const count = wos.filter((w: Row) => w.no_wo?.startsWith(prefix)).length;
-      const noWo = `${prefix}-${String(count + 1).padStart(3, '0')}`;
+      const suffixRe = new RegExp(`^${prefix}-(\\d+)$`);
+      const maxNum = wos.reduce((max: number, w: Row) => {
+        const m = String(w.no_wo || '').match(suffixRe);
+        return m ? Math.max(max, parseInt(m[1], 10)) : max;
+      }, 0);
+      const noWo = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
 
       // Fetch order items for paket & bahan & qty
       let paketNama: string = '-';
