@@ -72,12 +72,13 @@ export default function WorkOrdersPage() {
       const orderMap: Record<string, Row> = {};
       for (const o of orders) orderMap[String(o.id)] = o;
       // Group items by order_id
-      const itemsByOrder: Record<string, { paket: string[]; bahan: string[] }> = {};
+      const itemsByOrder: Record<string, { paket: string[]; bahan: string[]; qty: number }> = {};
       for (const it of items) {
         const key = String(it.order_id);
-        if (!itemsByOrder[key]) itemsByOrder[key] = { paket: [], bahan: [] };
+        if (!itemsByOrder[key]) itemsByOrder[key] = { paket: [], bahan: [], qty: 0 };
         if (it.paket_nama) itemsByOrder[key].paket.push(String(it.paket_nama));
         if (it.bahan_kain) itemsByOrder[key].bahan.push(String(it.bahan_kain));
+        itemsByOrder[key].qty += Number(it.qty) || 0;
       }
       // Merge real-time data from orders + order_items
       const merged = wos.map((w: Row) => {
@@ -87,6 +88,7 @@ export default function WorkOrdersPage() {
           ...w,
           customer_nama: ord?.customer_nama || w.customer_nama,
           paket: oi ? oi.paket.join(', ') : w.paket || '-',
+          qty: oi ? oi.qty : (Number(w.jumlah) || 0),
           bahan: oi ? oi.bahan.join(', ') : w.bahan || '-',
           deadline: ord?.estimasi_deadline || w.deadline,
           keterangan: ord?.keterangan || w.keterangan,
@@ -291,9 +293,9 @@ export default function WorkOrdersPage() {
           <table className="w-full min-w-[1000px]">
             <thead>
               <tr className="border-b border-white/[0.06]">
-                {['NO WO','CUSTOMER','PAKET','TGL ORDER','DEADLINE','STATUS','AKSI'].map(h => (
+                {['NO WO','CUSTOMER','PAKET','QTY','TGL ORDER','DEADLINE','STATUS','AKSI'].map(h => (
                   /* BAHAN column hidden, data still fetched */
-                  <th key={h} className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">{h}</th>
+                  <th key={h} className={`text-[11px] text-slate-500 font-medium ${h === 'QTY' ? 'text-right' : 'text-left'} px-5 py-3.5 uppercase tracking-wider`}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -323,6 +325,10 @@ export default function WorkOrdersPage() {
                       </td>
                       <td className="px-5 py-4 text-sm text-slate-300">{wo.customer_nama}</td>
                       <td className="px-5 py-4 text-sm text-slate-400">{wo.paket || '-'}</td>
+                      <td className="px-5 py-4 text-right">
+                        <span className="text-sm text-slate-300 font-semibold tabular-nums">{wo.qty > 0 ? wo.qty : '-'}</span>
+                        {wo.qty > 0 && <span className="text-slate-500 text-[11px] ml-1">pcs</span>}
+                      </td>
                       {/* BAHAN hidden: wo.bahan still available in data */}
                       <td className="px-5 py-4 text-sm text-slate-400">{fmtDate(wo.tanggal_order)}</td>
                       <td className={`px-5 py-4 text-sm font-medium ${isOverdue ? 'text-red-400' : 'text-slate-400'}`}>
