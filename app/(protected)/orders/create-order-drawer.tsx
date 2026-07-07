@@ -100,6 +100,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const { data: kecList, loading: kecLoading } = useWilayah('districts', kabId);
   const [noHp, setNoHp] = useState('');
   const [leadId, setLeadId] = useState('');
+  const [pilihanPaket, setPilihanPaket] = useState('');
   const [namaTim, setNamaTim] = useState('');
   const [items, setItems] = useState<OrderItem[]>([{ id: 1, paket: '', qty: 0 }]);
   const [detailBahan, setDetailBahan] = useState<DetailBahanItem[]>(initDetailBahan);
@@ -193,6 +194,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
     if (!alamat.trim()) missing.push('Alamat Lengkap');
     if (!noHp.trim()) missing.push('No HP');
     if (!leadId.trim()) missing.push('Leads');
+    if (!pilihanPaket.trim()) missing.push('Pilihan Paket');
     if (!items.some(i => i.paket.trim() && i.qty > 0)) missing.push('Item Order (minimal 1 paket + qty)');
     if (!tglOrder) missing.push('Tanggal Order');
     if (missing.length > 0) {
@@ -241,6 +243,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
         customer_kabupaten: kabupaten,
         customer_provinsi: provinsi,
         lead_id: leadId || null,
+        pilihan_paket: pilihanPaket || null,
         nama_tim: namaTim,
         tanggal_order: tglOrder,
         estimasi_deadline: deadline,
@@ -301,7 +304,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   function handleReset() {
     setCustomer(''); setAlamat(''); setProvId(''); setProvinsi('');
     setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
-    setNoHp(''); setLeadId(''); setNamaTim('');
+    setNoHp(''); setLeadId(''); setPilihanPaket(''); setNamaTim('');
     setItems([{ id: 1, paket: '', qty: 0 }]); setTglOrder(today());
     setDetailBahan(initDetailBahan());
     setDeadline(weekLater()); setTglAccProofing(''); setKeterangan('');
@@ -419,6 +422,15 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                   {leadsList.map(l => (
                     <option key={l.id} value={l.id}>{l.nama}{l.jenis_cs ? ` - ${l.jenis_cs}` : ''}</option>
                   ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Pilihan Paket<span className="text-red-500 ml-0.5">*</span></label>
+                <select value={pilihanPaket} onChange={e => setPilihanPaket(e.target.value)} className={selectCls}>
+                  <option value="">Pilih paket layanan...</option>
+                  <option value="Reguler">Reguler</option>
+                  <option value="Express">Express</option>
+                  <option value="Prioritas">Prioritas</option>
                 </select>
               </div>
             </div>

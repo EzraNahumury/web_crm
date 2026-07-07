@@ -84,6 +84,14 @@ const MIGRATIONS: Migration[] = [
       "INSERT IGNORE INTO `settings` (`key_name`, `value`) VALUES ('admin_whatsapp', '089526216529')",
     ],
   },
+  {
+    name: '009_orders_pilihan_paket',
+    up: [
+      // Service tier picked at order creation: Reguler, Express, or Prioritas.
+      // Nullable so existing rows stay valid; the form now requires it for new orders.
+      "ALTER TABLE `orders` ADD COLUMN `pilihan_paket` VARCHAR(20) NULL AFTER `nama_tim`",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
