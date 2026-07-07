@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { insert, execute } from '@/lib/db';
+import { getUploadDir, publicUrlFor } from '@/lib/upload-dir';
 
 // Master Excel import → per-sheet PNG preview.
 // For each W-prefixed sheet we:
@@ -81,12 +82,12 @@ export async function POST(req: NextRequest) {
     if (!workOrderId) return NextResponse.json({ error: 'work_order_id required' }, { status: 400 });
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+    const uploadsDir = getUploadDir();
     await mkdir(uploadsDir, { recursive: true });
 
     const baseName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const masterFileName = `${baseName}.xlsx`;
-    const masterUrl = `/uploads/${masterFileName}`;
+    const masterUrl = publicUrlFor(masterFileName);
     await writeFile(path.join(uploadsDir, masterFileName), buffer);
 
     // Discover sheet names via SheetJS (lightweight)
@@ -194,7 +195,7 @@ export async function POST(req: NextRequest) {
             for await (const img of doc) {
               const pageName = `${baseName}-${safeSheet}-p${i}.png`;
               await writeFile(path.join(uploadsDir, pageName), img);
-              pages.push(`/uploads/${pageName}`);
+              pages.push(publicUrlFor(pageName));
               i++;
             }
           } catch (e) {
@@ -203,7 +204,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const sheetUrl = `/uploads/${subXlsxName}`;
+      const sheetUrl = publicUrlFor(subXlsxName);
       const pagesJson = pages.length > 0 ? JSON.stringify(pages) : null;
 
       if (target === 'wo1') {

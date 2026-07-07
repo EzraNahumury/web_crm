@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
+import { getUploadDir, publicUrlFor } from '@/lib/upload-dir';
 
-// Save uploaded files to public/uploads/ and return the public URL.
-// PDFs are rasterized to PNG pages via pdf-to-img so they preview cleanly.
-// Excel files are stored as-is — the viewer renders them client-side via
-// SheetJS (text/table only; no images).
+// Save uploaded files to the persistent upload dir (UPLOAD_DIR env, or
+// `<repo>/public/uploads/` for local dev) and return the public URL served
+// by /api/files/[...path]/. PDFs are rasterized to PNG pages via pdf-to-img
+// so the WO viewer can preview them.
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+    const uploadsDir = getUploadDir();
     await mkdir(uploadsDir, { recursive: true });
 
     const ext = (path.extname(file.name) || '').toLowerCase();
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
         for await (const img of doc) {
           const pageName = `${baseName}-p${i}.png`;
           await writeFile(path.join(uploadsDir, pageName), img);
-          pages.push(`/uploads/${pageName}`);
+          pages.push(publicUrlFor(pageName));
           i++;
         }
       } catch (e) {
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      url: `/uploads/${safeName}`,
+      url: publicUrlFor(safeName),
       originalName: file.name,
       pages,
       rasterizeError,

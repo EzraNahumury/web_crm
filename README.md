@@ -646,6 +646,14 @@ SESSION_SECRET=random-string-min-32-chars
 # (row DB menang atas env var — bisa di-edit tanpa restart).
 ADMIN_WHATSAPP=
 
+# folder persistent tempat file upload disimpan. WAJIB di-set di
+# production supaya file survive redeploy (public/uploads/ ada di
+# dalam repo checkout jadi akan ke-wipe tiap git pull).
+# Contoh Hostinger: /home/u768480753/uploads-crm
+# Buat folder-nya sekali, chmod 755, lalu set env var ini.
+# Kalau kosong, fallback ke <repo>/public/uploads/ (aman untuk local dev).
+UPLOAD_DIR=
+
 # opsional — kalau ingin CloudConvert fallback WO 1
 CLOUDCONVERT_API_KEY=
 ```
@@ -680,7 +688,7 @@ Production ini di-hosting di **Hostinger Managed Node.js** (bukan VPS). Konsekue
 
 ### Konsekuensi arsitektur
 1. **WO 1 rendering** — LibreOffice tidak jalan → **fallback ke Microsoft Office Online iframe embed** yang render xlsx dari domain public. Hostinger memang publik-serve `/uploads/`, jadi MS bisa fetch file kita.
-2. **Persistensi upload** — folder `public/uploads/` diluar `.gitignore`. Kalau perlu file survive lintas deploy, pastikan tidak overwrite via build script.
+2. **Persistensi upload** — Git auto-deploy akan me-wipe `public/uploads/` tiap redeploy karena folder itu ada di dalam repo checkout. Solusinya: set env `UPLOAD_DIR` ke absolute path **di luar** folder aplikasi (mis. `/home/u768480753/uploads-crm`), lalu file disajikan lewat `/api/files/[name]` (route serverless, tidak tersimpan di build). File yang di-upload sebelum fitur ini ada di `public/uploads/` — masih bisa dibaca karena `rasterize-pdf` cek 2 lokasi.
 3. **Auto-migration** — deploy dari GitHub akan restart Node → `instrumentation.ts` trigger `runMigrationsOnce` → schema self-heal.
 
 ### Env vars di Hostinger
