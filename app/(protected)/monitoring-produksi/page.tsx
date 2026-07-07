@@ -47,6 +47,15 @@ function formatDateLabel(iso: string) {
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
 }
+// Normalize a DB date/datetime value to a YYYY-MM-DD string for date matching.
+function toIsoDate(v: string) {
+  if (!v) return '';
+  const m = String(v).match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 function nowSql() {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
@@ -55,6 +64,7 @@ function nowSql() {
 
 export default function MonitoringProduksiPage() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
+  const [showAll, setShowAll] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -98,6 +108,7 @@ export default function MonitoringProduksiPage() {
             orderId: m.order_id,
             board: m.board as BoardKey,
             keterangan: m.keterangan || 'Belum ACC',
+            tanggalOrder: toIsoDate(o.tanggal_order),
             tim: o.nama_tim || '',
             customer: o.customer_nama || '',
             qty: qtyByOrder[String(m.order_id)] || 0,
@@ -115,9 +126,11 @@ export default function MonitoringProduksiPage() {
 
   const byBoard = useMemo(() => {
     const map: Record<BoardKey, Row[]> = { proofing: [], perbanyak: [], 'print-fedar': [], 'print-grando': [] };
-    for (const r of rows) if (map[r.board as BoardKey]) map[r.board as BoardKey].push(r);
+    // Filter by tanggal order unless "Semua" is active.
+    const list = showAll ? rows : rows.filter(r => r.tanggalOrder === selectedDate);
+    for (const r of list) if (map[r.board as BoardKey]) map[r.board as BoardKey].push(r);
     return map;
-  }, [rows]);
+  }, [rows, showAll, selectedDate]);
 
   async function advance(row: Row) {
     setBusyId(row.mpId);
@@ -154,24 +167,31 @@ export default function MonitoringProduksiPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Monitoring Produksi</h1>
           <p className="text-sm text-slate-400 mt-1">
-            Papan monitoring 4 tahap. Flow: Proofing → Perbanyak → Print Fedar → Print Grando.
+            Papan monitoring 4 tahap, difilter berdasarkan tanggal order. Flow: Proofing → Perbanyak → Print Fedar → Print Grando.
           </p>
         </div>
 
-        {/* Shared date picker */}
+        {/* Date filter — filters rows by tanggal order. "Semua" shows every date. */}
         <div className="flex items-center gap-2 shrink-0">
-          <label className="text-xs text-slate-500 uppercase tracking-wider">Tanggal</label>
+          <label className="text-xs text-slate-500 uppercase tracking-wider">Tanggal Order</label>
           <input
             type="date"
             value={selectedDate}
-            onChange={e => setSelectedDate(e.target.value)}
-            className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input"
+            onChange={e => { setSelectedDate(e.target.value); setShowAll(false); }}
+            disabled={showAll}
+            className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input disabled:opacity-40"
           />
           <button
-            onClick={() => setSelectedDate(todayIso())}
+            onClick={() => { setSelectedDate(todayIso()); setShowAll(false); }}
             className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors"
           >
             Hari Ini
+          </button>
+          <button
+            onClick={() => setShowAll(v => !v)}
+            className={`text-xs px-3 py-2 rounded-lg border transition-colors ${showAll ? 'bg-blue-600 border-blue-500 text-white' : 'border-white/10 text-slate-400 hover:text-white hover:bg-white/[0.04]'}`}
+          >
+            Semua
           </button>
         </div>
       </div>
@@ -194,7 +214,7 @@ export default function MonitoringProduksiPage() {
             <BoardCard
               key={board.key}
               board={board}
-              dateLabel={formatDateLabel(selectedDate)}
+              dateLabel={showAll ? 'Semua Tanggal' : formatDateLabel(selectedDate)}
               rows={byBoard[board.key]}
               loading={loading}
               busyId={busyId}
