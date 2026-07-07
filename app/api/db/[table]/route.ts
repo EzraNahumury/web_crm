@@ -33,6 +33,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   wo_detail_items:   { columns: '*', filterCols: ['id', 'work_order_id'] },
   wo_pengiriman:     { columns: '*', filterCols: ['work_order_id'] },
   wo_progress:       { columns: '*', filterCols: ['work_order_id'] },
+  monitoring_produksi: { columns: '*', filterCols: ['id', 'order_id', 'board'] },
   stok:              { columns: 's.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['s.id', 's.barang_id'] },
   stok_adjustment:   { columns: 'sa.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['sa.id', 'sa.barang_id'] },
 };

@@ -92,6 +92,29 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `pilihan_paket` VARCHAR(20) NULL AFTER `nama_tim`",
     ],
   },
+  {
+    name: '010_monitoring_produksi',
+    up: [
+      // Tracks each order's position through the monitoring boards:
+      // proofing → perbanyak → print-fedar → print-grando → history.
+      // One row per order (UNIQUE order_id). `keterangan` holds the proofing
+      // dropdown value ("Belum ACC" / "Revisi Proofing"). `completed_at` is set
+      // when the row is checked off the last board and lands in history.
+      `CREATE TABLE IF NOT EXISTS \`monitoring_produksi\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`order_id\` INT UNSIGNED NOT NULL,
+        \`board\` VARCHAR(20) NOT NULL DEFAULT 'proofing',
+        \`keterangan\` VARCHAR(30) NULL DEFAULT 'Belum ACC',
+        \`completed_at\` TIMESTAMP NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uniq_mp_order\` (\`order_id\`),
+        KEY \`fk_mp_order\` (\`order_id\`),
+        CONSTRAINT \`fk_mp_order\` FOREIGN KEY (\`order_id\`) REFERENCES \`orders\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
