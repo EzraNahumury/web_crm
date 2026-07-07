@@ -320,6 +320,7 @@ export default function OrdersPage() {
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">No</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Customer</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Paket</th>
+                <th className="text-right px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Qty</th>
                 {/* Bahan hidden */}
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Tgl ACC Proofing</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">DP Produksi</th>
@@ -344,6 +345,10 @@ export default function OrdersPage() {
                     </td>
                     <td className="px-4 py-3.5">
                       <span className="text-white/60 font-medium">{order.paket1}</span>
+                    </td>
+                    <td className="px-4 py-3.5 text-right">
+                      <span className="text-white/80 font-semibold tabular-nums">{order.qty > 0 ? order.qty : '-'}</span>
+                      {order.qty > 0 && <span className="text-white/25 text-[11px] ml-1">pcs</span>}
                     </td>
                     {/* Bahan hidden: order.bahan still available */}
                     <td className="px-4 py-3.5 text-white/35">{order.tglAccProofing ? formatDate(order.tglAccProofing) : '-'}</td>
