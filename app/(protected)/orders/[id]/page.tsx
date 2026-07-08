@@ -40,6 +40,7 @@ export default function OrderDetailPage() {
   const [orderItems, setOrderItems] = useState<Row[]>([]);
   const [detailBahan, setDetailBahan] = useState<Row[]>([]);
   const [leadInfo, setLeadInfo] = useState<Row | null>(null);
+  const [leadsList, setLeadsList] = useState<Row[]>([]);
   const toast = useToast();
 
   useEffect(() => {
@@ -56,12 +57,13 @@ export default function OrderDetailPage() {
           const db = await dbGet('order_detail_bahan');
           setDetailBahan(db.filter((d: Row) => String(d.order_id) === String(found.id)));
         } catch {}
-        if (found.lead_id) {
-          try {
-            const leads = await dbGet('leads');
+        try {
+          const leads = await dbGet('leads');
+          setLeadsList(leads);
+          if (found.lead_id) {
             setLeadInfo(leads.find((l: Row) => String(l.id) === String(found.lead_id)) || null);
-          } catch {}
-        }
+          }
+        } catch {}
       }
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -80,7 +82,8 @@ export default function OrderDetailPage() {
         customer_kabupaten: form.customer_kabupaten,
         customer_provinsi: form.customer_provinsi,
         nama_tim: form.nama_tim,
-        estimasi_deadline: form.estimasi_deadline,
+        tanggal_order: form.tanggal_order || null,
+        estimasi_deadline: form.estimasi_deadline || null,
         keterangan: form.keterangan,
         nominal_order: Number(form.nominal_order) || 0,
         dp_desain: Number(form.dp_desain) || 0,
@@ -89,8 +92,16 @@ export default function OrderDetailPage() {
         tanggal_acc_proofing: form.tanggal_acc_proofing || null,
         ekspedisi: form.ekspedisi || null,
         status: form.status,
+        lead_id: form.lead_id || null,
+        pilihan_paket: form.pilihan_paket || null,
+        deadline_lock: form.deadline_lock || null,
       });
       setOrder({ ...order, ...form });
+      if (form.lead_id) {
+        setLeadInfo(leadsList.find(l => String(l.id) === String(form.lead_id)) || null);
+      } else {
+        setLeadInfo(null);
+      }
       setEditing(false);
       toast.success('Order Diperbarui', 'Data order berhasil disimpan.');
     } catch (e) { toast.error('Gagal Update', String(e)); }
@@ -195,23 +206,42 @@ export default function OrderDetailPage() {
         <h2 className="text-base font-bold text-white mb-5">Data Order</h2>
         <div className="grid grid-cols-2 gap-x-8 gap-y-4">
           <div><p className={lbl}>No Order</p><p className={val}>{order.no_order}</p></div>
-          <div><p className={lbl}>Tanggal Order</p><p className={val}>{fmtDate(order.tanggal_order)}</p></div>
+          <div><p className={lbl}>Tanggal Order</p>{editing ? <input type="date" value={toDateInput(form.tanggal_order || '')} onChange={e => set('tanggal_order', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.tanggal_order)}</p>}</div>
           <div><p className={lbl}>Nama Tim</p>{editing ? <input value={form.nama_tim || ''} onChange={e => set('nama_tim', e.target.value)} className={inp} /> : <p className={val}>{order.nama_tim || '-'}</p>}</div>
           <div><p className={lbl}>Estimasi Deadline</p>{editing ? <input type="date" value={toDateInput(form.estimasi_deadline || '')} onChange={e => set('estimasi_deadline', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.estimasi_deadline)}</p>}</div>
           <div><p className={lbl}>Tanggal ACC Proofing</p>{editing ? <input type="date" value={toDateInput(form.tanggal_acc_proofing || '')} onChange={e => set('tanggal_acc_proofing', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.tanggal_acc_proofing)}</p>}</div>
+          <div className="col-span-2"><PilihanLayananEdit editing={editing} form={form} order={order} set={set} inp={inp} lbl={lbl} val={val} /></div>
           <div><p className={lbl}>Ekspedisi</p>{editing ? <EkspedisiEdit value={form.ekspedisi || ''} onChange={v => set('ekspedisi', v)} /> : <p className={val}>{order.ekspedisi || '-'}</p>}</div>
           <div className="col-span-2"><p className={lbl}>Keterangan</p>{editing ? <textarea value={form.keterangan || ''} onChange={e => set('keterangan', e.target.value)} rows={2} className={`${inp} resize-none`} /> : <p className={val}>{order.keterangan || '-'}</p>}</div>
         </div>
       </section>
 
       {/* Leads */}
-      {leadInfo && (
+      {(editing || leadInfo) && (
         <section className="rounded-xl bg-[#111827] border border-white/[0.06] p-6 mb-4">
           <h2 className="text-base font-bold text-white mb-5">Leads</h2>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-4">
-            <div><p className={lbl}>Nama</p><p className={val}>{leadInfo.nama}</p></div>
-            <div><p className={lbl}>Jenis CS</p><p className={val}>{leadInfo.jenis_cs || '-'}</p></div>
-          </div>
+          {editing ? (
+            <div>
+              <p className={lbl}>Pilih Leads</p>
+              <select
+                value={form.lead_id || ''}
+                onChange={e => set('lead_id', e.target.value)}
+                className={inp}
+              >
+                <option value="">(Tidak ada leads)</option>
+                {leadsList.map(l => (
+                  <option key={l.id} value={l.id}>
+                    {l.nama}{l.jenis_cs ? ` - ${l.jenis_cs}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+              <div><p className={lbl}>Nama</p><p className={val}>{leadInfo?.nama}</p></div>
+              <div><p className={lbl}>Jenis CS</p><p className={val}>{leadInfo?.jenis_cs || '-'}</p></div>
+            </div>
+          )}
         </section>
       )}
 
@@ -508,6 +538,101 @@ function RpInput({ value, onChange }: { value: number; onChange: (v: number) => 
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">Rp</span>
       <input type="text" value={fmt(value)} onChange={e => onChange(parse(e.target.value))} placeholder="0"
         className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-blue-500/40" />
+    </div>
+  );
+}
+
+// Combined editor for Pilihan Layanan. Splits pilihan_paket into base
+// ("Reguler" | "Express" | "Prioritas") + durasi when the stored string is
+// "Express - {durasi}", then rejoins on change. Deadline lock only surfaces
+// for Prioritas.
+function PilihanLayananEdit({ editing, form, order, set, inp, lbl, val }: {
+  editing: boolean;
+  form: Row;
+  order: Row;
+  set: (k: string, v: string | number) => void;
+  inp: string;
+  lbl: string;
+  val: string;
+}) {
+  if (!editing) {
+    return (
+      <div className="grid grid-cols-2 gap-x-8">
+        <div>
+          <p className={lbl}>Pilihan Layanan</p>
+          <p className={val}>{order.pilihan_paket || '-'}</p>
+        </div>
+        {order.pilihan_paket && String(order.pilihan_paket).toLowerCase().startsWith('prioritas') && (
+          <div>
+            <p className={lbl}>Deadline Lock</p>
+            <p className={val}>{fmtDate(order.deadline_lock)}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const raw = String(form.pilihan_paket || '');
+  const isExpress = raw.toLowerCase().startsWith('express');
+  const isPrioritas = raw.toLowerCase().startsWith('prioritas');
+  const isReguler = raw.toLowerCase().startsWith('reguler');
+  const base = isExpress ? 'Express' : isPrioritas ? 'Prioritas' : isReguler ? 'Reguler' : '';
+  const durasi = isExpress ? raw.replace(/^Express\s*-\s*/i, '').trim() : '';
+
+  const durationOptions = ['1 hari', '3 hari', '5 hari', '7 hari', '10 - 12 hari'];
+
+  const setBase = (b: string) => {
+    if (b === 'Express') {
+      set('pilihan_paket', durasi ? `Express - ${durasi}` : 'Express');
+      set('deadline_lock', '');
+    } else if (b === 'Prioritas') {
+      set('pilihan_paket', 'Prioritas');
+    } else if (b === 'Reguler') {
+      set('pilihan_paket', 'Reguler');
+      set('deadline_lock', '');
+    } else {
+      set('pilihan_paket', '');
+      set('deadline_lock', '');
+    }
+  };
+
+  const setDurasi = (d: string) => {
+    set('pilihan_paket', d ? `Express - ${d}` : 'Express');
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-x-8">
+        <div>
+          <p className={lbl}>Pilihan Layanan</p>
+          <select value={base} onChange={e => setBase(e.target.value)} className={inp}>
+            <option value="">(Pilih layanan)</option>
+            <option value="Reguler">Reguler</option>
+            <option value="Express">Express</option>
+            <option value="Prioritas">Prioritas</option>
+          </select>
+        </div>
+        {base === 'Express' && (
+          <div>
+            <p className={lbl}>Durasi Express</p>
+            <select value={durasi} onChange={e => setDurasi(e.target.value)} className={inp}>
+              <option value="">(Pilih durasi)</option>
+              {durationOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+        )}
+        {base === 'Prioritas' && (
+          <div>
+            <p className={lbl}>Deadline Lock</p>
+            <input
+              type="date"
+              value={toDateInput(form.deadline_lock || '')}
+              onChange={e => set('deadline_lock', e.target.value)}
+              className={`${inp} date-input`}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

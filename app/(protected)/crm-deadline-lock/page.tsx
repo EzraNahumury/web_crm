@@ -20,6 +20,11 @@ function currentYearMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+const MONTH_NAMES_ID = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
+
 function fmtDateShort(iso: string) {
   if (!iso) return '-';
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -71,12 +76,7 @@ export default function CrmDeadlineLockPage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <label className="text-xs text-slate-500 uppercase tracking-wider">Bulan</label>
-          <input
-            type="month"
-            value={month}
-            onChange={e => setMonth(e.target.value)}
-            className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input"
-          />
+          <MonthYearPicker value={month} onChange={setMonth} />
           <button
             onClick={() => setMonth(currentYearMonth())}
             className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors"
@@ -161,6 +161,34 @@ function BoardTable({ group }: { group: Group }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function MonthYearPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [year, monthNum] = value.split('-');
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
+  const selectCls = 'bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer';
+  return (
+    <div className="flex items-center gap-1.5">
+      <select
+        value={monthNum}
+        onChange={e => onChange(`${year}-${e.target.value}`)}
+        className={selectCls}
+      >
+        {MONTH_NAMES_ID.map((name, i) => {
+          const num = String(i + 1).padStart(2, '0');
+          return <option key={num} value={num}>{name}</option>;
+        })}
+      </select>
+      <select
+        value={year}
+        onChange={e => onChange(`${e.target.value}-${monthNum}`)}
+        className={selectCls}
+      >
+        {years.map(y => <option key={y} value={y}>{y}</option>)}
+      </select>
     </div>
   );
 }
