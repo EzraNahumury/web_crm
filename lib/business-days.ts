@@ -28,6 +28,25 @@ export function addBusinessDays(startISO: string, count: number, holidays: Set<s
   return toIsoDate(cursor);
 }
 
+// Walk backwards N working days from startISO. Skip Sundays and any date
+// in `holidays`. Used to compute CRM Finishing's "DL" (deadline lock
+// minus 3 working days).
+export function subtractBusinessDays(startISO: string, count: number, holidays: Set<string>): string {
+  if (!startISO || count <= 0) return startISO;
+  const [y, m, d] = startISO.split('-').map(Number);
+  const cursor = new Date(y, (m || 1) - 1, d || 1);
+  let subtracted = 0;
+  while (subtracted < count) {
+    cursor.setDate(cursor.getDate() - 1);
+    const dow = cursor.getDay();
+    if (dow === 0) continue;
+    const iso = toIsoDate(cursor);
+    if (holidays.has(iso)) continue;
+    subtracted++;
+  }
+  return toIsoDate(cursor);
+}
+
 function toIsoDate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');

@@ -152,6 +152,28 @@ const MIGRATIONS: Migration[] = [
       "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2026-12-25', 'Hari Natal')",
     ],
   },
+  {
+    name: '013_crm_finishing',
+    up: [
+      // Per-order finishing status for the CRM Finishing weekly board.
+      // Rows are lazy-created only when CS edits keterangan or checks the
+      // order off. completed_at = NOW when the checkbox is checked; NULL
+      // otherwise (so the row can be un-checked from History back to the
+      // board).
+      `CREATE TABLE IF NOT EXISTS \`crm_finishing\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`order_id\` INT UNSIGNED NOT NULL,
+        \`keterangan\` VARCHAR(200) NULL,
+        \`completed_at\` TIMESTAMP NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uniq_cf_order\` (\`order_id\`),
+        KEY \`idx_cf_completed\` (\`completed_at\`),
+        CONSTRAINT \`fk_cf_order\` FOREIGN KEY (\`order_id\`) REFERENCES \`orders\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
