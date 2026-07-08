@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
+import { classifyLayanan, type LayananKind } from '@/lib/business-days';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -103,6 +104,7 @@ export default function MonitoringProduksiPage() {
         .filter((m: Row) => m.board !== 'history' && orderMap[String(m.order_id)])
         .map((m: Row) => {
           const o = orderMap[String(m.order_id)];
+          const pilihan = String(o.pilihan_paket || '');
           return {
             mpId: m.id,
             orderId: m.order_id,
@@ -113,6 +115,8 @@ export default function MonitoringProduksiPage() {
             customer: o.customer_nama || '',
             qty: qtyByOrder[String(m.order_id)] || 0,
             paket: (paketByOrder[String(m.order_id)] || []).join(', ') || '-',
+            pilihanPaket: pilihan,
+            layananKind: classifyLayanan(pilihan) as LayananKind,
           };
         });
       setRows(enriched);
@@ -124,11 +128,17 @@ export default function MonitoringProduksiPage() {
 
   useEffect(() => { load(); }, []);
 
+  // Priority: prioritas → express → reguler → unknown (so hot orders sit up top)
+  const layananRank: Record<LayananKind, number> = { prioritas: 0, express: 1, reguler: 2, unknown: 3 };
   const byBoard = useMemo(() => {
     const map: Record<BoardKey, Row[]> = { proofing: [], perbanyak: [], 'print-fedar': [], 'print-grando': [] };
     // Filter by tanggal order unless "Semua" is active.
     const list = showAll ? rows : rows.filter(r => r.tanggalOrder === selectedDate);
     for (const r of list) if (map[r.board as BoardKey]) map[r.board as BoardKey].push(r);
+    // Sort each board by service tier priority (stable): prioritas top, then express, then reguler
+    for (const k of Object.keys(map) as BoardKey[]) {
+      map[k].sort((a, b) => (layananRank[a.layananKind as LayananKind] ?? 3) - (layananRank[b.layananKind as LayananKind] ?? 3));
+    }
     return map;
   }, [rows, showAll, selectedDate]);
 
@@ -228,6 +238,14 @@ export default function MonitoringProduksiPage() {
   );
 }
 
+// RGB colors matching the Tailwind header bg — reused when generating the PDF.
+const BOARD_PDF_RGB: Record<BoardKey, [number, number, number]> = {
+  proofing:      [249, 115, 22],   // orange-500
+  perbanyak:     [219, 39, 119],   // pink-600
+  'print-fedar': [147, 51, 234],   // purple-600
+  'print-grando':[107, 33, 168],   // purple-800
+};
+
 function BoardCard({
   board, dateLabel, rows, loading, busyId, onAdvance, onKeterangan,
 }: {
@@ -241,20 +259,140 @@ function BoardCard({
 }) {
   const isProofing = board.key === 'proofing';
   const colCount = isProofing ? 5 : 4;
-  // Pad with empty rows so the board keeps its grid structure when near-empty.
-  const padCount = Math.max(0, 8 - rows.length);
+  const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  // Filter by search — case-insensitive match on tim, customer, or paket
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(r =>
+      String(r.tim || '').toLowerCase().includes(q)
+      || String(r.customer || '').toLowerCase().includes(q)
+      || String(r.paket || '').toLowerCase().includes(q)
+    );
+  }, [rows, search]);
+
+  const totalQty = filtered.reduce((sum, r) => sum + (Number(r.qty) || 0), 0);
+  // Keep the board a stable height when nearly empty.
+  const padCount = Math.max(0, 8 - filtered.length);
+
+  async function handleExportPdf() {
+    setExporting(true);
+    try {
+      const jspdf = await import('jspdf');
+      const autoTableMod = await import('jspdf-autotable');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const autoTable = (autoTableMod as any).default || autoTableMod;
+      const doc = new jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const rgb = BOARD_PDF_RGB[board.key];
+      const pageW = doc.internal.pageSize.getWidth();
+
+      // Colored title band
+      doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+      doc.rect(0, 0, pageW, 56, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text(board.title, pageW / 2, 26, { align: 'center' });
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(dateLabel, pageW / 2, 44, { align: 'center' });
+
+      // Table body
+      const bodyRows = filtered.map((r, i) => [
+        String(i + 1),
+        r.tim ? `${r.tim}\n${r.customer || ''}`.trim() : (r.customer || '-'),
+        r.qty > 0 ? String(r.qty) : '-',
+        r.paket || '-',
+        r.pilihanPaket || '-',
+        r.keterangan || '-',
+      ]);
+
+      autoTable(doc, {
+        startY: 72,
+        head: [['NO', 'TIM / CUSTOMER', 'QTY', 'PAKET', 'LAYANAN', 'KETERANGAN']],
+        body: bodyRows,
+        theme: 'grid',
+        headStyles: { fillColor: rgb, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+        styles: { fontSize: 9, cellPadding: 6, valign: 'middle' },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 40 },
+          1: { cellWidth: 220 },
+          2: { halign: 'center', cellWidth: 50 },
+          3: { cellWidth: 150 },
+          4: { cellWidth: 110 },
+          5: { cellWidth: 'auto' },
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        didParseCell(data: any) {
+          if (data.section !== 'body') return;
+          const row = filtered[data.row.index];
+          if (!row) return;
+          if (row.layananKind === 'prioritas') data.cell.styles.fillColor = [255, 237, 213];
+          else if (row.layananKind === 'express') data.cell.styles.fillColor = [254, 226, 226];
+        },
+        foot: [[
+          { content: 'TOTAL QTY', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: String(totalQty), styles: { halign: 'center', fontStyle: 'bold' } },
+          { content: '', colSpan: 3 },
+        ]],
+        footStyles: { fillColor: [31, 41, 55], textColor: [255, 255, 255] },
+        margin: { top: 72, right: 20, bottom: 40, left: 20 },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        didDrawPage(data: any) {
+          const p = doc.internal.pageSize;
+          doc.setFontSize(8);
+          doc.setTextColor(150, 150, 150);
+          doc.setFont('helvetica', 'normal');
+          doc.text(`AYRES CRM · ${new Date().toLocaleString('id-ID')}`, 20, p.getHeight() - 15);
+          doc.text(`Halaman ${data.pageNumber}`, p.getWidth() - 20, p.getHeight() - 15, { align: 'right' });
+        },
+      });
+
+      const safeDate = dateLabel.replace(/[^\w-]/g, '_');
+      doc.save(`monitoring-${board.key}-${safeDate}.pdf`);
+    } catch (e) {
+      console.error('PDF export failed', e);
+      alert('Gagal export PDF: ' + String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="w-[520px] shrink-0 rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden flex flex-col">
-      {/* Colored title bar */}
-      <div className={`${board.headerBg} ${board.headerText} px-4 py-2.5 text-center`}>
-        <h2 className="text-sm font-bold tracking-wide">{board.title}</h2>
+      {/* Colored title bar with Export button */}
+      <div className={`${board.headerBg} ${board.headerText} px-4 py-2.5 flex items-center justify-between gap-3`}>
+        <h2 className="text-sm font-bold tracking-wide flex-1 text-center">{board.title}</h2>
+        <button
+          onClick={handleExportPdf}
+          disabled={exporting || loading}
+          title="Export tabel ke PDF"
+          className="inline-flex items-center gap-1 text-[10px] font-semibold bg-white/20 hover:bg-white/30 disabled:opacity-40 text-white px-2 py-1 rounded-md transition-colors shrink-0"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+          {exporting ? '...' : 'PDF'}
+        </button>
       </div>
 
-      {/* Date bar */}
-      <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02] flex items-center justify-between">
-        <p className="text-xs font-semibold text-white">{dateLabel}</p>
-        <p className="text-[10px] text-slate-500 italic">{board.nextBoardHint}</p>
+      {/* Date bar + search */}
+      <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
+        <p className="text-xs font-semibold text-white shrink-0">{dateLabel}</p>
+        <div className="flex-1 relative">
+          <svg className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Cari tim, customer, paket..."
+            className="w-full bg-[#0d1117] border border-white/10 text-white text-[10px] placeholder-slate-500 rounded-md pl-6 pr-2 py-1 focus:outline-none focus:border-blue-500/40"
+          />
+        </div>
       </div>
 
       {/* Table */}
@@ -274,8 +412,13 @@ function BoardCard({
               <tr><Td className="text-center text-slate-500" colSpan={colCount}>Memuat…</Td></tr>
             ) : (
               <>
-                {rows.map(row => (
-                  <tr key={row.mpId} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                {filtered.map(row => {
+                  const rowBg =
+                    row.layananKind === 'prioritas' ? 'bg-orange-500/[0.08] hover:bg-orange-500/[0.12]' :
+                    row.layananKind === 'express'   ? 'bg-red-500/[0.08] hover:bg-red-500/[0.12]' :
+                    'hover:bg-white/[0.02]';
+                  return (
+                  <tr key={row.mpId} className={`border-b border-white/[0.04] transition-colors ${rowBg}`}>
                     <Td className="text-slate-200">
                       <span className="font-medium">{row.tim || row.customer || '-'}</span>
                       {row.tim && row.customer && (
@@ -306,7 +449,8 @@ function BoardCard({
                       </Td>
                     )}
                   </tr>
-                ))}
+                  );
+                })}
                 {Array.from({ length: padCount }).map((_, i) => (
                   <tr key={`pad-${i}`} className="border-b border-white/[0.04]">
                     {Array.from({ length: colCount }).map((__, j) => (
@@ -317,6 +461,18 @@ function BoardCard({
               </>
             )}
           </tbody>
+          {/* Total footer */}
+          <tfoot>
+            <tr className="border-t-2 border-white/[0.15] bg-white/[0.04]">
+              <td className="px-3 py-2 text-right text-[11px] font-bold text-slate-300 uppercase tracking-wider" colSpan={1}>
+                Total QTY
+              </td>
+              <td className="px-3 py-2 text-center text-sm font-bold text-white tabular-nums">
+                {totalQty}
+              </td>
+              <td className="px-3 py-2" colSpan={colCount - 2}>&nbsp;</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
