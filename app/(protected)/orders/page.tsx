@@ -10,6 +10,7 @@ import { STAGES, RISK_LABELS, STATUS_LABELS } from '@/lib/constants';
 import { formatDate } from '@/lib/utils';
 import { Pagination } from '@/lib/pagination';
 import CreateOrderDrawer from './create-order-drawer';
+import { dbUpdate } from '@/lib/api-db';
 
 const STATUS_STYLES_DARK: Record<string, string> = {
   OPEN: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
@@ -351,7 +352,18 @@ export default function OrdersPage() {
                       {order.qty > 0 && <span className="text-white/25 text-[11px] ml-1">pcs</span>}
                     </td>
                     {/* Bahan hidden: order.bahan still available */}
-                    <td className="px-4 py-3.5 text-white/35">{order.tglAccProofing ? formatDate(order.tglAccProofing) : '-'}</td>
+                    <td className="px-4 py-3.5">
+                      <AccProofingCell
+                        orderId={order.rowIndex}
+                        value={order.tglAccProofing || ''}
+                        onSaved={(newVal) => {
+                          setOrders(prev => prev.map(o =>
+                            o.rowIndex === order.rowIndex ? { ...o, tglAccProofing: newVal } : o
+                          ));
+                          invalidateCache('wp_orders', 'wp_dashboard');
+                        }}
+                      />
+                    </td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.dpProduksi)}</td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.dlCust)}</td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.tglSelesai)}</td>
@@ -421,6 +433,75 @@ function TableSkeleton() {
           <div key={i} className="h-14 border-b border-white/[0.03] animate-pulse bg-white/[0.01]" style={{ opacity: 1 - i * 0.15 }} />
         ))}
       </div>
+    </div>
+  );
+}
+
+// Inline Tgl ACC Proofing editor. The visible label sits under an
+// opacity-0 <input type="date">, so a click on the cell drops the
+// native picker and the change hits the DB immediately — no need to
+// open the detail page for what's usually a one-value edit.
+function AccProofingCell({ orderId, value, onSaved }: {
+  orderId: number;
+  value: string;
+  onSaved: (newValue: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [local, setLocal] = useState(value);
+  useEffect(() => { setLocal(value); }, [value]);
+
+  // Convert a possibly-ISO or datetime value into YYYY-MM-DD for the input
+  const isoValue = (() => {
+    const m = String(local || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+  })();
+
+  async function commit(newIso: string) {
+    if (newIso === isoValue) return;
+    setSaving(true);
+    const prev = local;
+    setLocal(newIso); // optimistic
+    try {
+      await dbUpdate('orders', orderId, { tanggal_acc_proofing: newIso || null });
+      onSaved(newIso);
+    } catch (e) {
+      setLocal(prev); // rollback
+      console.error('Failed to save tanggal_acc_proofing', e);
+      alert('Gagal menyimpan tanggal: ' + String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="relative group cursor-pointer rounded-md hover:bg-white/[0.04] transition-colors px-2 py-1 -mx-2 -my-1"
+      onClick={e => e.stopPropagation()}
+      title="Klik untuk edit tanggal ACC proofing"
+    >
+      <div className="flex items-center gap-1.5">
+        <span className={`text-sm ${local ? 'text-white/60' : 'text-white/25'}`}>
+          {local ? formatDate(local) : '-'}
+        </span>
+        {saving ? (
+          <svg className="w-3 h-3 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <svg className="w-3 h-3 text-white/15 group-hover:text-blue-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+          </svg>
+        )}
+      </div>
+      <input
+        type="date"
+        value={isoValue}
+        onChange={e => commit(e.target.value)}
+        onClick={e => e.stopPropagation()}
+        disabled={saving}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-wait"
+      />
     </div>
   );
 }
