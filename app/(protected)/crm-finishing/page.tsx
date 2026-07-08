@@ -50,6 +50,7 @@ export default function CrmFinishingPage() {
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [keteranganDrafts, setKeteranganDrafts] = useState<Record<number, string>>({});
+  const [exporting, setExporting] = useState(false);
   const toast = useToast();
 
   const fetchData = useCallback(async () => {
@@ -124,6 +125,106 @@ export default function CrmFinishingPage() {
 
   const weekLabel = data ? `${fmtDayLong(data.weekStart)} — ${fmtDayLong(data.weekEnd)}` : '';
 
+  async function handleExportPdf() {
+    if (filtered.length === 0) return;
+    setExporting(true);
+    try {
+      const jspdf = await import('jspdf');
+      const autoTableMod = await import('jspdf-autotable');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const autoTable = (autoTableMod as any).default || autoTableMod;
+      const doc = new jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pink: [number, number, number] = [219, 39, 119];
+      const cyan: [number, number, number] = [6, 182, 212];
+
+      // Pink title band matching the on-screen banner
+      doc.setFillColor(...pink);
+      doc.rect(0, 0, pageW, 56, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('FINISHING', pageW / 2, 26, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(weekLabel, pageW / 2, 44, { align: 'center' });
+
+      // Body: NO, CUST, QTY, PAKET, BONUS, KET, DL, STTS (no Deadline Real)
+      const body = filtered.map((r, i) => [
+        String(i + 1),
+        r.tim ? `${r.tim}\n${r.cust || ''}`.trim() : (r.cust || '-'),
+        r.qty > 0 ? String(r.qty) : '-',
+        r.paket || '-',
+        r.bonus || '-',
+        r.keterangan || '-',
+        r.dl ? fmtDateShort(r.dl) : '-',
+        r.stts || '-',
+      ]);
+
+      autoTable(doc, {
+        startY: 72,
+        head: [['NO', 'CUST', 'QTY', 'PAKET', 'BONUS', 'KET', 'DL', 'STTS']],
+        body,
+        theme: 'grid',
+        headStyles: {
+          fillColor: cyan,
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center',
+        },
+        styles: { fontSize: 9, cellPadding: 6, valign: 'middle' },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 32 },
+          1: { cellWidth: 180 },
+          2: { halign: 'center', cellWidth: 42 },
+          3: { cellWidth: 130 },
+          4: { cellWidth: 130 },
+          5: { cellWidth: 130 },
+          6: { halign: 'center', cellWidth: 65 },
+          7: { halign: 'center', cellWidth: 'auto' },
+        },
+        // Tint rows by service tier so the PDF matches the on-screen palette.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        didParseCell(cellData: any) {
+          if (cellData.section !== 'body') return;
+          const row = filtered[cellData.row.index];
+          if (!row) return;
+          if (row.layanan_kind === 'prioritas') cellData.cell.styles.fillColor = [255, 237, 213];
+          else if (row.layanan_kind === 'express') cellData.cell.styles.fillColor = [254, 226, 226];
+          // Overdue DL cell → red text
+          if (cellData.column.index === 6 && row.is_overdue) {
+            cellData.cell.styles.textColor = [220, 38, 38];
+            cellData.cell.styles.fontStyle = 'bold';
+          }
+        },
+        foot: [[
+          { content: 'TOTAL QTY', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: String(totalQty), styles: { halign: 'center', fontStyle: 'bold' } },
+          { content: '', colSpan: 5 },
+        ]],
+        footStyles: { fillColor: [31, 41, 55], textColor: [255, 255, 255] },
+        margin: { top: 72, right: 20, bottom: 40, left: 20 },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        didDrawPage(pageData: any) {
+          const p = doc.internal.pageSize;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(150, 150, 150);
+          doc.text(`AYRES CRM · ${new Date().toLocaleString('id-ID')}`, 20, p.getHeight() - 15);
+          doc.text(`Halaman ${pageData.pageNumber}`, p.getWidth() - 20, p.getHeight() - 15, { align: 'right' });
+        },
+      });
+
+      const safeWeek = weekLabel.replace(/[^\w-]/g, '_');
+      doc.save(`papan-finishing-${safeWeek}.pdf`);
+    } catch (e) {
+      console.error('PDF export failed', e);
+      toast.error('Gagal export PDF', String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -134,7 +235,7 @@ export default function CrmFinishingPage() {
             Order minggu ini (dan yang sudah overdue). Checklist untuk memindahkan ke History Finishing.
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
           <label className="text-xs text-slate-500 uppercase tracking-wider">Tanggal</label>
           <input
             type="date"
@@ -147,6 +248,17 @@ export default function CrmFinishingPage() {
             className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors"
           >
             Hari Ini
+          </button>
+          <button
+            onClick={handleExportPdf}
+            disabled={exporting || loading || filtered.length === 0}
+            title="Export Papan Finishing ke PDF"
+            className="inline-flex items-center gap-1.5 text-xs text-white bg-pink-600 hover:bg-pink-500 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-2 rounded-lg transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {exporting ? 'Menyiapkan...' : 'Export PDF'}
           </button>
         </div>
       </div>
