@@ -3,6 +3,7 @@ import { query } from '@/lib/db';
 import {
   classifyLayanan,
   computeDeadlineLock,
+  hasJaket,
   subtractBusinessDays,
 } from '@/lib/business-days';
 
@@ -134,6 +135,7 @@ export async function GET(req: NextRequest) {
           tanggalAccProofing: o.tanggal_acc_proofing,
           deadlineLock: o.deadline_lock,
           holidays,
+          isJaket: hasJaket(paketByOrder.get(o.id) || []),
         });
         if (!deadline) return null; // no deadline info yet
         if (deadline > weekEnd) return null; // future week — skip

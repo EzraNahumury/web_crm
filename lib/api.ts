@@ -1,6 +1,6 @@
 import { Order, DashboardStats, ApiResponse } from './types';
 import { getCached, setCached, invalidateCache } from './cache';
-import { computeDeadlineLock } from './business-days';
+import { computeDeadlineLock, hasJaket } from './business-days';
 
 // ─── Auth ───────────────────────────────────────────────
 export async function apiLogin(username: string, password: string) {
@@ -281,6 +281,7 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
         tanggalAccProofing: r.tanggal_acc_proofing,
         deadlineLock: r.deadline_lock,
         holidays: holidaySet,
+        isJaket: hasJaket(orderItems.map(it => it.paket_nama)),
       })),
       pilihanPaket: r.pilihan_paket || '',
       status,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { computeDeadlineLock } from '@/lib/business-days';
+import { computeDeadlineLock, hasJaket } from '@/lib/business-days';
 
 // GET /api/crm/deadline-lock?month=YYYY-MM
 //
@@ -146,6 +146,7 @@ export async function GET(req: NextRequest) {
         tanggalAccProofing: accIso,
         deadlineLock: o.deadline_lock,
         holidays,
+        isJaket: hasJaket(paketByOrder.get(o.id) || []),
       });
       const bucket = groupsMap.get(accIso) || { date: accIso, orders: [] };
       bucket.orders.push({

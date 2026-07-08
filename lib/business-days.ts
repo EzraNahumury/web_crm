@@ -4,7 +4,8 @@
 //   - Sunday is NOT a working day.
 //   - Saturday IS a working day.
 //   - Any date in `libur_nasional` is not a working day.
-//   - Reguler = ACC proofing date + 21 working days.
+//   - Reguler (jersey / default) = ACC proofing date + 21 working days.
+//   - Reguler JAKET = ACC proofing date + 28 working days (jackets take longer).
 //   - Express - N hari = ACC proofing date + N working days.
 //   - Prioritas = whatever CS typed into orders.deadline_lock (no computation).
 //
@@ -64,6 +65,16 @@ export function parseExpressDurasi(pilihanPaket: string): number {
   return Math.max(...nums.map(n => Number(n)));
 }
 
+// Working days for a Reguler order. Jackets get a longer runway.
+export const REGULER_DAYS = 21;
+export const REGULER_JAKET_DAYS = 28;
+
+// True when any paket on the order is a JAKET, which needs the longer
+// Reguler runway. Case-insensitive, tolerant of extra label text.
+export function hasJaket(pakets: (string | null | undefined)[]): boolean {
+  return pakets.some(p => String(p || '').toUpperCase().includes('JAKET'));
+}
+
 export type LayananKind = 'reguler' | 'express' | 'prioritas' | 'unknown';
 
 export function classifyLayanan(pilihanPaket: string | null | undefined): LayananKind {
@@ -82,6 +93,9 @@ export function computeDeadlineLock(args: {
   tanggalAccProofing: string | Date | null | undefined;
   deadlineLock: string | Date | null | undefined;
   holidays: Set<string>;
+  // When the order contains a JAKET paket, Reguler uses 28 working days
+  // instead of 21. Ignored for Express/Prioritas.
+  isJaket?: boolean;
 }): string {
   const kind = classifyLayanan(args.pilihanPaket);
   if (kind === 'prioritas') {
@@ -89,7 +103,7 @@ export function computeDeadlineLock(args: {
   }
   const acc = normalizeIso(args.tanggalAccProofing);
   if (!acc) return '';
-  if (kind === 'reguler') return addBusinessDays(acc, 21, args.holidays);
+  if (kind === 'reguler') return addBusinessDays(acc, args.isJaket ? REGULER_JAKET_DAYS : REGULER_DAYS, args.holidays);
   if (kind === 'express') {
     const n = parseExpressDurasi(args.pilihanPaket || '');
     return n > 0 ? addBusinessDays(acc, n, args.holidays) : '';
