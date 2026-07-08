@@ -102,6 +102,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const [leadId, setLeadId] = useState('');
   const [pilihanPaket, setPilihanPaket] = useState('');
   const [expressDurasi, setExpressDurasi] = useState('');
+  const [deadlineLock, setDeadlineLock] = useState('');
   const [namaTim, setNamaTim] = useState('');
   const [items, setItems] = useState<OrderItem[]>([{ id: 1, paket: '', qty: 0 }]);
   const [detailBahan, setDetailBahan] = useState<DetailBahanItem[]>(initDetailBahan);
@@ -197,6 +198,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
     if (!leadId.trim()) missing.push('Leads');
     if (!pilihanPaket.trim()) missing.push('Pilihan Layanan');
     if (pilihanPaket === 'Express' && !expressDurasi.trim()) missing.push('Durasi Express');
+    if (pilihanPaket === 'Prioritas' && !deadlineLock.trim()) missing.push('Deadline Lock');
     if (!items.some(i => i.paket.trim() && i.qty > 0)) missing.push('Item Order (minimal 1 paket + qty)');
     if (!tglOrder) missing.push('Tanggal Order');
     if (missing.length > 0) {
@@ -248,6 +250,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
         pilihan_paket: pilihanPaket
           ? (pilihanPaket === 'Express' && expressDurasi ? `Express - ${expressDurasi}` : pilihanPaket)
           : null,
+        deadline_lock: pilihanPaket === 'Prioritas' && deadlineLock ? deadlineLock : null,
         nama_tim: namaTim,
         tanggal_order: tglOrder,
         estimasi_deadline: deadline,
@@ -308,7 +311,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   function handleReset() {
     setCustomer(''); setAlamat(''); setProvId(''); setProvinsi('');
     setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
-    setNoHp(''); setLeadId(''); setPilihanPaket(''); setExpressDurasi(''); setNamaTim('');
+    setNoHp(''); setLeadId(''); setPilihanPaket(''); setExpressDurasi(''); setDeadlineLock(''); setNamaTim('');
     setItems([{ id: 1, paket: '', qty: 0 }]); setTglOrder(today());
     setDetailBahan(initDetailBahan());
     setDeadline(weekLater()); setTglAccProofing(''); setKeterangan('');
@@ -433,8 +436,10 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 <select
                   value={pilihanPaket}
                   onChange={e => {
-                    setPilihanPaket(e.target.value);
-                    if (e.target.value !== 'Express') setExpressDurasi('');
+                    const v = e.target.value;
+                    setPilihanPaket(v);
+                    if (v !== 'Express') setExpressDurasi('');
+                    if (v !== 'Prioritas') setDeadlineLock('');
                   }}
                   className={selectCls}
                 >
@@ -454,6 +459,18 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                       <option value="7 hari">7 hari</option>
                       <option value="10 - 12 hari">10 - 12 hari</option>
                     </select>
+                  </div>
+                )}
+                {pilihanPaket === 'Prioritas' && (
+                  <div className="mt-3">
+                    <label className={labelCls}>Deadline Lock<span className="text-red-500 ml-0.5">*</span></label>
+                    <input
+                      type="date"
+                      value={deadlineLock}
+                      onChange={e => setDeadlineLock(e.target.value)}
+                      className={`${inputCls} date-input`}
+                    />
+                    <p className="text-xs text-slate-500 mt-1">CS input tanggal deadline khusus untuk pesanan Prioritas.</p>
                   </div>
                 )}
               </div>

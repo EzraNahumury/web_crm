@@ -115,6 +115,43 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
     ],
   },
+  {
+    name: '011_orders_deadline_lock',
+    up: [
+      // Manual "deadline lock" set by CS when the customer picks the Prioritas
+      // service tier. For Reguler and Express the deadline is computed on the
+      // fly from tanggal_acc_proofing + N business days, so we don't store it.
+      "ALTER TABLE `orders` ADD COLUMN `deadline_lock` DATE NULL AFTER `estimasi_deadline`",
+    ],
+  },
+  {
+    name: '012_libur_nasional',
+    up: [
+      // Working-day calculator skips both Sunday and rows in this table.
+      // Seed the fixed-date national holidays; lunar holidays (Idul Fitri,
+      // Idul Adha, Imlek, Nyepi, Waisak, Maulid, Isra Mikraj) shift each year
+      // and admin inserts those manually as needed:
+      //   INSERT INTO libur_nasional (tanggal, nama) VALUES ('YYYY-MM-DD', 'Nama Hari');
+      `CREATE TABLE IF NOT EXISTS \`libur_nasional\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`tanggal\` DATE NOT NULL,
+        \`nama\` VARCHAR(200) NOT NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_libur_tanggal\` (\`tanggal\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2025-01-01', 'Tahun Baru Masehi')",
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2025-05-01', 'Hari Buruh Internasional')",
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2025-06-01', 'Hari Lahir Pancasila')",
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2025-08-17', 'Hari Kemerdekaan RI')",
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2025-12-25', 'Hari Natal')",
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2026-01-01', 'Tahun Baru Masehi')",
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2026-05-01', 'Hari Buruh Internasional')",
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2026-06-01', 'Hari Lahir Pancasila')",
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2026-08-17', 'Hari Kemerdekaan RI')",
+      "INSERT IGNORE INTO `libur_nasional` (`tanggal`, `nama`) VALUES ('2026-12-25', 'Hari Natal')",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

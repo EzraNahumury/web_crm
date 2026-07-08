@@ -1,10 +1,178 @@
-import ComingSoon from '../_shared/coming-soon';
+'use client';
+import { useCallback, useEffect, useState } from 'react';
+
+type OrderRow = {
+  no_order: string;
+  cust: string;
+  qty: number;
+  paket: string;
+  bonus: string;
+  ket: string;
+  deadline_lock: string;
+  pilihan_paket: string;
+  stts: string;
+};
+type Group = { date: string; orders: OrderRow[] };
+type ApiData = { month: string; monthName: string; groups: Group[] };
+
+function currentYearMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function fmtDateShort(iso: string) {
+  if (!iso) return '-';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'][Number(m[2]) - 1];
+  return `${Number(m[3])} ${monthShort} ${m[1]}`;
+}
+
+// Header label shown above each per-date table. Example: "01/2026" for
+// 1 Juli 2026 (month is already conveyed by the page-level banner).
+function fmtDayYear(iso: string) {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[1]}` : iso;
+}
 
 export default function CrmDeadlineLockPage() {
+  const [month, setMonth] = useState(currentYearMonth());
+  const [data, setData] = useState<ApiData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/crm/deadline-lock?month=${encodeURIComponent(month)}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Gagal memuat data');
+      setData(json.data);
+      setError('');
+    } catch (e) {
+      setError(String(e));
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [month]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
   return (
-    <ComingSoon
-      title="CRM Deadline Lock"
-      description="Kunci deadline order berdasarkan aturan CRM."
-    />
+    <div className="space-y-6">
+      {/* Header + month picker */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">CRM Deadline Lock</h1>
+          <p className="text-sm text-slate-400 mt-1">
+            Deadline order per tanggal ACC proofing. Reguler = 21 hari kerja, Express = N hari kerja, Prioritas = manual dari CS.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <label className="text-xs text-slate-500 uppercase tracking-wider">Bulan</label>
+          <input
+            type="month"
+            value={month}
+            onChange={e => setMonth(e.target.value)}
+            className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input"
+          />
+          <button
+            onClick={() => setMonth(currentYearMonth())}
+            className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors"
+          >
+            Bulan Ini
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-4 text-sm text-red-300">{error}</div>
+      )}
+
+      {/* Red banner header */}
+      <div className="rounded-lg bg-red-600 text-white text-center py-2 font-bold tracking-wide">
+        DEADLINE CUSTOMER {data?.monthName || '—'}
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-72 bg-white/[0.03] rounded-xl animate-pulse" />)}
+        </div>
+      ) : data && data.groups.length === 0 ? (
+        <div className="rounded-xl bg-[#111827] border border-white/[0.06] py-16 text-center">
+          <p className="text-sm text-slate-500">
+            Belum ada order dengan tanggal ACC proofing di bulan ini.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {data?.groups.map(group => (
+            <BoardTable key={group.date} group={group} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BoardTable({ group }: { group: Group }) {
+  return (
+    <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      {/* Date label */}
+      <div className="px-4 py-2 bg-white text-slate-800 border-b border-slate-200">
+        <p className="text-sm font-bold" title={fmtDateShort(group.date)}>{fmtDayYear(group.date)}</p>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-cyan-500/90 text-white">
+              <Th className="w-[7%] text-center">NO</Th>
+              <Th className="w-[24%]">CUST</Th>
+              <Th className="w-[7%] text-center">QTY</Th>
+              <Th className="w-[16%]">PAKET</Th>
+              <Th className="w-[18%]">BONUS</Th>
+              <Th className="w-[8%]">KET</Th>
+              <Th className="w-[10%] text-center">DL</Th>
+              <Th className="w-[10%] text-center">STTS</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {group.orders.map((o, i) => (
+              <tr key={o.no_order + i} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                <Td className="text-center text-slate-400">{i + 1}</Td>
+                <Td className="text-white font-medium">{o.cust || '-'}</Td>
+                <Td className="text-center text-white font-semibold tabular-nums">{o.qty || '-'}</Td>
+                <Td className="text-slate-300 truncate max-w-[180px]" title={o.paket}>{o.paket}</Td>
+                <Td className="text-slate-400 truncate max-w-[200px]" title={o.bonus}>{o.bonus || '-'}</Td>
+                <Td className="text-slate-500 truncate max-w-[100px]" title={o.ket}>{o.ket || '-'}</Td>
+                <Td className="text-center whitespace-nowrap font-semibold text-amber-400" title={o.pilihan_paket}>
+                  {o.deadline_lock ? fmtDateShort(o.deadline_lock) : '-'}
+                </Td>
+                <Td className="text-center">
+                  <span className="text-[9px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                    {o.stts}
+                  </span>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <th className={`text-[10px] font-bold uppercase tracking-wider px-2 py-2 ${className}`}>{children}</th>
+  );
+}
+
+function Td({ children, className = '', title }: { children: React.ReactNode; className?: string; title?: string }) {
+  return (
+    <td className={`px-2 py-2 ${className}`} title={title}>{children}</td>
   );
 }
