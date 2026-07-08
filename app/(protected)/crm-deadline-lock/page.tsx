@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { classifyLayanan } from '@/lib/business-days';
 
 type OrderRow = {
   no_order: string;
@@ -140,8 +141,16 @@ function BoardTable({ group }: { group: Group }) {
             </tr>
           </thead>
           <tbody>
-            {group.orders.map((o, i) => (
-              <tr key={o.no_order + i} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+            {group.orders.map((o, i) => {
+              // Same tint palette as Orders / CRM Finishing:
+              // Prioritas = orange, Express = red, Reguler/others = default.
+              const kind = classifyLayanan(o.pilihan_paket);
+              const rowTint =
+                kind === 'prioritas' ? 'bg-orange-500/[0.10] hover:bg-orange-500/[0.14]' :
+                kind === 'express'   ? 'bg-red-500/[0.10] hover:bg-red-500/[0.14]' :
+                'hover:bg-white/[0.02]';
+              return (
+              <tr key={o.no_order + i} className={`border-b border-white/[0.04] transition-colors ${rowTint}`}>
                 <Td className="text-center text-slate-400">{i + 1}</Td>
                 <Td className="text-white font-medium">{o.cust || '-'}</Td>
                 <Td className="text-center text-white font-semibold tabular-nums">{o.qty || '-'}</Td>
@@ -157,7 +166,8 @@ function BoardTable({ group }: { group: Group }) {
                   </span>
                 </Td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
