@@ -7,6 +7,10 @@ import { useAuth } from '@/lib/auth-context';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
+// Only this account gets the "Kembalikan" (roll back a stage) button.
+// Gated by email straight off the session so it works without re-login.
+const ROLLBACK_EMAIL = 'admin@gmail.com';
+
 const PROD_STAGES = [
   'Approval Design', 'Approval Pattern', 'Proofing', 'Printing Layout',
   'Approval Layout', 'Printing Process', 'Sublim Press', 'QC Panel Process',
@@ -275,7 +279,7 @@ export default function ProduksiPage() {
               <WoCard key={item.id} item={item} actions={
                 activeStageCanManage || isFullAccess ? (
                   <>
-                    {user?.isSuperAdmin && stages.findIndex((s: Row) => s.id === item.stage_id) > 0 && (
+                    {user?.username === ROLLBACK_EMAIL && stages.findIndex((s: Row) => s.id === item.stage_id) > 0 && (
                       <button onClick={() => handleKembalikan(item)}
                         className="text-xs font-medium text-amber-400 border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 rounded-lg hover:bg-amber-500/20 transition-colors flex items-center gap-1.5"
                         title="Kembalikan ke tahap sebelumnya">
