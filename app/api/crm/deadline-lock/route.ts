@@ -29,6 +29,17 @@ const MONTH_NAMES = [
 
 function isoDate(v: string | Date | null | undefined): string {
   if (!v) return '';
+  // mysql2 returns DATE columns as JS Date objects at local midnight by
+  // default, and `String(date)` prints something like
+  // "Tue Jun 02 2026 00:00:00 GMT+0700 (WIB)" — the YYYY-MM-DD regex
+  // won't match that, so extract the calendar date from the Date directly.
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return '';
+    const y = v.getFullYear();
+    const mo = String(v.getMonth() + 1).padStart(2, '0');
+    const d = String(v.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${d}`;
+  }
   const s = String(v);
   const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[1]}-${m[2]}-${m[3]}` : '';

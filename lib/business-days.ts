@@ -60,8 +60,8 @@ export function classifyLayanan(pilihanPaket: string | null | undefined): Layana
 // there's not enough info (e.g. Prioritas without a stored deadline).
 export function computeDeadlineLock(args: {
   pilihanPaket: string | null | undefined;
-  tanggalAccProofing: string | null | undefined;
-  deadlineLock: string | null | undefined;
+  tanggalAccProofing: string | Date | null | undefined;
+  deadlineLock: string | Date | null | undefined;
   holidays: Set<string>;
 }): string {
   const kind = classifyLayanan(args.pilihanPaket);
@@ -78,9 +78,17 @@ export function computeDeadlineLock(args: {
   return '';
 }
 
-// Normalize a possibly-datetime string (from MySQL) to YYYY-MM-DD.
-function normalizeIso(v: string | null | undefined): string {
+// Normalize a MySQL DATE value (either a string or a Date object — mysql2
+// defaults to Date at local midnight) to YYYY-MM-DD.
+function normalizeIso(v: string | Date | null | undefined): string {
   if (!v) return '';
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return '';
+    const y = v.getFullYear();
+    const mo = String(v.getMonth() + 1).padStart(2, '0');
+    const d = String(v.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${d}`;
+  }
   const m = String(v).match(/(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
 }
