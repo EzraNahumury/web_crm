@@ -39,6 +39,9 @@ export interface Order {
   trackingLink?: string;
   daysLeft?: number | null;
   riskLevel?: RiskLevel;
+  // Raw pilihan_paket string from orders (e.g. "Reguler", "Express - 3 hari",
+  // "Prioritas"). Used by the Orders table to tint the row per service tier.
+  pilihanPaket?: string;
 }
 
 export interface DashboardStats {

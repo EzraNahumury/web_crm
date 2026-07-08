@@ -11,6 +11,7 @@ import { formatDate } from '@/lib/utils';
 import { Pagination } from '@/lib/pagination';
 import CreateOrderDrawer from './create-order-drawer';
 import { dbUpdate } from '@/lib/api-db';
+import { classifyLayanan } from '@/lib/business-days';
 
 const STATUS_STYLES_DARK: Record<string, string> = {
   OPEN: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
@@ -335,9 +336,16 @@ export default function OrdersPage() {
             <tbody>
               {paged.map(order => {
                 const pct = order.progressPercent ?? 0;
+                // Row tint by service tier — same palette as CRM Finishing:
+                // Prioritas = orange, Express = red, Reguler/others = default.
+                const kind = classifyLayanan(order.pilihanPaket);
+                const rowTint =
+                  kind === 'prioritas' ? 'bg-orange-500/[0.10] hover:bg-orange-500/[0.14]' :
+                  kind === 'express'   ? 'bg-red-500/[0.10] hover:bg-red-500/[0.14]' :
+                  'hover:bg-white/[0.02]';
                 return (
                   <tr key={order.rowIndex}
-                    className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors cursor-pointer group"
+                    className={`border-b border-white/[0.03] transition-colors cursor-pointer group ${rowTint}`}
                     onClick={() => orderRouter.push(`/orders/${order.rowIndex}`)}>
                     <td className="px-4 py-3.5 text-white/20 font-mono text-[11px]">{order.no}</td>
                     <td className="px-4 py-3.5">

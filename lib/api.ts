@@ -282,6 +282,7 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
         deadlineLock: r.deadline_lock,
         holidays: holidaySet,
       })),
+      pilihanPaket: r.pilihan_paket || '',
       status,
       progress: { PROOFING: false, WAITINGLIST: false, PRINT: false, PRES: false, CUT_FABRIC: false, JAHIT: false, QC_JAHIT_STEAM: false, FINISHING: false, PENGIRIMAN: false },
       progressPercent,
