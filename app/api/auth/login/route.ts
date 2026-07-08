@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
       nama: row.nama,
       menuAccess,
       stageAccess,
+      isSuperAdmin: !!row.is_super_admin,
     };
     await setSession(user);
 

@@ -146,6 +146,33 @@ export default function ProduksiPage() {
     } catch (e) { toast.error('Gagal', String(e)); }
   }
 
+  // Super-admin-only: roll a WO back to the previous stage. Fixes accidental
+  // "Selesai & Lanjut" clicks on work that wasn't actually finished. Reopens
+  // the previous stage (TERSEDIA, timestamps cleared) and resets the current
+  // stage to BELUM. Does not restore deducted stock — that's a physical action.
+  async function handleKembalikan(progressRow: Row) {
+    const idx = stages.findIndex((s: Row) => s.id === progressRow.stage_id);
+    if (idx <= 0) { toast.error('Tidak Bisa', 'Sudah di tahap pertama, tidak ada tahap sebelumnya.'); return; }
+    const prevStage = stages[idx - 1];
+    const yes = await toast.confirm({
+      title: 'Kembalikan ke Tahap Sebelumnya?',
+      message: `WO ${progressRow.wo?.no_wo || ''} akan dikembalikan dari ${activeStage} ke ${prevStage.nama}.`,
+      type: 'warning',
+      confirmText: 'Ya, Kembalikan',
+    });
+    if (!yes) return;
+    try {
+      const prevProgress = progress.find((p: Row) => p.work_order_id === progressRow.work_order_id && p.stage_id === prevStage.id);
+      if (prevProgress) {
+        await dbUpdate('wo_progress', prevProgress.id, { status: 'TERSEDIA', completed_at: null });
+      }
+      await dbUpdate('wo_progress', progressRow.id, { status: 'BELUM', started_at: null, completed_at: null });
+      await dbUpdate('work_orders', progressRow.work_order_id, { current_stage_id: prevStage.id, status: 'PROSES_PRODUKSI' });
+      toast.success('Dikembalikan', `WO dikembalikan ke ${prevStage.nama}.`);
+      await fetchData();
+    } catch (e) { toast.error('Gagal', String(e)); }
+  }
+
   if (loading) return (
     <div className="space-y-4">
       <div className="h-12 bg-white/[0.03] rounded-lg animate-pulse" />
@@ -247,10 +274,20 @@ export default function ProduksiPage() {
             tersediaWos.map(item => (
               <WoCard key={item.id} item={item} actions={
                 activeStageCanManage || isFullAccess ? (
-                  <button onClick={() => handleSelesai(item)}
-                    className="text-xs font-medium text-emerald-400 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 rounded-lg hover:bg-emerald-500/20 transition-colors">
-                    Selesai & Lanjut
-                  </button>
+                  <>
+                    {user?.isSuperAdmin && stages.findIndex((s: Row) => s.id === item.stage_id) > 0 && (
+                      <button onClick={() => handleKembalikan(item)}
+                        className="text-xs font-medium text-amber-400 border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 rounded-lg hover:bg-amber-500/20 transition-colors flex items-center gap-1.5"
+                        title="Kembalikan ke tahap sebelumnya">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+                        Kembalikan
+                      </button>
+                    )}
+                    <button onClick={() => handleSelesai(item)}
+                      className="text-xs font-medium text-emerald-400 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 rounded-lg hover:bg-emerald-500/20 transition-colors">
+                      Selesai & Lanjut
+                    </button>
+                  </>
                 ) : (
                   <span className="text-xs text-slate-600 italic">Read only</span>
                 )

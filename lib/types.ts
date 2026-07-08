@@ -64,6 +64,9 @@ export interface User {
   nama?: string;
   menuAccess?: string[];
   stageAccess?: number[];
+  // True only for accounts flagged is_super_admin in the DB. Gates
+  // super-admin-only actions like rolling a WO back a production stage.
+  isSuperAdmin?: boolean;
 }
 
 export interface ApiResponse<T = unknown> {
