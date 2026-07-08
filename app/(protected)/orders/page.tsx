@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { apiGetOrders, apiGetOrdersForce } from '@/lib/api';
@@ -437,15 +437,15 @@ function TableSkeleton() {
   );
 }
 
-// Inline Tgl ACC Proofing editor. The visible label sits under an
-// opacity-0 <input type="date">, so a click on the cell drops the
-// native picker and the change hits the DB immediately — no need to
-// open the detail page for what's usually a one-value edit.
+// Inline Tgl ACC Proofing editor. Click the cell → open the native
+// date picker explicitly via HTMLInputElement.showPicker() and save
+// the change on pick without opening the detail page.
 function AccProofingCell({ orderId, value, onSaved }: {
   orderId: number;
   value: string;
   onSaved: (newValue: string) => void;
 }) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [local, setLocal] = useState(value);
   useEffect(() => { setLocal(value); }, [value]);
@@ -473,35 +473,55 @@ function AccProofingCell({ orderId, value, onSaved }: {
     }
   }
 
+  function openPicker(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (saving) return;
+    const el = inputRef.current;
+    if (!el) return;
+    // Prefer the explicit API — some browsers won't open the picker
+    // just because a hidden/opacity-0 input got a click through.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyEl = el as any;
+    if (typeof anyEl.showPicker === 'function') {
+      try { anyEl.showPicker(); return; } catch { /* fall through to focus */ }
+    }
+    el.focus();
+    el.click();
+  }
+
   return (
-    <div
-      className="relative group cursor-pointer rounded-md hover:bg-white/[0.04] transition-colors px-2 py-1 -mx-2 -my-1"
-      onClick={e => e.stopPropagation()}
+    <button
+      type="button"
+      onClick={openPicker}
+      disabled={saving}
       title="Klik untuk edit tanggal ACC proofing"
+      className="group inline-flex items-center gap-1.5 rounded-md px-2 py-1 -mx-2 -my-1 hover:bg-white/[0.04] transition-colors cursor-pointer disabled:cursor-wait"
     >
-      <div className="flex items-center gap-1.5">
-        <span className={`text-sm ${local ? 'text-white/60' : 'text-white/25'}`}>
-          {local ? formatDate(local) : '-'}
-        </span>
-        {saving ? (
-          <svg className="w-3 h-3 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-        ) : (
-          <svg className="w-3 h-3 text-white/15 group-hover:text-blue-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-          </svg>
-        )}
-      </div>
+      <span className={`text-sm ${local ? 'text-white/60' : 'text-white/25'}`}>
+        {local ? formatDate(local) : '-'}
+      </span>
+      {saving ? (
+        <svg className="w-3 h-3 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+      ) : (
+        <svg className="w-3 h-3 text-white/15 group-hover:text-blue-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+        </svg>
+      )}
+      {/* Hidden native picker driven programmatically. Kept in the DOM so
+          showPicker()/click() has something to invoke. Zero size so it
+          never blocks the visible content. */}
       <input
+        ref={inputRef}
         type="date"
         value={isoValue}
         onChange={e => commit(e.target.value)}
         onClick={e => e.stopPropagation()}
-        disabled={saving}
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-wait"
+        tabIndex={-1}
+        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
       />
-    </div>
+    </button>
   );
 }
