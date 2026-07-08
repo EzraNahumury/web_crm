@@ -35,6 +35,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   wo_progress:       { columns: '*', filterCols: ['work_order_id'] },
   monitoring_produksi: { columns: '*', filterCols: ['id', 'order_id', 'board'] },
   crm_finishing:     { columns: '*', filterCols: ['id', 'order_id'] },
+  libur_nasional:    { columns: '*', filterCols: ['id'] },
   stok:              { columns: 's.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['s.id', 's.barang_id'] },
   stok_adjustment:   { columns: 'sa.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['sa.id', 'sa.barang_id'] },
 };

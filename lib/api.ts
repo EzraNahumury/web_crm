@@ -1,5 +1,6 @@
 import { Order, DashboardStats, ApiResponse } from './types';
 import { getCached, setCached, invalidateCache } from './cache';
+import { computeDeadlineLock } from './business-days';
 
 // ─── Auth ───────────────────────────────────────────────
 export async function apiLogin(username: string, password: string) {
@@ -16,19 +17,21 @@ export async function apiGetOrders(): Promise<ApiResponse<Order[]>> {
   const cached = getCached<Order[]>('wp_orders');
   if (cached) return { success: true, data: cached };
 
-  const [ordersRes, itemsRes, woRes, wpRes, stagesRes] = await Promise.all([
+  const [ordersRes, itemsRes, woRes, wpRes, stagesRes, holidaysRes] = await Promise.all([
     fetch('/api/db/orders').then(r => r.json()),
     fetch('/api/db/order_items').then(r => r.json()),
     fetch('/api/db/work_orders').then(r => r.json()),
     fetch('/api/db/wo_progress').then(r => r.json()),
     fetch('/api/db/production_stages').then(r => r.json()),
+    fetch('/api/db/libur_nasional').then(r => r.json()).catch(() => ({ success: false, data: [] })),
   ]);
   if (ordersRes.success && ordersRes.data) {
     const items = itemsRes.success ? itemsRes.data : [];
     const wos = woRes.success ? woRes.data : [];
     const wps = wpRes.success ? wpRes.data : [];
     const stages = stagesRes.success ? stagesRes.data : [];
-    const orders = mapOrders(ordersRes.data, items, wos, wps, stages);
+    const holidays = holidaysRes?.success ? holidaysRes.data : [];
+    const orders = mapOrders(ordersRes.data, items, wos, wps, stages, holidays);
     setCached('wp_orders', orders);
     return { success: true, data: orders };
   }
@@ -45,15 +48,16 @@ export async function apiGetDashboard(): Promise<ApiResponse<DashboardStats>> {
   const cached = getCached<DashboardStats>('wp_dashboard');
   if (cached) return { success: true, data: cached };
 
-  const [oRes, iRes, woRes, wpRes, stagesRes] = await Promise.all([
+  const [oRes, iRes, woRes, wpRes, stagesRes, holidaysRes] = await Promise.all([
     fetch('/api/db/orders').then(r => r.json()),
     fetch('/api/db/order_items').then(r => r.json()),
     fetch('/api/db/work_orders').then(r => r.json()),
     fetch('/api/db/wo_progress').then(r => r.json()),
     fetch('/api/db/production_stages').then(r => r.json()),
+    fetch('/api/db/libur_nasional').then(r => r.json()).catch(() => ({ success: false, data: [] })),
   ]);
   if (oRes.success && oRes.data) {
-    const orders = mapOrders(oRes.data, iRes.success ? iRes.data : [], woRes.success ? woRes.data : [], wpRes.success ? wpRes.data : [], stagesRes.success ? stagesRes.data : []);
+    const orders = mapOrders(oRes.data, iRes.success ? iRes.data : [], woRes.success ? woRes.data : [], wpRes.success ? wpRes.data : [], stagesRes.success ? stagesRes.data : [], holidaysRes?.success ? holidaysRes.data : []);
     const stats = computeStats(orders);
     setCached('wp_dashboard', stats);
     return { success: true, data: stats };
@@ -94,12 +98,16 @@ interface DbOrder {
   tracking_link: string;
   tanggal_acc_proofing: string;
   nama_tim: string;
+  pilihan_paket?: string | null;
+  deadline_lock?: string | null;
   created_at: string;
   // joined from order_items (first item for compat)
   paket_nama?: string;
   bahan_kain?: string;
   qty?: number;
 }
+
+interface DbHoliday { tanggal: string }
 
 interface DbItem {
   order_id: number;
@@ -128,8 +136,23 @@ interface DbStage {
   nama: string;
 }
 
-function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps: DbWp[] = [], stages: DbStage[] = []): Order[] {
+// Extract YYYY-MM-DD from any MySQL date value (string or Date returned by
+// mysql2). Kept identical to the /api/crm/deadline-lock isoDate helper.
+function normalizeDateOnly(v: string | Date | null | undefined): string {
+  if (!v) return '';
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return '';
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  const m = String(v).match(/(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+}
+
+function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps: DbWp[] = [], stages: DbStage[] = [], holidays: DbHoliday[] = []): Order[] {
   const today = new Date(); today.setHours(0, 0, 0, 0);
+  // Business-day calculator input — same source as CRM Deadline Lock so
+  // "Tgl Selesai" here matches the deadline shown there.
+  const holidaySet = new Set(holidays.map(h => normalizeDateOnly(h.tanggal)).filter(Boolean));
 
   // Group items by order_id (collect all)
   const itemsMap: Record<number, DbItem[]> = {};
@@ -249,7 +272,16 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
       dpProduksi: fmtDate(r.tanggal_order),
       dlCust: fmtDate(r.estimasi_deadline),
       noWorkOrder: woNoList.join(', '),
-      tglSelesai: fmtDate(r.estimasi_deadline),
+      // Tgl Selesai = deadline lock. Same rules as CRM Deadline Lock:
+      //   Reguler   → tanggal_acc_proofing + 21 working days
+      //   Express N → tanggal_acc_proofing + N working days
+      //   Prioritas → orders.deadline_lock (manual from CS)
+      tglSelesai: fmtDate(computeDeadlineLock({
+        pilihanPaket: r.pilihan_paket,
+        tanggalAccProofing: r.tanggal_acc_proofing,
+        deadlineLock: r.deadline_lock,
+        holidays: holidaySet,
+      })),
       status,
       progress: { PROOFING: false, WAITINGLIST: false, PRINT: false, PRES: false, CUT_FABRIC: false, JAHIT: false, QC_JAHIT_STEAM: false, FINISHING: false, PENGIRIMAN: false },
       progressPercent,
