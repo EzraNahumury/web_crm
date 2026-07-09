@@ -118,6 +118,7 @@ export default function CrmDeadlineLockPage() {
 }
 
 function BoardTable({ group }: { group: Group }) {
+  const totalQty = group.orders.reduce((s, o) => s + (Number(o.qty) || 0), 0);
   return (
     <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
       {/* Date label */}
@@ -169,6 +170,17 @@ function BoardTable({ group }: { group: Group }) {
               );
             })}
           </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-white/[0.15] bg-white/[0.04]">
+              <td className="px-2 py-2 text-right text-[11px] font-bold text-slate-300 uppercase tracking-wider" colSpan={2}>
+                Total QTY
+              </td>
+              <td className="px-2 py-2 text-center text-sm font-bold text-white tabular-nums">
+                {totalQty}
+              </td>
+              <td className="px-2 py-2" colSpan={5}>&nbsp;</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>

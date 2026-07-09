@@ -395,16 +395,19 @@ function BoardCard({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b-2 border-white/[0.1] bg-white/[0.02]">
-              <Th className="w-[36%]">TIM / CUSTOMER</Th>
-              <Th className="w-[10%] text-center">QTY</Th>
-              <Th className="w-[18%] text-center">PAKET</Th>
-              <Th className="w-[12%] text-center">CECKLIST</Th>
-              {isProofing && <Th>KETERANGAN</Th>}
+      {/* Table — thead + tfoot sticky within the card's own scroll so the
+          header stays visible when the row list gets long. Card body
+          capped by max-h so 4 cards side-by-side don't force full page
+          scroll to reach a footer. */}
+      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-320px)]">
+        <table className="w-full text-xs border-separate border-spacing-0">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-[#111827]">
+              <Th className="w-[36%] border-b-2 border-white/[0.1] bg-white/[0.04]">TIM / CUSTOMER</Th>
+              <Th className="w-[10%] text-center border-b-2 border-white/[0.1] bg-white/[0.04]">QTY</Th>
+              <Th className="w-[18%] text-center border-b-2 border-white/[0.1] bg-white/[0.04]">PAKET</Th>
+              <Th className="w-[12%] text-center border-b-2 border-white/[0.1] bg-white/[0.04]">CECKLIST</Th>
+              {isProofing && <Th className="border-b-2 border-white/[0.1] bg-white/[0.04]">KETERANGAN</Th>}
             </tr>
           </thead>
           <tbody>
@@ -461,16 +464,16 @@ function BoardCard({
               </>
             )}
           </tbody>
-          {/* Total footer */}
-          <tfoot>
-            <tr className="border-t-2 border-white/[0.15] bg-white/[0.04]">
-              <td className="px-3 py-2 text-right text-[11px] font-bold text-slate-300 uppercase tracking-wider" colSpan={1}>
+          {/* Total footer — sticky so it stays visible while scrolling */}
+          <tfoot className="sticky bottom-0 z-10">
+            <tr className="bg-[#1c2437]">
+              <td className="px-3 py-2 text-right text-[11px] font-bold text-slate-300 uppercase tracking-wider border-t-2 border-white/[0.15]" colSpan={1}>
                 Total QTY
               </td>
-              <td className="px-3 py-2 text-center text-sm font-bold text-white tabular-nums">
+              <td className="px-3 py-2 text-center text-sm font-bold text-white tabular-nums border-t-2 border-white/[0.15]">
                 {totalQty}
               </td>
-              <td className="px-3 py-2" colSpan={colCount - 2}>&nbsp;</td>
+              <td className="px-3 py-2 border-t-2 border-white/[0.15]" colSpan={colCount - 2}>&nbsp;</td>
             </tr>
           </tfoot>
         </table>
