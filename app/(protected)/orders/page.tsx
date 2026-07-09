@@ -185,6 +185,18 @@ export default function OrdersPage() {
 
   useEffect(() => { setPage(1); }, [search, statusFilter, riskFilter, monthFilter]);
 
+  // Sum qty per tanggal_acc_proofing across ALL orders (not just the paged
+  // slice) — feeds the capacity indicator in the AccProofingCell picker.
+  const qtyByAccDate = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const o of orders) {
+      const iso = extractIso(o.tglAccProofing || '');
+      if (!iso) continue;
+      m[iso] = (m[iso] || 0) + (Number(o.qty) || 0);
+    }
+    return m;
+  }, [orders]);
+
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -364,6 +376,8 @@ export default function OrdersPage() {
                       <AccProofingCell
                         orderId={order.rowIndex}
                         value={order.tglAccProofing || ''}
+                        qtyByDate={qtyByAccDate}
+                        thisOrderQty={order.qty || 0}
                         onSaved={(newVal) => {
                           setOrders(prev => prev.map(o =>
                             o.rowIndex === order.rowIndex ? { ...o, tglAccProofing: newVal } : o
@@ -445,35 +459,70 @@ function TableSkeleton() {
   );
 }
 
-// Inline Tgl ACC Proofing editor. Click the cell → open the native
-// date picker explicitly via HTMLInputElement.showPicker() and save
-// the change on pick without opening the detail page.
-function AccProofingCell({ orderId, value, onSaved }: {
+// Extract YYYY-MM-DD from any date-ish string (DD/MM/YYYY, DD Bul YYYY,
+// ISO, whatever the fmtDate on the parent returned).
+function extractIso(v: string): string {
+  if (!v) return '';
+  // Direct ISO
+  const iso = v.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  // DD/MM/YYYY
+  const dmy = v.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  // Fallback: parse via Date
+  const d = new Date(v);
+  if (!isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  return '';
+}
+
+const CAPACITY_PER_DAY = 200;
+const MONTH_NAMES_ID = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const DAY_LABELS_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+// Custom calendar picker with per-day qty totals and a warning tooltip
+// whenever a day already carries >200 pcs of ACC proofing. Days above
+// capacity stay clickable — the tooltip is advisory, not blocking.
+function AccProofingCell({ orderId, value, onSaved, qtyByDate, thisOrderQty }: {
   orderId: number;
   value: string;
   onSaved: (newValue: string) => void;
+  qtyByDate: Record<string, number>;
+  thisOrderQty: number;
 }) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [local, setLocal] = useState(value);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+
   useEffect(() => { setLocal(value); }, [value]);
 
-  // Convert a possibly-ISO or datetime value into YYYY-MM-DD for the input
-  const isoValue = (() => {
-    const m = String(local || '').match(/(\d{4})-(\d{2})-(\d{2})/);
-    return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
-  })();
+  const isoValue = extractIso(local);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
 
   async function commit(newIso: string) {
-    if (newIso === isoValue) return;
+    if (newIso === isoValue) { setOpen(false); return; }
     setSaving(true);
+    setOpen(false);
     const prev = local;
     setLocal(newIso); // optimistic
     try {
       await dbUpdate('orders', orderId, { tanggal_acc_proofing: newIso || null });
       onSaved(newIso);
     } catch (e) {
-      setLocal(prev); // rollback
+      setLocal(prev);
       console.error('Failed to save tanggal_acc_proofing', e);
       alert('Gagal menyimpan tanggal: ' + String(e));
     } finally {
@@ -481,55 +530,185 @@ function AccProofingCell({ orderId, value, onSaved }: {
     }
   }
 
-  function openPicker(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (saving) return;
-    const el = inputRef.current;
-    if (!el) return;
-    // Prefer the explicit API — some browsers won't open the picker
-    // just because a hidden/opacity-0 input got a click through.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyEl = el as any;
-    if (typeof anyEl.showPicker === 'function') {
-      try { anyEl.showPicker(); return; } catch { /* fall through to focus */ }
-    }
-    el.focus();
-    el.click();
+  return (
+    <div ref={wrapRef} className="relative inline-block" onClick={e => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => !saving && setOpen(o => !o)}
+        disabled={saving}
+        title="Klik untuk edit tanggal ACC proofing"
+        className="group inline-flex items-center gap-1.5 rounded-md px-2 py-1 -mx-2 -my-1 hover:bg-white/[0.04] transition-colors cursor-pointer disabled:cursor-wait"
+      >
+        <span className={`text-sm ${local ? 'text-white/60' : 'text-white/25'}`}>
+          {local ? formatDate(local) : '-'}
+        </span>
+        {saving ? (
+          <svg className="w-3 h-3 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <svg className="w-3 h-3 text-white/15 group-hover:text-blue-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+          </svg>
+        )}
+      </button>
+
+      {open && (
+        <CapacityCalendar
+          value={isoValue}
+          qtyByDate={qtyByDate}
+          thisOrderIso={isoValue}
+          thisOrderQty={thisOrderQty}
+          onPick={commit}
+          onClear={() => commit('')}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CapacityCalendar({ value, qtyByDate, thisOrderIso, thisOrderQty, onPick, onClear, onClose }: {
+  value: string;
+  qtyByDate: Record<string, number>;
+  thisOrderIso: string;
+  thisOrderQty: number;
+  onPick: (iso: string) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const today = new Date();
+  const initial = value ? new Date(`${value}T00:00:00`) : today;
+  const [viewYear, setViewYear] = useState(initial.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initial.getMonth()); // 0-indexed
+
+  function shiftMonth(delta: number) {
+    let m = viewMonth + delta;
+    let y = viewYear;
+    while (m < 0) { m += 12; y -= 1; }
+    while (m > 11) { m -= 12; y += 1; }
+    setViewYear(y);
+    setViewMonth(m);
   }
 
+  // Build the 6-week grid starting from the Sunday on/before the 1st.
+  const firstOfMonth = new Date(viewYear, viewMonth, 1);
+  const gridStart = new Date(firstOfMonth);
+  gridStart.setDate(1 - firstOfMonth.getDay());
+  const cells: { iso: string; day: number; inMonth: boolean }[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    cells.push({ iso, day: d.getDate(), inMonth: d.getMonth() === viewMonth });
+  }
+
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
   return (
-    <button
-      type="button"
-      onClick={openPicker}
-      disabled={saving}
-      title="Klik untuk edit tanggal ACC proofing"
-      className="group inline-flex items-center gap-1.5 rounded-md px-2 py-1 -mx-2 -my-1 hover:bg-white/[0.04] transition-colors cursor-pointer disabled:cursor-wait"
+    <div
+      className="absolute z-50 mt-2 left-0 w-[300px] bg-[#0f1626] border border-white/10 rounded-xl shadow-2xl shadow-black/50 p-3"
+      onClick={e => e.stopPropagation()}
     >
-      <span className={`text-sm ${local ? 'text-white/60' : 'text-white/25'}`}>
-        {local ? formatDate(local) : '-'}
-      </span>
-      {saving ? (
-        <svg className="w-3 h-3 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-      ) : (
-        <svg className="w-3 h-3 text-white/15 group-hover:text-blue-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-        </svg>
-      )}
-      {/* Hidden native picker driven programmatically. Kept in the DOM so
-          showPicker()/click() has something to invoke. Zero size so it
-          never blocks the visible content. */}
-      <input
-        ref={inputRef}
-        type="date"
-        value={isoValue}
-        onChange={e => commit(e.target.value)}
-        onClick={e => e.stopPropagation()}
-        tabIndex={-1}
-        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-      />
-    </button>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <button
+          type="button"
+          onClick={() => shiftMonth(-1)}
+          className="w-7 h-7 grid place-items-center rounded-md text-white/60 hover:text-white hover:bg-white/[0.06]"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+        </button>
+        <p className="text-sm font-semibold text-white">{MONTH_NAMES_ID[viewMonth]} {viewYear}</p>
+        <button
+          type="button"
+          onClick={() => shiftMonth(1)}
+          className="w-7 h-7 grid place-items-center rounded-md text-white/60 hover:text-white hover:bg-white/[0.06]"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+        </button>
+      </div>
+
+      {/* Day labels */}
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {DAY_LABELS_SHORT.map(d => (
+          <div key={d} className="text-center text-[10px] text-white/30 font-semibold">{d}</div>
+        ))}
+      </div>
+
+      {/* Grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map(c => {
+          const qty = qtyByDate[c.iso] || 0;
+          const isSelected = c.iso === value;
+          const isToday = c.iso === todayIso;
+          const overCap = qty > CAPACITY_PER_DAY;
+          // If this day is the CURRENT ACC of this order, subtract it so
+          // the number reflects "what would remain if I move this order elsewhere".
+          const displayQty = qty > 0 ? qty : 0;
+          const wouldGoOver = !isSelected && qty + thisOrderQty > CAPACITY_PER_DAY;
+
+          const tooltip = qty > 0
+            ? (overCap
+                ? `Total ${qty} pcs pada tanggal ini (melebihi maks ${CAPACITY_PER_DAY} pcs/hari). Tetap bisa dipilih.`
+                : wouldGoOver
+                  ? `Total ${qty} pcs. Jika order ini (${thisOrderQty} pcs) dipindah ke sini akan jadi ${qty + thisOrderQty} pcs (melebihi ${CAPACITY_PER_DAY} pcs/hari).`
+                  : `Total ${qty} pcs pada tanggal ini`)
+            : (thisOrderQty > CAPACITY_PER_DAY ? `Order ini ${thisOrderQty} pcs (melebihi maks ${CAPACITY_PER_DAY} pcs/hari)` : '');
+
+          return (
+            <button
+              key={c.iso}
+              type="button"
+              onClick={() => onPick(c.iso)}
+              title={tooltip}
+              className={`aspect-square flex flex-col items-center justify-center rounded-md text-[10px] transition-colors ${
+                !c.inMonth ? 'text-white/15' :
+                isSelected ? 'bg-blue-600 text-white ring-2 ring-blue-400/60' :
+                overCap ? 'bg-red-500/[0.15] text-red-300 hover:bg-red-500/[0.25] border border-red-500/40' :
+                wouldGoOver ? 'bg-amber-500/[0.10] text-amber-200 hover:bg-amber-500/[0.20] border border-amber-500/30' :
+                isToday ? 'bg-blue-500/[0.15] text-blue-300 hover:bg-blue-500/[0.25]' :
+                'text-white/70 hover:bg-white/[0.06]'
+              }`}
+            >
+              <span className={`text-xs leading-none ${isSelected ? 'font-bold' : 'font-semibold'}`}>{c.day}</span>
+              {displayQty > 0 && (
+                <span className={`text-[9px] leading-none mt-0.5 tabular-nums ${
+                  isSelected ? 'text-white/90' :
+                  overCap ? 'text-red-300 font-bold' :
+                  wouldGoOver ? 'text-amber-300 font-semibold' :
+                  'text-white/40'
+                }`}>{displayQty}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.06]">
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-[11px] text-slate-400 hover:text-white transition-colors"
+        >
+          Clear
+        </button>
+        <div className="flex items-center gap-2 text-[9px] text-white/40">
+          <span className="inline-flex items-center gap-1">
+            <span className="w-2 h-2 rounded-sm bg-red-500/40 border border-red-500" />
+            &gt;{CAPACITY_PER_DAY}/hari
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[11px] text-slate-400 hover:text-white transition-colors"
+        >
+          Tutup
+        </button>
+      </div>
+    </div>
   );
 }
