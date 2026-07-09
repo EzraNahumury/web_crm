@@ -85,6 +85,126 @@ function weekLater() {
   return d.toISOString().split('T')[0];
 }
 
+// Dropdown with a search box on top. Renders the visible trigger the same
+// way our other selects look so it drops in as a swap for a <select>.
+// Options are strings; the caller controls option list + which value maps
+// back to which id via getOptionKey/getOptionValue when it needs the id.
+interface Option { value: string; label: string; sublabel?: string }
+function SearchableSelect({
+  value,
+  options,
+  placeholder = 'Pilih...',
+  disabled,
+  onChange,
+  className = '',
+  maxHeight = 240,
+}: {
+  value: string;
+  options: Option[];
+  placeholder?: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  className?: string;
+  maxHeight?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selectedLabel = useMemo(
+    () => options.find(o => o.value === value)?.label ?? '',
+    [options, value]
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(o =>
+      o.label.toLowerCase().includes(q)
+      || (o.sublabel || '').toLowerCase().includes(q)
+    );
+  }, [options, search]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+
+  // Autofocus the search box the moment the panel opens.
+  useEffect(() => {
+    if (open && inputRef.current) inputRef.current.focus();
+  }, [open]);
+
+  const triggerCls = `w-full bg-[#0d1117] border border-white/10 text-white text-left focus:border-blue-500/50 focus:outline-none rounded-lg px-4 py-2.5 text-sm transition-colors cursor-pointer flex items-center justify-between gap-2 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`;
+
+  return (
+    <div ref={wrapRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        onClick={() => !disabled && setOpen(o => !o)}
+        className={triggerCls}
+        disabled={disabled}
+      >
+        <span className={selectedLabel ? 'text-white' : 'text-slate-500'}>
+          {selectedLabel || placeholder}
+        </span>
+        <svg className={`w-4 h-4 text-slate-500 transition-transform shrink-0 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute z-30 top-full mt-1 left-0 right-0 bg-[#0c1120] border border-white/10 rounded-lg shadow-xl shadow-black/60 overflow-hidden">
+          <div className="p-2 border-b border-white/[0.06]">
+            <div className="relative">
+              <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input
+                ref={inputRef}
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Cari..."
+                autoComplete="off"
+                className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 text-xs pl-7 pr-2 py-1.5 rounded-md focus:outline-none focus:border-blue-500/40"
+              />
+            </div>
+          </div>
+          <div className="overflow-y-auto" style={{ maxHeight }}>
+            {filtered.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-4">Tidak ada hasil</p>
+            ) : (
+              filtered.map(o => {
+                const active = o.value === value;
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => { onChange(o.value); setOpen(false); setSearch(''); }}
+                    className={`w-full text-left px-3 py-2 text-xs transition-colors ${active ? 'bg-blue-500/[0.15] text-white' : 'text-slate-300 hover:bg-white/[0.04] hover:text-white'}`}
+                  >
+                    <p className="truncate">{o.label}</p>
+                    {o.sublabel && <p className="text-[10px] text-slate-500 truncate">{o.sublabel}</p>}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CreateOrderDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [customer, setCustomer] = useState('');
   const [alamat, setAlamat] = useState('');
@@ -387,35 +507,47 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
               </div>
               <div>
                 <label className={`${labelCls} text-amber-400`}>Provinsi</label>
-                <select value={provId} onChange={e => {
-                  const sel = provList.find(p => p.id === e.target.value);
-                  setProvId(e.target.value); setProvinsi(sel?.name || '');
-                  setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
-                }} className={selectCls} disabled={provLoading}>
-                  <option value="">{provLoading ? 'Memuat...' : 'Pilih provinsi...'}</option>
-                  {provList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={provId}
+                  options={provList.map(p => ({ value: p.id, label: p.name }))}
+                  placeholder={provLoading ? 'Memuat...' : 'Pilih provinsi...'}
+                  disabled={provLoading}
+                  onChange={v => {
+                    const sel = provList.find(p => p.id === v);
+                    setProvId(v);
+                    setProvinsi(sel?.name || '');
+                    setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
+                  }}
+                />
               </div>
               <div>
                 <label className={labelCls}>Kabupaten/Kota</label>
-                <select value={kabId} onChange={e => {
-                  const sel = kabList.find(k => k.id === e.target.value);
-                  setKabId(e.target.value); setKabupaten(sel?.name || '');
-                  setKecId(''); setKecamatan('');
-                }} className={selectCls} disabled={!provId || kabLoading}>
-                  <option value="">{kabLoading ? 'Memuat...' : !provId ? 'Pilih provinsi dulu' : 'Pilih kabupaten/kota...'}</option>
-                  {kabList.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={kabId}
+                  options={kabList.map(k => ({ value: k.id, label: k.name }))}
+                  placeholder={kabLoading ? 'Memuat...' : !provId ? 'Pilih provinsi dulu' : 'Pilih kabupaten/kota...'}
+                  disabled={!provId || kabLoading}
+                  onChange={v => {
+                    const sel = kabList.find(k => k.id === v);
+                    setKabId(v);
+                    setKabupaten(sel?.name || '');
+                    setKecId(''); setKecamatan('');
+                  }}
+                />
               </div>
               <div>
                 <label className={labelCls}>Kecamatan</label>
-                <select value={kecId} onChange={e => {
-                    const sel = kecList.find(k => k.id === e.target.value);
-                    setKecId(e.target.value); setKecamatan(sel?.name || '');
-                  }} className={selectCls} disabled={!kabId || kecLoading}>
-                  <option value="">{kecLoading ? 'Memuat...' : !kabId ? 'Pilih kab/kota dulu' : 'Pilih kecamatan...'}</option>
-                  {kecList.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={kecId}
+                  options={kecList.map(k => ({ value: k.id, label: k.name }))}
+                  placeholder={kecLoading ? 'Memuat...' : !kabId ? 'Pilih kab/kota dulu' : 'Pilih kecamatan...'}
+                  disabled={!kabId || kecLoading}
+                  onChange={v => {
+                    const sel = kecList.find(k => k.id === v);
+                    setKecId(v);
+                    setKecamatan(sel?.name || '');
+                  }}
+                />
               </div>
               <div>
                 <label className={labelCls}>No HP<span className="text-red-500 ml-0.5">*</span></label>
@@ -528,11 +660,15 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                     <div key={db.id} className={`flex items-center ${idx !== 0 ? 'border-t border-white/[0.06]' : ''}`}>
                       <input value={db.bagian} onChange={e => setDetailBahan(prev => prev.map(d => d.id === db.id ? { ...d, bagian: e.target.value } : d))}
                         className="text-xs font-medium text-slate-400 w-[140px] shrink-0 px-3 py-2.5 bg-white/[0.02] uppercase border-0 focus:outline-none focus:text-white" placeholder="Nama bagian" />
-                      <select value={db.bahan} onChange={e => setDetailBahan(prev => prev.map(d => d.id === db.id ? { ...d, bahan: e.target.value } : d))}
-                        className="flex-1 bg-transparent border-0 border-l border-white/[0.06] text-white text-sm px-3 py-2.5 focus:outline-none focus:bg-white/[0.02] appearance-none cursor-pointer">
-                        <option value="">Pilih bahan</option>
-                        {[...barangList].sort((a, b) => String(a.nama).localeCompare(String(b.nama))).map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
-                      </select>
+                      <div className="flex-1 border-l border-white/[0.06]">
+                        <SearchableSelect
+                          value={db.bahan}
+                          options={[...barangList].sort((a, b) => String(a.nama).localeCompare(String(b.nama))).map(b => ({ value: String(b.nama), label: String(b.nama) }))}
+                          placeholder="Pilih bahan"
+                          onChange={v => setDetailBahan(prev => prev.map(d => d.id === db.id ? { ...d, bahan: v } : d))}
+                          className="[&>button]:!bg-transparent [&>button]:!border-0 [&>button]:!rounded-none [&>button]:!py-2.5"
+                        />
+                      </div>
                       <button onClick={() => setDetailBahan(prev => prev.filter(d => d.id !== db.id))}
                         className="shrink-0 text-slate-500 hover:text-red-400 transition-colors px-2 py-2.5 border-l border-white/[0.06]">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
