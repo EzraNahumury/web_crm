@@ -60,6 +60,16 @@ export default function WorkOrdersPage() {
     }
   }, [modalOpen]);
 
+  // Keep a valid selection so "Buat Work Order" is enabled. A single-option
+  // native <select> never fires onChange for its lone item, so selectedOrderId
+  // would stay '' and the button stays disabled. Default to the first match.
+  useEffect(() => {
+    if (!modalOpen || filteredPending.length === 0) return;
+    if (!filteredPending.some((o: Row) => String(o.id) === selectedOrderId)) {
+      setSelectedOrderId(String(filteredPending[0].id));
+    }
+  }, [modalOpen, filteredPending, selectedOrderId]);
+
   async function fetchData() {
     setLoading(true);
     try {
