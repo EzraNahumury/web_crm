@@ -31,10 +31,15 @@ const BOARDS: Board[] = [
 
 // Board progression. Checking the last board sends the row to 'history'.
 const BOARD_SEQ: BoardKey[] = ['proofing', 'perbanyak', 'print-fedar', 'print-grando'];
+// Perbanyak fans out to Fedar and/or Grando via a picker modal (handled
+// separately). For every other board the check goes to the next stage
+// linearly, and Fedar/Grando both end in history.
 function nextBoard(cur: string): string {
-  const i = BOARD_SEQ.indexOf(cur as BoardKey);
-  if (i < 0 || i >= BOARD_SEQ.length - 1) return 'history';
-  return BOARD_SEQ[i + 1];
+  if (cur === 'proofing') return 'perbanyak';
+  if (cur === 'print-fedar' || cur === 'print-grando') return 'history';
+  // Perbanyak is handled by the modal — this fallback should not be hit
+  // in practice.
+  return 'history';
 }
 
 const KETERANGAN_OPTIONS = ['Belum ACC', 'Revisi Proofing'];
@@ -142,7 +147,15 @@ export default function MonitoringProduksiPage() {
     return map;
   }, [rows, showAll, selectedDate]);
 
+  // Perbanyak → picker modal. Every other board still uses the linear
+  // advance flow.
+  const [perbanyakPickerRow, setPerbanyakPickerRow] = useState<Row | null>(null);
+
   async function advance(row: Row) {
+    if (row.board === 'perbanyak') {
+      setPerbanyakPickerRow(row);
+      return;
+    }
     setBusyId(row.mpId);
     const target = nextBoard(row.board);
     try {
@@ -152,6 +165,39 @@ export default function MonitoringProduksiPage() {
       if (target === 'history') {
         toast.success('Selesai', `${row.tim || row.customer} masuk ke History Monitoring.`);
       }
+      await load();
+    } catch (e) {
+      toast.error('Gagal', String(e));
+    }
+    setBusyId(null);
+  }
+
+  // Called from the picker modal after CS confirms which board(s) the row
+  // should land on. Updates the existing Perbanyak row to the first
+  // destination and — if both destinations are picked — inserts an extra
+  // row for the second board (composite (order_id, board) UNIQUE key
+  // allows this).
+  async function moveFromPerbanyak(row: Row, dests: BoardKey[]) {
+    if (dests.length === 0) return;
+    setBusyId(row.mpId);
+    setPerbanyakPickerRow(null);
+    try {
+      const [first, ...rest] = dests;
+      await dbUpdate('monitoring_produksi', row.mpId, { board: first });
+      for (const b of rest) {
+        await dbCreate('monitoring_produksi', {
+          order_id: row.orderId,
+          board: b,
+          keterangan: row.keterangan || 'Belum ACC',
+        });
+      }
+      const labelMap: Record<BoardKey, string> = {
+        proofing: 'Proofing',
+        perbanyak: 'Perbanyak',
+        'print-fedar': 'Print Fedar',
+        'print-grando': 'Print Grando',
+      };
+      toast.success('Dipindahkan', `${row.tim || row.customer} → ${dests.map(d => labelMap[d]).join(' + ')}`);
       await load();
     } catch (e) {
       toast.error('Gagal', String(e));
@@ -232,6 +278,100 @@ export default function MonitoringProduksiPage() {
               onKeterangan={changeKeterangan}
             />
           ))}
+        </div>
+      </div>
+
+      {perbanyakPickerRow && (
+        <PerbanyakPicker
+          row={perbanyakPickerRow}
+          onCancel={() => setPerbanyakPickerRow(null)}
+          onConfirm={dests => moveFromPerbanyak(perbanyakPickerRow, dests)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PerbanyakPicker({
+  row, onCancel, onConfirm,
+}: {
+  row: Row;
+  onCancel: () => void;
+  onConfirm: (dests: BoardKey[]) => void;
+}) {
+  const [fedar, setFedar] = useState(true);
+  const [grando, setGrando] = useState(false);
+  const disabled = !fedar && !grando;
+
+  function confirm() {
+    const dests: BoardKey[] = [];
+    if (fedar) dests.push('print-fedar');
+    if (grando) dests.push('print-grando');
+    onConfirm(dests);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="bg-[#141a2e] border border-white/10 rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-base font-bold text-white">Pindahkan ke Tabel Print</h3>
+            <p className="text-xs text-slate-400 mt-1">Pilih 1 atau kedua tujuan print untuk order ini.</p>
+          </div>
+          <button onClick={onCancel} className="text-slate-500 hover:text-white p-1">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-4 py-3 mb-5">
+          <p className="text-sm font-semibold text-white">{row.tim || row.customer || '-'}</p>
+          {row.tim && row.customer && row.tim !== row.customer && (
+            <p className="text-xs text-slate-500">{row.customer}</p>
+          )}
+          <p className="text-xs text-slate-400 mt-1">{row.paket} · {row.qty || 0} pcs</p>
+        </div>
+
+        <div className="space-y-2">
+          <label className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${fedar ? 'bg-purple-500/[0.10] border-purple-500/40' : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'}`}>
+            <input
+              type="checkbox"
+              checked={fedar}
+              onChange={e => setFedar(e.target.checked)}
+              className="w-4 h-4 accent-purple-500 cursor-pointer"
+            />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-white">Monitoring Print Fedar</p>
+              <p className="text-[10px] text-slate-500">Kirim ke antrian Print Fedar</p>
+            </div>
+          </label>
+          <label className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${grando ? 'bg-purple-800/[0.15] border-purple-700/50' : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'}`}>
+            <input
+              type="checkbox"
+              checked={grando}
+              onChange={e => setGrando(e.target.checked)}
+              className="w-4 h-4 accent-purple-700 cursor-pointer"
+            />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-white">Monitoring Print Grando</p>
+              <p className="text-[10px] text-slate-500">Kirim ke antrian Print Grando</p>
+            </div>
+          </label>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 mt-6">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/[0.04] transition-colors"
+          >
+            Batal
+          </button>
+          <button
+            onClick={confirm}
+            disabled={disabled}
+            className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+          >
+            Pindahkan
+          </button>
         </div>
       </div>
     </div>

@@ -174,6 +174,17 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
     ],
   },
+  {
+    name: '014_monitoring_produksi_multi_board',
+    up: [
+      // From Perbanyak, an order can fan out to BOTH Print Fedar and Print
+      // Grando (or just one). Switch the UNIQUE constraint from single-board
+      // per order to composite (order_id, board) so the same order can hold
+      // multiple in-flight rows across boards.
+      "ALTER TABLE `monitoring_produksi` DROP INDEX `uniq_mp_order`",
+      "ALTER TABLE `monitoring_produksi` ADD UNIQUE KEY `uniq_mp_order_board` (`order_id`, `board`)",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
@@ -198,7 +209,7 @@ async function runMigrations(): Promise<void> {
         await pool.query(stmt);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const benign = /Duplicate column|already exists|Duplicate key/i.test(msg);
+        const benign = /Duplicate column|already exists|Duplicate key|check that (column|it) exists|Can't DROP.*check that/i.test(msg);
         if (!benign) {
           console.error(`[migrate] ${mig.name} failed:`, msg);
           throw err;
