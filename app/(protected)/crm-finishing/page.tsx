@@ -303,20 +303,24 @@ export default function CrmFinishingPage() {
         </div>
       ) : (
         <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
+          {/* Cap the body height and let the table scroll internally so the
+              cyan header row + total-qty footer stay visible via sticky
+              positioning. Switched to border-separate so sticky rows keep
+              clean borders while scrolling. */}
+          <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-320px)]">
+            <table className="w-full text-xs border-separate border-spacing-0">
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-cyan-500/90 text-white">
-                  <Th className="w-[4%] text-center">NO</Th>
-                  <Th className="w-[20%]">CUST</Th>
-                  <Th className="w-[6%] text-center">QTY</Th>
-                  <Th className="w-[14%]">PAKET</Th>
-                  <Th className="w-[14%]">BONUS</Th>
-                  <Th className="w-[14%]">KET</Th>
-                  <Th className="w-[8%] text-center">DL</Th>
-                  <Th className="w-[8%] text-center">DEADLINE REAL</Th>
-                  <Th className="w-[6%] text-center">STTS</Th>
-                  <Th className="w-[6%] text-center">✓</Th>
+                  <Th className="w-[4%] text-center bg-cyan-500/95">NO</Th>
+                  <Th className="w-[20%] bg-cyan-500/95">CUST</Th>
+                  <Th className="w-[6%] text-center bg-cyan-500/95">QTY</Th>
+                  <Th className="w-[14%] bg-cyan-500/95">PAKET</Th>
+                  <Th className="w-[14%] bg-cyan-500/95">BONUS</Th>
+                  <Th className="w-[14%] bg-cyan-500/95">KET</Th>
+                  <Th className="w-[8%] text-center bg-cyan-500/95">DL</Th>
+                  <Th className="w-[8%] text-center bg-cyan-500/95">DEADLINE REAL</Th>
+                  <Th className="w-[6%] text-center bg-cyan-500/95">STTS</Th>
+                  <Th className="w-[6%] text-center bg-cyan-500/95">✓</Th>
                 </tr>
               </thead>
               <tbody>
@@ -382,13 +386,13 @@ export default function CrmFinishingPage() {
                   );
                 })}
               </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-white/[0.15] bg-white/[0.04]">
-                  <td className="px-3 py-2 text-right text-[11px] font-bold text-slate-300 uppercase tracking-wider" colSpan={2}>
+              <tfoot className="sticky bottom-0 z-10">
+                <tr className="bg-[#1c2437]">
+                  <td className="px-3 py-2 text-right text-[11px] font-bold text-slate-300 uppercase tracking-wider border-t-2 border-white/[0.15]" colSpan={2}>
                     Total QTY
                   </td>
-                  <td className="px-3 py-2 text-center text-sm font-bold text-white tabular-nums">{totalQty}</td>
-                  <td colSpan={7}>&nbsp;</td>
+                  <td className="px-3 py-2 text-center text-sm font-bold text-white tabular-nums border-t-2 border-white/[0.15]">{totalQty}</td>
+                  <td className="border-t-2 border-white/[0.15]" colSpan={7}>&nbsp;</td>
                 </tr>
               </tfoot>
             </table>
