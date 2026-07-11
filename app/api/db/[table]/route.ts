@@ -38,6 +38,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   libur_nasional:    { columns: '*', filterCols: ['id'] },
   order_payments:    { columns: '*', filterCols: ['id', 'order_id', 'tipe'] },
   stage_rejects:     { columns: '*', filterCols: ['id', 'work_order_id', 'stage_id', 'status'] },
+  stage_reject_items: { columns: '*', filterCols: ['id', 'reject_id'] },
   stok:              { columns: 's.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['s.id', 's.barang_id'] },
   stok_adjustment:   { columns: 'sa.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['sa.id', 'sa.barang_id'] },
 };

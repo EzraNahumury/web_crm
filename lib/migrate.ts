@@ -290,6 +290,40 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
     ],
   },
+  {
+    // stage_reject_items: one row per line of the Form Permintaan Gudang.
+    // The predefined items (FULL BODY..TAFETA SLIP PRO plus sizes) are
+    // rendered client-side from a constants list so the schema stays
+    // agnostic — the user fills bahan/warna/kuantitas per row and only
+    // rows with content are persisted.
+    name: '019_stage_reject_items',
+    up: [
+      `CREATE TABLE IF NOT EXISTS \`stage_reject_items\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`reject_id\` INT UNSIGNED NOT NULL,
+        \`urutan\` INT NOT NULL DEFAULT 1,
+        \`item\` VARCHAR(120) NOT NULL,
+        \`bahan\` VARCHAR(200) NULL,
+        \`warna\` VARCHAR(100) NULL,
+        \`kuantitas\` VARCHAR(100) NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_sri_reject\` (\`reject_id\`),
+        CONSTRAINT \`fk_sri_reject\` FOREIGN KEY (\`reject_id\`) REFERENCES \`stage_rejects\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
+  {
+    // Gudang approval trail on stage_rejects. On approve, the produksi
+    // gate is released. On reject, gudang leaves notes and produksi is
+    // notified to handle the request without new material.
+    name: '020_stage_rejects_gudang',
+    up: [
+      "ALTER TABLE `stage_rejects` ADD COLUMN `gudang_approved_by` VARCHAR(100) NULL",
+      "ALTER TABLE `stage_rejects` ADD COLUMN `gudang_approved_at` TIMESTAMP NULL",
+      "ALTER TABLE `stage_rejects` ADD COLUMN `gudang_notes` TEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

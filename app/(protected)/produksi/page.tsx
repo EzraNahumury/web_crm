@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { dbGet, dbUpdate, dbCreate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { useAuth } from '@/lib/auth-context';
+import { GUDANG_FORM_ITEMS } from '@/lib/gudang-form-items';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -41,23 +42,46 @@ export default function ProduksiPage() {
   const toast = useToast();
 
   // Reject flow: modal state + form fields.
+  // For Dengan Penambahan Bahan the form is the "Form Permintaan Gudang" —
+  // a structured table where each predefined item row can carry bahan,
+  // warna, and kuantitas. Only rows with any value are persisted.
+  interface RejectRow { item: string; bahan: string; warna: string; kuantitas: string; isSize?: boolean; color?: string }
   const [rejectItem, setRejectItem] = useState<Row | null>(null);
   const [rejectTipe, setRejectTipe] = useState<'WITH_BAHAN' | 'WITHOUT_BAHAN'>('WITHOUT_BAHAN');
   const [rejectKeterangan, setRejectKeterangan] = useState('');
-  const [rejectBahan, setRejectBahan] = useState('');
+  const [rejectRows, setRejectRows] = useState<RejectRow[]>([]);
   const [rejectSaving, setRejectSaving] = useState(false);
+  const [rejects, setRejects] = useState<Row[]>([]);
+
+  function makeInitialRejectRows(): RejectRow[] {
+    return GUDANG_FORM_ITEMS.map(it => ({
+      item: it.item, bahan: '', warna: '', kuantitas: '', isSize: it.isSize, color: it.color,
+    }));
+  }
 
   function openRejectModal(item: Row) {
     setRejectItem(item);
     setRejectTipe('WITHOUT_BAHAN');
     setRejectKeterangan('');
-    setRejectBahan('');
+    setRejectRows(makeInitialRejectRows());
   }
   function closeRejectModal() {
     setRejectItem(null);
     setRejectKeterangan('');
-    setRejectBahan('');
+    setRejectRows([]);
     setRejectSaving(false);
+  }
+  function updateRejectRow(idx: number, key: 'bahan'|'warna'|'kuantitas', val: string) {
+    setRejectRows(rs => rs.map((r, i) => i === idx ? { ...r, [key]: val } : r));
+  }
+  function addCustomRejectRow() {
+    setRejectRows(rs => [...rs, { item: '', bahan: '', warna: '', kuantitas: '' }]);
+  }
+  function removeRejectRow(idx: number) {
+    setRejectRows(rs => rs.filter((_, i) => i !== idx));
+  }
+  function updateCustomItemName(idx: number, val: string) {
+    setRejectRows(rs => rs.map((r, i) => i === idx ? { ...r, item: val } : r));
   }
 
   async function submitReject() {
@@ -66,24 +90,48 @@ export default function ProduksiPage() {
       toast.error('Keterangan Wajib', 'Isi keterangan alasan reject.');
       return;
     }
-    if (rejectTipe === 'WITH_BAHAN' && !rejectBahan.trim()) {
-      toast.error('Detail Bahan Wajib', 'Isi bahan apa saja yang perlu ditambahkan dari gudang.');
+    const filledRows = rejectRows.filter(r =>
+      r.item.trim() && (r.bahan.trim() || r.warna.trim() || r.kuantitas.trim())
+    );
+    if (rejectTipe === 'WITH_BAHAN' && filledRows.length === 0) {
+      toast.error('Form Kosong', 'Isi minimal satu baris Bahan / Warna / Kuantitas untuk permintaan gudang.');
       return;
     }
     setRejectSaving(true);
     try {
-      await dbCreate('stage_rejects', {
+      const rejectId = await dbCreate('stage_rejects', {
         work_order_id: rejectItem.work_order_id,
         stage_id: rejectItem.stage_id,
         tipe: rejectTipe,
         keterangan: rejectKeterangan.trim(),
-        bahan_request: rejectTipe === 'WITH_BAHAN' ? rejectBahan.trim() : null,
+        // Legacy free-text field kept as JSON summary for older readers.
+        bahan_request: rejectTipe === 'WITH_BAHAN' ? JSON.stringify(filledRows) : null,
         status: rejectTipe === 'WITH_BAHAN' ? 'PENDING' : 'RETURNED',
       });
+
+      if (rejectTipe === 'WITH_BAHAN') {
+        // Persist structured rows so the gudang UI can render them
+        // as the exact same form.
+        for (let i = 0; i < filledRows.length; i++) {
+          const r = filledRows[i];
+          try {
+            await dbCreate('stage_reject_items', {
+              reject_id: rejectId,
+              urutan: i + 1,
+              item: r.item.trim(),
+              bahan: r.bahan.trim() || null,
+              warna: r.warna.trim() || null,
+              kuantitas: r.kuantitas.trim() || null,
+            });
+          } catch (err) {
+            console.warn('stage_reject_items insert failed:', err);
+          }
+        }
+      }
       toast.success(
-        rejectTipe === 'WITH_BAHAN' ? 'Reject Dikirim ke Gudang' : 'Reject Tercatat',
+        rejectTipe === 'WITH_BAHAN' ? 'Form Dikirim ke Gudang' : 'Reject Tercatat',
         rejectTipe === 'WITH_BAHAN'
-          ? 'Permintaan bahan tersimpan, tunggu gudang menyiapkan.'
+          ? 'Form permintaan gudang tersimpan. Menunggu approval gudang.'
           : 'Barang dikembalikan ke proses produksi, tidak butuh bahan baru.'
       );
       closeRejectModal();
@@ -92,6 +140,24 @@ export default function ProduksiPage() {
       toast.error('Gagal Simpan Reject', String(e));
     }
     setRejectSaving(false);
+  }
+
+  // Cancel a pending reject (before gudang acts on it) so the WO can
+  // proceed without waiting. Only makes sense for WITH_BAHAN rejects
+  // that are still PENDING. Marks the reject as CANCELLED.
+  async function cancelReject(rejectId: number) {
+    const yes = await toast.confirm({
+      title: 'Batalkan Permintaan Gudang?',
+      message: 'Permintaan bahan ini akan dibatalkan. WO bisa dilanjutkan tanpa bahan baru.',
+      type: 'warning',
+      confirmText: 'Ya, Batalkan',
+    });
+    if (!yes) return;
+    try {
+      await dbUpdate('stage_rejects', rejectId, { status: 'CANCELLED' });
+      toast.success('Dibatalkan', 'Permintaan gudang dibatalkan.');
+      await fetchData();
+    } catch (e) { toast.error('Gagal', String(e)); }
   }
 
   // Determine if user has full access (admin/super admin) or limited stage access
@@ -105,11 +171,15 @@ export default function ProduksiPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, p, w] = await Promise.all([
+      const [s, p, w, r] = await Promise.all([
         dbGet('production_stages'),
         dbGet('wo_progress'),
         dbGet('work_orders'),
+        // stage_rejects may not exist yet if migration 018 hasn't run,
+        // swallow the error so the page still loads.
+        dbGet('stage_rejects').catch(() => []),
       ]);
+      setRejects(r);
       // Filter out inactive stages (QC Cutting retired in migration 016)
       const sortedStages = s
         .filter((r: Row) => r.active === undefined || r.active === 1 || r.active === true)
@@ -187,11 +257,40 @@ export default function ProduksiPage() {
     return !(conf === 1 || conf === true || conf === undefined);
   }
 
+  // Return the most recent non-terminal reject for a given WO at the
+  // current stage, or null. Non-terminal = PENDING (waiting gudang) or
+  // RETURNED (rework in place). APPROVED / GUDANG_REJECTED / CANCELLED
+  // are considered resolved and no longer block progression.
+  function getActiveReject(workOrderId: number, stageId: number): Row | null {
+    const list = rejects
+      .filter((rj: Row) => rj.work_order_id === workOrderId && rj.stage_id === stageId)
+      .sort((a: Row, b: Row) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    const latest = list[0];
+    if (!latest) return null;
+    const s = String(latest.status || '').toUpperCase();
+    if (s === 'PENDING' || s === 'RETURNED') return latest;
+    return null;
+  }
+
+  // A pending WITH_BAHAN reject blocks the "Selesai & Lanjut" button
+  // until gudang either approves it or produksi cancels the request.
+  // WITHOUT_BAHAN (RETURNED) doesn't block — the operator just clicks
+  // Selesai once the rework is done.
+  function isRejectGated(item: Row): boolean {
+    const active = getActiveReject(item.work_order_id, item.stage_id);
+    if (!active) return false;
+    return String(active.tipe) === 'WITH_BAHAN' && String(active.status).toUpperCase() === 'PENDING';
+  }
+
   // Single-click handler: marks the current stage SELESAI (with both started_at
   // and completed_at) and advances the next stage to TERSEDIA in one shot.
   async function handleSelesai(progressRow: Row) {
     if (isProofingGated(progressRow)) {
       toast.error('WO Belum Dikonfirmasi', 'Buat/konfirmasi Work Order di Menu Work Orders terlebih dahulu.');
+      return;
+    }
+    if (isRejectGated(progressRow)) {
+      toast.error('Menunggu Approval Gudang', 'Permintaan bahan reject masih menunggu approval gudang.');
       return;
     }
     try {
@@ -280,22 +379,61 @@ export default function ProduksiPage() {
 
   function WoCard({ item, actions }: { item: Row; actions: React.ReactNode }) {
     const wo = item.wo;
+    const activeReject = getActiveReject(item.work_order_id, item.stage_id);
+    const rejectPending = activeReject && String(activeReject.status).toUpperCase() === 'PENDING';
+    const rejectReturned = activeReject && String(activeReject.status).toUpperCase() === 'RETURNED';
     return (
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-blue-400 whitespace-nowrap">{wo.no_wo}</span>
-            <span className="text-sm font-semibold text-white">{wo.customer_nama}</span>
+      <div className="flex flex-col gap-2 px-6 py-4 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-medium text-blue-400 whitespace-nowrap">{wo.no_wo}</span>
+              <span className="text-sm font-semibold text-white">{wo.customer_nama}</span>
+              {rejectPending && (
+                <span
+                  title={String(activeReject.keterangan || '')}
+                  className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-rose-500/40 text-rose-300 bg-rose-500/15 whitespace-nowrap"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                  Reject: Menunggu Gudang
+                </span>
+              )}
+              {rejectReturned && (
+                <span
+                  title={String(activeReject.keterangan || '')}
+                  className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-amber-500/40 text-amber-300 bg-amber-500/15 whitespace-nowrap"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  Reject: Perbaiki di Tempat
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-1.5 text-xs">
+              <span className="text-slate-300 font-medium">{wo.paket}</span>
+              <span className="text-slate-600">|</span>
+              <span className="text-slate-400">{wo.jumlah} pcs</span>
+            </div>
+            {activeReject && activeReject.keterangan && (
+              <div className="mt-1.5 text-[11px] text-slate-500 leading-snug max-w-2xl">
+                <span className="text-slate-600">Keterangan:</span> {String(activeReject.keterangan)}
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-2 mt-1.5 text-xs">
-            <span className="text-slate-300 font-medium">{wo.paket}</span>
-            <span className="text-slate-600">|</span>
-            <span className="text-slate-400">{wo.jumlah} pcs</span>
+          <div className="flex items-center gap-2 shrink-0">
+            {actions}
           </div>
         </div>
-        <div className="flex items-center gap-2 ml-4 shrink-0">
-          {actions}
-        </div>
+        {rejectPending && (
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="text-slate-500">Menunggu approval gudang.</span>
+            <button
+              onClick={() => cancelReject(Number(activeReject.id))}
+              className="text-slate-400 hover:text-white underline underline-offset-2"
+            >
+              Batalkan permintaan
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -404,7 +542,15 @@ export default function ProduksiPage() {
             </div>
           ) : (
             tersediaWos.map(item => {
-              const gated = isProofingGated(item);
+              const gatedProof = isProofingGated(item);
+              const gatedReject = isRejectGated(item);
+              const gated = gatedProof || gatedReject;
+              const gateLabel = gatedProof ? 'Menunggu WO' : gatedReject ? 'Menunggu Gudang' : 'Selesai & Lanjut';
+              const gateTitle = gatedProof
+                ? 'Buat/konfirmasi WO di Menu Work Orders dulu'
+                : gatedReject
+                  ? 'Permintaan bahan reject masih menunggu approval gudang'
+                  : undefined;
               return (
               <WoCard key={item.id} item={item} actions={
                 activeStageCanManage || isFullAccess ? (
@@ -425,13 +571,13 @@ export default function ProduksiPage() {
                     )}
                     <button onClick={() => handleSelesai(item)}
                       disabled={gated}
-                      title={gated ? 'Buat/konfirmasi WO di Menu Work Orders dulu' : undefined}
+                      title={gateTitle}
                       className={`text-xs font-medium border px-3 py-1.5 rounded-lg transition-colors ${
                         gated
                           ? 'text-slate-500 border-white/[0.06] bg-white/[0.02] cursor-not-allowed'
                           : 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/20'
                       }`}>
-                      {gated ? 'Menunggu WO' : 'Selesai & Lanjut'}
+                      {gateLabel}
                     </button>
                   </>
                 ) : (
@@ -448,7 +594,7 @@ export default function ProduksiPage() {
         <>
           <div className="fixed inset-0 bg-black/50 z-40" onClick={closeRejectModal} />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-[#111827] border border-white/[0.06] rounded-xl shadow-2xl shadow-black/50 flex flex-col max-h-[92vh]">
+            <div className={`w-full ${rejectTipe === 'WITH_BAHAN' ? 'max-w-4xl' : 'max-w-md'} bg-[#111827] border border-white/[0.06] rounded-xl shadow-2xl shadow-black/50 flex flex-col max-h-[92vh]`}>
               <div className="px-6 py-5 border-b border-white/[0.06] flex items-center justify-between shrink-0">
                 <div>
                   <h3 className="text-base font-semibold text-white">Reject di Tahap {activeStage}</h3>
@@ -495,15 +641,93 @@ export default function ProduksiPage() {
 
                 {rejectTipe === 'WITH_BAHAN' && (
                   <div>
-                    <label className="block text-sm font-medium text-white mb-1.5">Bahan Yang Diminta <span className="text-rose-400">*</span></label>
-                    <textarea
-                      value={rejectBahan}
-                      onChange={e => setRejectBahan(e.target.value)}
-                      rows={3}
-                      placeholder="Contoh:&#10;Kain Dryfit merah 2 meter&#10;Benang hitam 1 spool"
-                      className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 focus:border-blue-500/50 focus:outline-none rounded-lg px-3 py-2 text-sm"
-                    />
-                    <p className="text-[11px] text-slate-500 mt-1.5">Gudang akan menerima permintaan ini dan menyiapkan barang.</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-white">
+                        Form Permintaan Gudang <span className="text-rose-400">*</span>
+                      </label>
+                      <span className="text-[11px] text-slate-500">
+                        CUST = <span className="text-slate-300">{rejectItem.wo?.customer_nama || '-'}</span>
+                      </span>
+                    </div>
+                    <div className="border border-white/10 rounded-lg overflow-hidden">
+                      <div className="overflow-x-auto max-h-[52vh] overflow-y-auto">
+                        <table className="w-full min-w-[640px] text-xs">
+                          <thead className="sticky top-0 bg-[#0d1117] z-10">
+                            <tr className="border-b border-white/10">
+                              <th className="w-10 px-2 py-2 text-slate-400 font-medium text-center">NO</th>
+                              <th className="text-left px-3 py-2 text-slate-400 font-medium">ITEM</th>
+                              <th className="text-left px-3 py-2 text-slate-400 font-medium">BAHAN</th>
+                              <th className="text-left px-3 py-2 text-slate-400 font-medium">WARNA</th>
+                              <th className="text-left px-3 py-2 text-slate-400 font-medium">KUANTITAS</th>
+                              <th className="w-8" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rejectRows.map((row, idx) => {
+                              const colorTint: Record<string, string> = {
+                                gray: 'bg-slate-500/10',
+                                peach: 'bg-orange-500/10',
+                                blue: 'bg-blue-500/10',
+                                green: 'bg-emerald-500/10',
+                                yellow: 'bg-yellow-500/10',
+                                red: 'bg-rose-500/15',
+                              };
+                              const rowBg = row.color ? colorTint[row.color] : (row.isSize ? 'bg-white/[0.02]' : '');
+                              const isPredefined = idx < GUDANG_FORM_ITEMS.length;
+                              return (
+                                <tr key={idx} className={`border-b border-white/[0.04] ${rowBg}`}>
+                                  <td className="text-center text-slate-500 tabular-nums px-2 py-1.5">{idx + 1}</td>
+                                  <td className={`px-3 py-1.5 ${row.isSize ? 'pl-8 text-slate-400 font-semibold' : 'text-slate-200 font-medium'}`}>
+                                    {isPredefined ? (
+                                      row.item
+                                    ) : (
+                                      <input
+                                        type="text"
+                                        value={row.item}
+                                        onChange={e => updateCustomItemName(idx, e.target.value)}
+                                        placeholder="Nama item"
+                                        className="w-full bg-transparent border-b border-white/10 text-slate-200 px-1 py-0.5 focus:outline-none focus:border-blue-500/50"
+                                      />
+                                    )}
+                                  </td>
+                                  <td className="px-1.5 py-1">
+                                    <input type="text" value={row.bahan}
+                                      onChange={e => updateRejectRow(idx, 'bahan', e.target.value)}
+                                      className="w-full bg-transparent border-b border-white/10 text-slate-200 px-2 py-1 focus:outline-none focus:border-blue-500/50" />
+                                  </td>
+                                  <td className="px-1.5 py-1">
+                                    <input type="text" value={row.warna}
+                                      onChange={e => updateRejectRow(idx, 'warna', e.target.value)}
+                                      className="w-full bg-transparent border-b border-white/10 text-slate-200 px-2 py-1 focus:outline-none focus:border-blue-500/50" />
+                                  </td>
+                                  <td className="px-1.5 py-1">
+                                    <input type="text" value={row.kuantitas}
+                                      onChange={e => updateRejectRow(idx, 'kuantitas', e.target.value)}
+                                      className="w-full bg-transparent border-b border-white/10 text-slate-200 px-2 py-1 focus:outline-none focus:border-blue-500/50" />
+                                  </td>
+                                  <td className="px-1">
+                                    {!isPredefined && (
+                                      <button onClick={() => removeRejectRow(idx)} title="Hapus baris"
+                                        className="text-slate-600 hover:text-rose-400 p-1">
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <button onClick={addCustomRejectRow}
+                        className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                        Tambah baris custom
+                      </button>
+                      <p className="text-[11px] text-slate-500">Isi kolom Bahan / Warna / Kuantitas hanya untuk baris yang diperlukan.</p>
+                    </div>
                   </div>
                 )}
               </div>
