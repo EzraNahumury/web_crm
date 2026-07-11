@@ -177,6 +177,10 @@ export default function WorkOrdersPage() {
         keterangan: order.keterangan || '',
         status: 'PROSES_PRODUKSI',
         current_stage_id: firstStageId,
+        // Manual "Buat WO" means the user is entering details right now,
+        // so the WO is confirmed. Auto-created WOs from the order drawer
+        // start with wo_confirmed=0 instead and get flipped by Edit.
+        wo_confirmed: 1,
       });
 
       // Create wo_progress for all stages (first stage = TERSEDIA, rest = BELUM)
@@ -228,6 +232,9 @@ export default function WorkOrdersPage() {
         paket: editPaket,
         deadline: editDeadline,
         keterangan: editKeterangan,
+        // Saving details from the WO edit modal counts as confirming the
+        // WO, which unlocks the Proofing → Approval WO step in produksi.
+        wo_confirmed: 1,
       });
       invalidateCache('wp_orders', 'wp_dashboard');
       toast.success('Work Order Diperbarui', `${editWo.no_wo} berhasil diperbarui.`);
@@ -345,7 +352,14 @@ export default function WorkOrdersPage() {
                         {fmtDate(wo.deadline)}
                       </td>
                       <td className="px-5 py-4">
-                        <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap ${st.cls}`}>{st.label}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap ${st.cls}`}>{st.label}</span>
+                          {(wo.wo_confirmed === 0 || wo.wo_confirmed === false) && (
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-amber-500/30 text-amber-400 bg-amber-500/10 whitespace-nowrap" title="WO belum dikonfirmasi — klik Edit untuk lengkapi detail dan buka gate Approval WO">
+                              Belum Konfirmasi
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-1.5">

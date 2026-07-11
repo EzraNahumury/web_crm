@@ -1,9 +1,10 @@
 'use client';
 import { useState, useEffect, useMemo, useRef } from 'react';
 // paket & barang now fetched from DB
-import { dbGet, dbCreate } from '@/lib/api-db';
+import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
+import { sha256Hex } from '@/lib/hash';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -513,6 +514,68 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
           order_id: orderId,
           promo_id: parseInt(promoId),
         });
+      }
+
+      // Auto-create a placeholder WO so the order shows up in the Produksi
+      // menu at Waiting List immediately. Details (spesifikasi, deadline,
+      // etc.) are filled in later via the Work Orders menu, which sets
+      // wo_confirmed=1 and unlocks the Proofing → Approval WO step.
+      //
+      // Wrapped in try/catch so an environment that doesn't have migration
+      // 016/017 applied yet still saves the order successfully.
+      try {
+        const wos = await dbGet('work_orders');
+        const now = new Date();
+        const prefix = `WO${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+        const suffixRe = new RegExp(`^${prefix}-(\\d+)$`);
+        const maxNum = wos.reduce((max: number, w: Row) => {
+          const m = String(w.no_wo || '').match(suffixRe);
+          return m ? Math.max(max, parseInt(m[1], 10)) : max;
+        }, 0);
+        const noWo = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
+        const trackingHash = await sha256Hex(noWo);
+
+        const paketNama = items.map(i => i.paket).filter(Boolean).join(', ') || '-';
+        const totalQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+
+        const stages = await dbGet('production_stages');
+        const sortedStages = (stages as Row[])
+          .filter(s => s.active === undefined || s.active === 1 || s.active === true)
+          .sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
+        const firstStageId = sortedStages[0]?.id;
+
+        const woId = await dbCreate('work_orders', {
+          no_wo: noWo,
+          tracking_hash: trackingHash,
+          order_id: orderId,
+          customer_nama: customer,
+          paket: paketNama,
+          bahan: '-',
+          jumlah: totalQty,
+          deadline: deadline || null,
+          keterangan: keterangan || '',
+          status: 'PROSES_PRODUKSI',
+          current_stage_id: firstStageId,
+          wo_confirmed: 0,
+        });
+
+        for (const stage of sortedStages) {
+          await dbCreate('wo_progress', {
+            work_order_id: woId,
+            stage_id: stage.id,
+            status: stage.id === firstStageId ? 'TERSEDIA' : 'BELUM',
+          });
+        }
+
+        await dbUpdate('orders', orderId, {
+          tracking_link: `/tracking/${trackingHash}`,
+        });
+      } catch (err) {
+        console.warn('auto-create WO failed (order still saved):', err);
+        toast.warning(
+          'Auto-WO Belum Terbentuk',
+          'Order tersimpan tapi WO otomatis belum terbentuk. Buat WO manual dari Menu Work Orders.'
+        );
       }
 
       invalidateCache('wp_orders', 'wp_dashboard');

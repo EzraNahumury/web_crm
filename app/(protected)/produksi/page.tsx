@@ -11,12 +11,22 @@ type Row = Record<string, any>;
 // Gated by email straight off the session so it works without re-login.
 const ROLLBACK_EMAIL = 'admin@gmail.com';
 
+// Stages shown in the produksi tabs, ordered exactly as the flow runs.
+// Order + Waiting List → auto-created on order save (WO.wo_confirmed=0).
+// At Proofing, the "Selesai & Lanjut" is gated until wo.wo_confirmed=1
+// (marked when the WO is detailed via the Work Orders menu).
+// QC Panel Process + Sewing get an extra Reject button.
 const PROD_STAGES = [
-  'Approval Design', 'Approval Pattern', 'Proofing', 'Printing Layout',
-  'Approval Layout', 'Printing Process', 'Sublim Press', 'QC Panel Process',
-  'Fabric Cutting', 'QC Cutting', 'Sewing', 'QC Jersey',
-  'Steam Jersey', 'Finishing', 'Shipment',
+  'Waiting List', 'Approval Design', 'Approval Pattern', 'Proofing',
+  'Approval WO', 'Printing Layout', 'Approval Layout', 'Printing Process',
+  'Sublim Press', 'Fabric Cutting', 'QC Panel Process', 'Sewing',
+  'QC Jersey', 'Steam Jersey', 'Finishing', 'QC Final dan Packing',
+  'Shipment',
 ];
+
+// Stages that offer the Reject flow. QC Panel Process → Sewing and
+// Sewing → QC Jersey both branch on a pass/fail decision.
+const REJECT_STAGES = new Set(['QC Panel Process', 'Sewing']);
 
 export default function ProduksiPage() {
   const { user } = useAuth();
@@ -29,6 +39,60 @@ export default function ProduksiPage() {
   // Reset the search box whenever CS switches to a different stage tab.
   useEffect(() => { setSearch(''); }, [activeStage]);
   const toast = useToast();
+
+  // Reject flow: modal state + form fields.
+  const [rejectItem, setRejectItem] = useState<Row | null>(null);
+  const [rejectTipe, setRejectTipe] = useState<'WITH_BAHAN' | 'WITHOUT_BAHAN'>('WITHOUT_BAHAN');
+  const [rejectKeterangan, setRejectKeterangan] = useState('');
+  const [rejectBahan, setRejectBahan] = useState('');
+  const [rejectSaving, setRejectSaving] = useState(false);
+
+  function openRejectModal(item: Row) {
+    setRejectItem(item);
+    setRejectTipe('WITHOUT_BAHAN');
+    setRejectKeterangan('');
+    setRejectBahan('');
+  }
+  function closeRejectModal() {
+    setRejectItem(null);
+    setRejectKeterangan('');
+    setRejectBahan('');
+    setRejectSaving(false);
+  }
+
+  async function submitReject() {
+    if (!rejectItem) return;
+    if (!rejectKeterangan.trim()) {
+      toast.error('Keterangan Wajib', 'Isi keterangan alasan reject.');
+      return;
+    }
+    if (rejectTipe === 'WITH_BAHAN' && !rejectBahan.trim()) {
+      toast.error('Detail Bahan Wajib', 'Isi bahan apa saja yang perlu ditambahkan dari gudang.');
+      return;
+    }
+    setRejectSaving(true);
+    try {
+      await dbCreate('stage_rejects', {
+        work_order_id: rejectItem.work_order_id,
+        stage_id: rejectItem.stage_id,
+        tipe: rejectTipe,
+        keterangan: rejectKeterangan.trim(),
+        bahan_request: rejectTipe === 'WITH_BAHAN' ? rejectBahan.trim() : null,
+        status: rejectTipe === 'WITH_BAHAN' ? 'PENDING' : 'RETURNED',
+      });
+      toast.success(
+        rejectTipe === 'WITH_BAHAN' ? 'Reject Dikirim ke Gudang' : 'Reject Tercatat',
+        rejectTipe === 'WITH_BAHAN'
+          ? 'Permintaan bahan tersimpan, tunggu gudang menyiapkan.'
+          : 'Barang dikembalikan ke proses produksi, tidak butuh bahan baru.'
+      );
+      closeRejectModal();
+      await fetchData();
+    } catch (e) {
+      toast.error('Gagal Simpan Reject', String(e));
+    }
+    setRejectSaving(false);
+  }
 
   // Determine if user has full access (admin/super admin) or limited stage access
   const isFullAccess = !user?.stageAccess || user.stageAccess.length === 0;
@@ -46,7 +110,10 @@ export default function ProduksiPage() {
         dbGet('wo_progress'),
         dbGet('work_orders'),
       ]);
-      const sortedStages = s.sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0));
+      // Filter out inactive stages (QC Cutting retired in migration 016)
+      const sortedStages = s
+        .filter((r: Row) => r.active === undefined || r.active === 1 || r.active === true)
+        .sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0));
       let updatedProgress: Row[] = p;
 
       // Auto-create missing wo_progress for existing WOs
@@ -110,9 +177,23 @@ export default function ProduksiPage() {
   })();
   const tersediaQty = tersediaWos.reduce((sum, item) => sum + (item.wo?.jumlah || 0), 0);
 
+  // Gate for Proofing → Approval WO: the WO must be confirmed (details
+  // filled in via Work Orders menu) before the customer flow can proceed
+  // past Proofing. Existing legacy WOs default wo_confirmed=1 so they're
+  // never blocked.
+  function isProofingGated(item: Row): boolean {
+    if (activeStage !== 'Proofing') return false;
+    const conf = item.wo?.wo_confirmed;
+    return !(conf === 1 || conf === true || conf === undefined);
+  }
+
   // Single-click handler: marks the current stage SELESAI (with both started_at
   // and completed_at) and advances the next stage to TERSEDIA in one shot.
   async function handleSelesai(progressRow: Row) {
+    if (isProofingGated(progressRow)) {
+      toast.error('WO Belum Dikonfirmasi', 'Buat/konfirmasi Work Order di Menu Work Orders terlebih dahulu.');
+      return;
+    }
     try {
       const now = new Date().toISOString();
       const startedAt = progressRow.started_at || now;
@@ -322,7 +403,9 @@ export default function ProduksiPage() {
               </p>
             </div>
           ) : (
-            tersediaWos.map(item => (
+            tersediaWos.map(item => {
+              const gated = isProofingGated(item);
+              return (
               <WoCard key={item.id} item={item} actions={
                 activeStageCanManage || isFullAccess ? (
                   <>
@@ -334,19 +417,111 @@ export default function ProduksiPage() {
                         Kembalikan
                       </button>
                     )}
+                    {REJECT_STAGES.has(activeStage) && (
+                      <button onClick={() => openRejectModal(item)}
+                        className="text-xs font-medium text-rose-400 border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 rounded-lg hover:bg-rose-500/20 transition-colors">
+                        Reject
+                      </button>
+                    )}
                     <button onClick={() => handleSelesai(item)}
-                      className="text-xs font-medium text-emerald-400 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 rounded-lg hover:bg-emerald-500/20 transition-colors">
-                      Selesai & Lanjut
+                      disabled={gated}
+                      title={gated ? 'Buat/konfirmasi WO di Menu Work Orders dulu' : undefined}
+                      className={`text-xs font-medium border px-3 py-1.5 rounded-lg transition-colors ${
+                        gated
+                          ? 'text-slate-500 border-white/[0.06] bg-white/[0.02] cursor-not-allowed'
+                          : 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/20'
+                      }`}>
+                      {gated ? 'Menunggu WO' : 'Selesai & Lanjut'}
                     </button>
                   </>
                 ) : (
                   <span className="text-xs text-slate-600 italic">Read only</span>
                 )
               } />
-            ))
+              );
+            })
           )}
         </div>
       </div>
+
+      {rejectItem && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={closeRejectModal} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-[#111827] border border-white/[0.06] rounded-xl shadow-2xl shadow-black/50 flex flex-col max-h-[92vh]">
+              <div className="px-6 py-5 border-b border-white/[0.06] flex items-center justify-between shrink-0">
+                <div>
+                  <h3 className="text-base font-semibold text-white">Reject di Tahap {activeStage}</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    WO {rejectItem.wo?.no_wo} · {rejectItem.wo?.customer_nama}
+                  </p>
+                </div>
+                <button onClick={closeRejectModal} className="text-slate-500 hover:text-white p-1">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+
+              <div className="px-6 py-5 space-y-4 overflow-y-auto">
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">Jenis Reject</label>
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${rejectTipe === 'WITHOUT_BAHAN' ? 'border-rose-500/40 bg-rose-500/10' : 'border-white/10 bg-[#0d1117] hover:border-white/20'}`}>
+                      <input type="radio" name="rejectTipe" checked={rejectTipe === 'WITHOUT_BAHAN'} onChange={() => setRejectTipe('WITHOUT_BAHAN')} className="mt-1 accent-rose-500" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-white">Tanpa Penambahan Bahan</div>
+                        <div className="text-xs text-slate-500 mt-0.5">Barang dikembalikan ke proses untuk diperbaiki, tidak butuh bahan baru dari gudang.</div>
+                      </div>
+                    </label>
+                    <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${rejectTipe === 'WITH_BAHAN' ? 'border-rose-500/40 bg-rose-500/10' : 'border-white/10 bg-[#0d1117] hover:border-white/20'}`}>
+                      <input type="radio" name="rejectTipe" checked={rejectTipe === 'WITH_BAHAN'} onChange={() => setRejectTipe('WITH_BAHAN')} className="mt-1 accent-rose-500" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-white">Dengan Penambahan Bahan</div>
+                        <div className="text-xs text-slate-500 mt-0.5">Kirim form permintaan bahan ke gudang; produksi lanjut setelah bahan siap.</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-white mb-1.5">Keterangan Reject <span className="text-rose-400">*</span></label>
+                  <textarea
+                    value={rejectKeterangan}
+                    onChange={e => setRejectKeterangan(e.target.value)}
+                    rows={3}
+                    placeholder="Contoh: jahitan lepas di bagian bahu, warna tidak sesuai proofing..."
+                    className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 focus:border-blue-500/50 focus:outline-none rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+
+                {rejectTipe === 'WITH_BAHAN' && (
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-1.5">Bahan Yang Diminta <span className="text-rose-400">*</span></label>
+                    <textarea
+                      value={rejectBahan}
+                      onChange={e => setRejectBahan(e.target.value)}
+                      rows={3}
+                      placeholder="Contoh:&#10;Kain Dryfit merah 2 meter&#10;Benang hitam 1 spool"
+                      className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 focus:border-blue-500/50 focus:outline-none rounded-lg px-3 py-2 text-sm"
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1.5">Gudang akan menerima permintaan ini dan menyiapkan barang.</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-white/[0.06] flex items-center justify-end gap-2 shrink-0">
+                <button onClick={closeRejectModal} disabled={rejectSaving}
+                  className="text-sm font-medium text-slate-400 hover:text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+                  Batal
+                </button>
+                <button onClick={submitReject} disabled={rejectSaving}
+                  className="text-sm font-medium text-white bg-rose-600 hover:bg-rose-500 px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+                  {rejectSaving ? 'Menyimpan...' : 'Simpan Reject'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

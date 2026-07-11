@@ -210,6 +210,77 @@ const MIGRATIONS: Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
     ],
   },
+  {
+    // Restructure production_stages to the new flow. Adds 3 stages
+    // (Waiting List, Approval WO, QC Final dan Packing), retires QC Cutting
+    // via an active flag, and renumbers urutan to the new order.
+    //
+    // Idempotent: statements shift existing urutan +1000 before assigning
+    // final values, and new-stage inserts use NOT EXISTS so re-runs are
+    // no-ops. Runs even if the migration table thinks it's applied
+    // (only the trailing UPDATEs would repeat, all safe).
+    name: '016_production_stages_v2',
+    up: [
+      "ALTER TABLE `production_stages` ADD COLUMN `active` TINYINT(1) NOT NULL DEFAULT 1",
+      "UPDATE `production_stages` SET `urutan` = `urutan` + 1000 WHERE `urutan` < 1000",
+      "INSERT INTO `production_stages` (`nama`, `urutan`, `active`) SELECT 'Waiting List', 100, 1 WHERE NOT EXISTS (SELECT 1 FROM (SELECT * FROM `production_stages`) p WHERE p.`nama` = 'Waiting List')",
+      "INSERT INTO `production_stages` (`nama`, `urutan`, `active`) SELECT 'Approval WO', 101, 1 WHERE NOT EXISTS (SELECT 1 FROM (SELECT * FROM `production_stages`) p WHERE p.`nama` = 'Approval WO')",
+      "INSERT INTO `production_stages` (`nama`, `urutan`, `active`) SELECT 'QC Final dan Packing', 102, 1 WHERE NOT EXISTS (SELECT 1 FROM (SELECT * FROM `production_stages`) p WHERE p.`nama` = 'QC Final dan Packing')",
+      "UPDATE `production_stages` SET `urutan` = 1 WHERE `nama` = 'Waiting List'",
+      "UPDATE `production_stages` SET `urutan` = 2 WHERE `nama` = 'Approval Design'",
+      "UPDATE `production_stages` SET `urutan` = 3 WHERE `nama` = 'Approval Pattern'",
+      "UPDATE `production_stages` SET `urutan` = 4 WHERE `nama` = 'Proofing'",
+      "UPDATE `production_stages` SET `urutan` = 5 WHERE `nama` = 'Approval WO'",
+      "UPDATE `production_stages` SET `urutan` = 6 WHERE `nama` = 'Printing Layout'",
+      "UPDATE `production_stages` SET `urutan` = 7 WHERE `nama` = 'Approval Layout'",
+      "UPDATE `production_stages` SET `urutan` = 8 WHERE `nama` = 'Printing Process'",
+      "UPDATE `production_stages` SET `urutan` = 9 WHERE `nama` = 'Sublim Press'",
+      "UPDATE `production_stages` SET `urutan` = 10 WHERE `nama` = 'Fabric Cutting'",
+      "UPDATE `production_stages` SET `urutan` = 11 WHERE `nama` = 'QC Panel Process'",
+      "UPDATE `production_stages` SET `urutan` = 12 WHERE `nama` = 'Sewing'",
+      "UPDATE `production_stages` SET `urutan` = 13 WHERE `nama` = 'QC Jersey'",
+      "UPDATE `production_stages` SET `urutan` = 14 WHERE `nama` = 'Steam Jersey'",
+      "UPDATE `production_stages` SET `urutan` = 15 WHERE `nama` = 'Finishing'",
+      "UPDATE `production_stages` SET `urutan` = 16 WHERE `nama` = 'QC Final dan Packing'",
+      "UPDATE `production_stages` SET `urutan` = 17 WHERE `nama` = 'Shipment'",
+      "UPDATE `production_stages` SET `urutan` = 999, `active` = 0 WHERE `nama` = 'QC Cutting'",
+    ],
+  },
+  {
+    // wo_confirmed = 1 means the Work Order has been detailed via the
+    // Work Orders menu (Konfirmasi WO). Existing WOs default to 1 so
+    // legacy data isn't gated by the new Proofing → Approval WO check.
+    // Newly auto-created WOs from order save start at 0.
+    name: '017_wo_confirmed',
+    up: [
+      "ALTER TABLE `work_orders` ADD COLUMN `wo_confirmed` TINYINT(1) NOT NULL DEFAULT 1",
+    ],
+  },
+  {
+    // Reject records raised from QC Panel Process or Sewing. `tipe` is
+    // 'WITH_BAHAN' (needs gudang to prep replacement material) or
+    // 'WITHOUT_BAHAN' (rework in-place). `bahan_request` is a JSON
+    // payload for the with-bahan case; the gudang UI comes later.
+    name: '018_stage_rejects',
+    up: [
+      `CREATE TABLE IF NOT EXISTS \`stage_rejects\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`work_order_id\` INT UNSIGNED NOT NULL,
+        \`stage_id\` INT UNSIGNED NOT NULL,
+        \`tipe\` VARCHAR(30) NOT NULL,
+        \`keterangan\` TEXT NOT NULL,
+        \`bahan_request\` TEXT NULL,
+        \`status\` VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`resolved_at\` TIMESTAMP NULL,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_sr_wo\` (\`work_order_id\`),
+        KEY \`idx_sr_stage\` (\`stage_id\`),
+        CONSTRAINT \`fk_sr_wo\` FOREIGN KEY (\`work_order_id\`) REFERENCES \`work_orders\` (\`id\`) ON DELETE CASCADE,
+        CONSTRAINT \`fk_sr_stage\` FOREIGN KEY (\`stage_id\`) REFERENCES \`production_stages\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
