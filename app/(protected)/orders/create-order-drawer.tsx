@@ -469,26 +469,42 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
       // Create order_payments rows for anything with an amount (bank + method
       // travel with each entry). DP Produksi keeps a stable `urutan` so a
       // future UI can show DP #1, DP #2 etc in order.
+      //
+      // The order + scalar payment columns are already saved above, so if
+      // the detailed table isn't ready yet (migration 015 not applied on
+      // this instance) we swallow the error rather than fail the whole save.
+      let paymentInsertFailed = false;
       const insertPayment = async (
         tipe: 'nominal_order' | 'dp_desain' | 'dp_produksi',
         p: PaymentInfo,
         urutan: number
       ) => {
         if (!p.amount || p.amount <= 0) return;
-        await dbCreate('order_payments', {
-          order_id: orderId,
-          tipe,
-          amount: p.amount,
-          bank_name: p.bank || null,
-          method: p.method || null,
-          method_other: p.method === 'DLL' ? (p.methodOther || null) : null,
-          urutan,
-        });
+        try {
+          await dbCreate('order_payments', {
+            order_id: orderId,
+            tipe,
+            amount: p.amount,
+            bank_name: p.bank || null,
+            method: p.method || null,
+            method_other: p.method === 'DLL' ? (p.methodOther || null) : null,
+            urutan,
+          });
+        } catch (err) {
+          paymentInsertFailed = true;
+          console.warn(`order_payments insert failed (${tipe} #${urutan}):`, err);
+        }
       };
       await insertPayment('nominal_order', nominalPay, 1);
       await insertPayment('dp_desain', dpDesainPay, 1);
       for (let i = 0; i < dpProduksiPays.length; i++) {
         await insertPayment('dp_produksi', dpProduksiPays[i], i + 1);
+      }
+      if (paymentInsertFailed) {
+        toast.warning(
+          'Detail Pembayaran Belum Tersimpan',
+          'Order berhasil dibuat tapi detail bank/metode belum tersimpan. Hubungi admin untuk sinkronisasi.'
+        );
       }
 
       // Create order promos
