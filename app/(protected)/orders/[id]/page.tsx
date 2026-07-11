@@ -3,10 +3,21 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
-import { normBagian } from '@/lib/utils';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
+
+// Structured payment — matches the Buat Order Baru drawer so edit parity
+// is guaranteed. Loaded from order_payments and synced back on save.
+interface PaymentInfo {
+  amount: number;
+  bank: string;
+  method: string;
+  methodOther: string;
+}
+const emptyPayment = (): PaymentInfo => ({ amount: 0, bank: '', method: '', methodOther: '' });
+const BANK_OPTIONS = ['BRI', 'BCA', 'BNI', 'MANDIRI', 'DANA', 'WISE', 'FLIP', 'F-BANK', 'SHOOPE PAY', 'GOPAY'];
+const METHOD_OPTIONS = ['TF', 'QRIS', 'DLL'];
 
 function fmtMoney(v: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(v || 0);
@@ -38,9 +49,12 @@ export default function OrderDetailPage() {
   const [form, setForm] = useState<Row>({});
   const [saving, setSaving] = useState(false);
   const [orderItems, setOrderItems] = useState<Row[]>([]);
-  const [detailBahan, setDetailBahan] = useState<Row[]>([]);
   const [leadInfo, setLeadInfo] = useState<Row | null>(null);
   const [leadsList, setLeadsList] = useState<Row[]>([]);
+  const [nominalPay, setNominalPay] = useState<PaymentInfo>(emptyPayment());
+  const [dpDesainPay, setDpDesainPay] = useState<PaymentInfo>(emptyPayment());
+  const [dpProduksiPays, setDpProduksiPays] = useState<PaymentInfo[]>([emptyPayment()]);
+  const [existingPaymentIds, setExistingPaymentIds] = useState<number[]>([]);
   const toast = useToast();
 
   useEffect(() => {
@@ -54,16 +68,40 @@ export default function OrderDetailPage() {
           setOrderItems(items.filter((i: Row) => String(i.order_id) === String(found.id)));
         } catch {}
         try {
-          const db = await dbGet('order_detail_bahan');
-          setDetailBahan(db.filter((d: Row) => String(d.order_id) === String(found.id)));
-        } catch {}
-        try {
           const leads = await dbGet('leads');
           setLeadsList(leads);
           if (found.lead_id) {
             setLeadInfo(leads.find((l: Row) => String(l.id) === String(found.lead_id)) || null);
           }
         } catch {}
+        // Load structured payments — falls back to the scalar columns on the
+        // order row when the detailed rows don't exist yet.
+        try {
+          const payments: Row[] = await dbGet('order_payments');
+          const mine = payments.filter((p: Row) => String(p.order_id) === String(found.id));
+          setExistingPaymentIds(mine.map((p: Row) => Number(p.id)));
+          const rowToPay = (r: Row | undefined): PaymentInfo => ({
+            amount: Number(r?.amount) || 0,
+            bank: String(r?.bank_name || ''),
+            method: String(r?.method || ''),
+            methodOther: String(r?.method_other || ''),
+          });
+          const nomRow = mine.find((p: Row) => p.tipe === 'nominal_order');
+          const desainRow = mine.find((p: Row) => p.tipe === 'dp_desain');
+          const prodRows = mine
+            .filter((p: Row) => p.tipe === 'dp_produksi')
+            .sort((a: Row, b: Row) => Number(a.urutan || 0) - Number(b.urutan || 0));
+          setNominalPay(nomRow ? rowToPay(nomRow) : { amount: Number(found.nominal_order) || 0, bank: '', method: '', methodOther: '' });
+          setDpDesainPay(desainRow ? rowToPay(desainRow) : { amount: Number(found.dp_desain) || 0, bank: '', method: '', methodOther: '' });
+          setDpProduksiPays(prodRows.length > 0
+            ? prodRows.map(rowToPay)
+            : [{ amount: Number(found.dp_produksi) || 0, bank: '', method: '', methodOther: '' }]);
+        } catch {
+          // order_payments not available — populate from scalar columns only
+          setNominalPay({ amount: Number(found.nominal_order) || 0, bank: '', method: '', methodOther: '' });
+          setDpDesainPay({ amount: Number(found.dp_desain) || 0, bank: '', method: '', methodOther: '' });
+          setDpProduksiPays([{ amount: Number(found.dp_produksi) || 0, bank: '', method: '', methodOther: '' }]);
+        }
       }
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -73,6 +111,8 @@ export default function OrderDetailPage() {
     if (!order) return;
     setSaving(true);
     try {
+      const dpProduksiTotal = dpProduksiPays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const kekurangan = Math.max(0, nominalPay.amount - dpDesainPay.amount - dpProduksiTotal);
       await dbUpdate('orders', order.id, {
         customer_nama: form.customer_nama,
         customer_phone: form.customer_phone,
@@ -85,18 +125,52 @@ export default function OrderDetailPage() {
         tanggal_order: form.tanggal_order || null,
         estimasi_deadline: form.estimasi_deadline || null,
         keterangan: form.keterangan,
-        nominal_order: Number(form.nominal_order) || 0,
-        dp_desain: Number(form.dp_desain) || 0,
-        dp_produksi: Number(form.dp_produksi) || 0,
-        kekurangan: Math.max(0, Number(form.nominal_order || 0) - Number(form.dp_desain || 0) - Number(form.dp_produksi || 0)),
+        nominal_order: nominalPay.amount,
+        dp_desain: dpDesainPay.amount,
+        dp_produksi: dpProduksiTotal,
+        kekurangan,
         tanggal_acc_proofing: form.tanggal_acc_proofing || null,
-        ekspedisi: form.ekspedisi || null,
         status: form.status,
         lead_id: form.lead_id || null,
         pilihan_paket: form.pilihan_paket || null,
         deadline_lock: form.deadline_lock || null,
       });
-      setOrder({ ...order, ...form });
+
+      // Sync order_payments — delete old rows, then re-insert. Wrapped in
+      // try/catch per row so the whole save doesn't fail if the detailed
+      // table isn't ready yet on this instance.
+      let paymentSyncFailed = false;
+      for (const pid of existingPaymentIds) {
+        try { await dbDelete('order_payments', pid); } catch (e) { paymentSyncFailed = true; console.warn('delete order_payments', pid, e); }
+      }
+      const insertPay = async (
+        tipe: 'nominal_order' | 'dp_desain' | 'dp_produksi',
+        p: PaymentInfo,
+        urutan: number
+      ) => {
+        if (!p.amount || p.amount <= 0) return;
+        try {
+          await dbCreate('order_payments', {
+            order_id: order.id,
+            tipe,
+            amount: p.amount,
+            bank_name: p.bank || null,
+            method: p.method || null,
+            method_other: p.method === 'DLL' ? (p.methodOther || null) : null,
+            urutan,
+          });
+        } catch (e) {
+          paymentSyncFailed = true;
+          console.warn(`insert ${tipe} #${urutan}`, e);
+        }
+      };
+      await insertPay('nominal_order', nominalPay, 1);
+      await insertPay('dp_desain', dpDesainPay, 1);
+      for (let i = 0; i < dpProduksiPays.length; i++) {
+        await insertPay('dp_produksi', dpProduksiPays[i], i + 1);
+      }
+
+      setOrder({ ...order, ...form, nominal_order: nominalPay.amount, dp_desain: dpDesainPay.amount, dp_produksi: dpProduksiTotal });
       if (form.lead_id) {
         setLeadInfo(leadsList.find(l => String(l.id) === String(form.lead_id)) || null);
       } else {
@@ -104,6 +178,12 @@ export default function OrderDetailPage() {
       }
       setEditing(false);
       toast.success('Order Diperbarui', 'Data order berhasil disimpan.');
+      if (paymentSyncFailed) {
+        toast.warning(
+          'Detail Pembayaran Belum Tersimpan',
+          'Nominal + DP tersimpan, tapi detail bank/metode belum. Hubungi admin bila perlu.'
+        );
+      }
     } catch (e) { toast.error('Gagal Update', String(e)); }
     setSaving(false);
   }
@@ -211,7 +291,6 @@ export default function OrderDetailPage() {
           <div><p className={lbl}>Estimasi Deadline</p>{editing ? <input type="date" value={toDateInput(form.estimasi_deadline || '')} onChange={e => set('estimasi_deadline', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.estimasi_deadline)}</p>}</div>
           <div><p className={lbl}>Tanggal ACC Proofing</p>{editing ? <input type="date" value={toDateInput(form.tanggal_acc_proofing || '')} onChange={e => set('tanggal_acc_proofing', e.target.value)} className={`${inp} date-input`} /> : <p className={val}>{fmtDate(order.tanggal_acc_proofing)}</p>}</div>
           <div className="col-span-2"><PilihanLayananEdit editing={editing} form={form} order={order} set={set} inp={inp} lbl={lbl} val={val} /></div>
-          <div><p className={lbl}>Ekspedisi</p>{editing ? <EkspedisiEdit value={form.ekspedisi || ''} onChange={v => set('ekspedisi', v)} /> : <p className={val}>{order.ekspedisi || '-'}</p>}</div>
           <div className="col-span-2"><p className={lbl}>Keterangan</p>{editing ? <textarea value={form.keterangan || ''} onChange={e => set('keterangan', e.target.value)} rows={2} className={`${inp} resize-none`} /> : <p className={val}>{order.keterangan || '-'}</p>}</div>
         </div>
       </section>
@@ -251,21 +330,52 @@ export default function OrderDetailPage() {
         setOrderItems(items.filter((i: Row) => String(i.order_id) === String(order.id)));
       }} />
 
-      {/* Bahan */}
-      <DetailBahanSection orderId={order.id} detailBahan={detailBahan} onRefresh={async () => {
-        const db = await dbGet('order_detail_bahan');
-        setDetailBahan(db.filter((d: Row) => String(d.order_id) === String(order.id)));
-      }} />
-
-      {/* Pembayaran */}
+      {/* Pembayaran — struktur mengikuti Buat Order Baru: bank + metode per
+          payment + multi-row DP Produksi */}
       <section className="rounded-xl bg-[#111827] border border-white/[0.06] p-6 mb-4">
         <h2 className="text-base font-bold text-white mb-5">Pembayaran</h2>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-4">
-          <div><p className={lbl}>Nominal Order</p>{editing ? <RpInput value={Number(form.nominal_order) || 0} onChange={v => set('nominal_order', v)} /> : <p className={val}>{fmtMoney(order.nominal_order)}</p>}</div>
-          <div><p className={lbl}>DP Desain</p>{editing ? <RpInput value={Number(form.dp_desain) || 0} onChange={v => set('dp_desain', v)} /> : <p className={val}>{fmtMoney(order.dp_desain)}</p>}</div>
-          <div><p className={lbl}>DP Produksi</p>{editing ? <RpInput value={Number(form.dp_produksi) || 0} onChange={v => set('dp_produksi', v)} /> : <p className={val}>{fmtMoney(order.dp_produksi)}</p>}</div>
-          <div><p className={lbl}>Kekurangan</p><p className={val}>{fmtMoney(Math.max(0, Number(order.nominal_order || 0) - Number(order.dp_desain || 0) - Number(order.dp_produksi || 0)))}</p></div>
-        </div>
+        {editing ? (
+          <div className="space-y-5">
+            <PaymentEdit label="Nominal Order" value={nominalPay} onChange={setNominalPay} />
+            <PaymentEdit label="DP Desain" value={dpDesainPay} onChange={setDpDesainPay} />
+            <div className="space-y-3">
+              {dpProduksiPays.map((p, i) => (
+                <PaymentEdit
+                  key={i}
+                  label={dpProduksiPays.length > 1 ? `DP Produksi #${i + 1}` : 'DP Produksi'}
+                  value={p}
+                  onChange={v => setDpProduksiPays(prev => prev.map((x, idx) => idx === i ? v : x))}
+                  onRemove={dpProduksiPays.length > 1 ? () => setDpProduksiPays(prev => prev.filter((_, idx) => idx !== i)) : undefined}
+                />
+              ))}
+              <button
+                type="button"
+                onClick={() => setDpProduksiPays(prev => [...prev, emptyPayment()])}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed border-white/10 text-xs text-slate-400 hover:text-blue-400 hover:border-blue-500/30 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                Tambah DP Produksi
+              </button>
+            </div>
+            <div>
+              <p className={lbl}>Kekurangan</p>
+              <p className={val}>
+                {fmtMoney(Math.max(0, nominalPay.amount - dpDesainPay.amount - dpProduksiPays.reduce((s, p) => s + p.amount, 0)))}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <PaymentReadonly
+            nominal={nominalPay}
+            desain={dpDesainPay}
+            produksi={dpProduksiPays}
+            fallbackNominal={Number(order.nominal_order) || 0}
+            fallbackDesain={Number(order.dp_desain) || 0}
+            fallbackProduksi={Number(order.dp_produksi) || 0}
+            lbl={lbl}
+            val={val}
+          />
+        )}
       </section>
 
       {/* Link Tracking */}
@@ -376,98 +486,112 @@ function ItemsSection({ orderId, items, onRefresh }: { orderId: number; items: R
   );
 }
 
-function DetailBahanSection({ orderId, detailBahan, onRefresh }: { orderId: number; detailBahan: Row[]; onRefresh: () => void }) {
-  const [adding, setAdding] = useState(false);
-  const [newBagian, setNewBagian] = useState('');
-  const [newBahan, setNewBahan] = useState('');
-  const [barangList, setBarangList] = useState<Row[]>([]);
-  const [saving, setSaving] = useState(false);
-  const toast = useToast();
+// Removed: DetailBahanSection + EkspedisiEdit. Both belong to the retired
+// Buat Order Baru fields. Kept here for git-history reference in one place
+// via commit messages instead of dead code.
 
-  useEffect(() => {
-    dbGet('barang').then(setBarangList).catch(() => {});
-  }, []);
-
-  async function handleAdd() {
-    if (!newBagian || !newBahan) { toast.warning('Validasi', 'Isi bagian dan bahan'); return; }
-    setSaving(true);
-    try {
-      await dbCreate('order_detail_bahan', { order_id: orderId, bagian: newBagian, bahan: newBahan });
-      setAdding(false); setNewBagian(''); setNewBahan('');
-      toast.success('Bahan Ditambahkan');
-      onRefresh();
-    } catch (e) { toast.error('Gagal', String(e)); }
-    setSaving(false);
-  }
-
-  async function handleDeleteItem(id: number) {
-    const yes = await toast.confirm({ title: 'Hapus Bahan?', message: 'Item ini akan dihapus.', type: 'danger', confirmText: 'Hapus' });
-    if (!yes) return;
-    await dbDelete('order_detail_bahan', id);
-    toast.deleted('Bahan Dihapus');
-    onRefresh();
-  }
-
-  const inp = 'w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40';
-
+function PaymentEdit({ label, value, onChange, onRemove }: {
+  label: string;
+  value: PaymentInfo;
+  onChange: (v: PaymentInfo) => void;
+  onRemove?: () => void;
+}) {
+  const patch = (p: Partial<PaymentInfo>) => onChange({ ...value, ...p });
+  const selCls = 'w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer';
+  const lblCls = 'text-[11px] text-blue-400/70 font-medium uppercase tracking-wider';
   return (
-    <section className="rounded-xl bg-[#111827] border border-white/[0.06] p-6 mb-4">
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-base font-bold text-white">Bahan</h2>
-        {!adding && (
-          <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 text-xs text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded-lg hover:bg-blue-500/10 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-            Tambah Item
+    <div className="space-y-2 rounded-lg border border-white/[0.04] bg-white/[0.02] p-3">
+      <div className="flex items-center justify-between">
+        <p className={lblCls}>{label}</p>
+        {onRemove && (
+          <button type="button" onClick={onRemove} className="text-slate-500 hover:text-red-400 transition-colors p-0.5" title="Hapus">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         )}
       </div>
-      <table className="w-full">
-        <thead><tr className="border-b border-white/[0.06]">
-          <th className="text-[11px] text-slate-500 font-medium text-left pb-3 uppercase tracking-wider">Bagian</th>
-          <th className="text-[11px] text-slate-500 font-medium text-left pb-3 uppercase tracking-wider">Bahan</th>
-          <th className="text-[11px] text-slate-500 font-medium text-right pb-3 uppercase tracking-wider w-16">Aksi</th>
-        </tr></thead>
-        <tbody>
-          {detailBahan.map((d: Row) => (
-            <tr key={d.id} className="border-b border-white/[0.04]">
-              <td className="py-3 text-sm text-slate-400 font-medium">{normBagian(d.bagian)}</td>
-              <td className="py-3 text-sm text-white">{d.bahan}</td>
-              <td className="py-3 text-right">
-                <button onClick={() => handleDeleteItem(d.id)} className="text-slate-600 hover:text-red-400 transition-colors p-1">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                </button>
-              </td>
-            </tr>
-          ))}
-          {detailBahan.length === 0 && !adding && (
-            <tr><td colSpan={3} className="py-6 text-center text-sm text-slate-500">Tidak ada bahan.</td></tr>
-          )}
-          {adding && (
-            <tr className="border-b border-white/[0.04] bg-white/[0.02]">
-              <td className="py-2 pr-2">
-                <input value={newBagian} onChange={e => setNewBagian(e.target.value)} placeholder="Nama bagian..." className={inp} />
-              </td>
-              <td className="py-2 pr-2">
-                <select value={newBahan} onChange={e => setNewBahan(e.target.value)} className={`${inp} appearance-none cursor-pointer`}>
-                  <option value="">Pilih bahan...</option>
-                  {[...barangList].sort((a, b) => String(a.nama).localeCompare(String(b.nama))).map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
-                </select>
-              </td>
-              <td className="py-2 text-right">
-                <div className="flex items-center justify-end gap-1">
-                  <button onClick={handleAdd} disabled={saving} className="text-emerald-400 hover:text-emerald-300 transition-colors p-1" title="Simpan">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                  </button>
-                  <button onClick={() => { setAdding(false); setNewBagian(''); setNewBahan(''); }} className="text-slate-500 hover:text-slate-300 transition-colors p-1" title="Batal">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </section>
+      <RpInput value={value.amount} onChange={v => patch({ amount: v })} />
+      <div className="grid grid-cols-2 gap-2">
+        <select value={value.bank} onChange={e => patch({ bank: e.target.value })} className={selCls}>
+          <option value="">Nama Bank...</option>
+          {BANK_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <select
+          value={value.method}
+          onChange={e => {
+            const m = e.target.value;
+            patch({ method: m, methodOther: m === 'DLL' ? value.methodOther : '' });
+          }}
+          className={selCls}
+        >
+          <option value="">Metode...</option>
+          {METHOD_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
+      {value.method === 'DLL' && (
+        <input
+          type="text"
+          value={value.methodOther}
+          onChange={e => patch({ methodOther: e.target.value })}
+          placeholder="Ketik metode pembayaran..."
+          className="w-full bg-[#0d1117] border border-white/10 text-white text-xs placeholder-slate-500 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40"
+        />
+      )}
+    </div>
+  );
+}
+
+function PaymentReadonly({ nominal, desain, produksi, fallbackNominal, fallbackDesain, fallbackProduksi, lbl, val }: {
+  nominal: PaymentInfo;
+  desain: PaymentInfo;
+  produksi: PaymentInfo[];
+  fallbackNominal: number;
+  fallbackDesain: number;
+  fallbackProduksi: number;
+  lbl: string;
+  val: string;
+}) {
+  const totalProduksi = produksi.reduce((s, p) => s + (p.amount || 0), 0) || fallbackProduksi;
+  const kekurangan = Math.max(0, (nominal.amount || fallbackNominal) - (desain.amount || fallbackDesain) - totalProduksi);
+  const row = (label: string, p: PaymentInfo, fallbackAmount: number) => {
+    const amt = p.amount || fallbackAmount;
+    const method = p.method === 'DLL' ? (p.methodOther || 'DLL') : p.method;
+    return (
+      <div>
+        <p className={lbl}>{label}</p>
+        <p className={val}>{fmtMoney(amt)}</p>
+        {(p.bank || method) && (
+          <p className="text-[11px] text-slate-500 mt-0.5">{[p.bank, method].filter(Boolean).join(' · ')}</p>
+        )}
+      </div>
+    );
+  };
+  return (
+    <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+      {row('Nominal Order', nominal, fallbackNominal)}
+      {row('DP Desain', desain, fallbackDesain)}
+      {produksi.length > 0 && produksi.some(p => p.amount > 0)
+        ? produksi
+            .map((p, i) => p.amount > 0 ? (
+              <div key={i}>
+                <p className={lbl}>{produksi.length > 1 ? `DP Produksi #${i + 1}` : 'DP Produksi'}</p>
+                <p className={val}>{fmtMoney(p.amount)}</p>
+                {(p.bank || p.method) && (
+                  <p className="text-[11px] text-slate-500 mt-0.5">{[p.bank, p.method === 'DLL' ? (p.methodOther || 'DLL') : p.method].filter(Boolean).join(' · ')}</p>
+                )}
+              </div>
+            ) : null)
+            .filter(Boolean)
+        : (
+          <div>
+            <p className={lbl}>DP Produksi</p>
+            <p className={val}>{fmtMoney(fallbackProduksi)}</p>
+          </div>
+        )}
+      <div>
+        <p className={lbl}>Kekurangan</p>
+        <p className={val}>{fmtMoney(kekurangan)}</p>
+      </div>
+    </div>
   );
 }
 
@@ -488,44 +612,6 @@ function TrackingLink({ url }: { url: string }) {
           Buka Tracking
         </a>
       </div>
-    </div>
-  );
-}
-
-function EkspedisiEdit({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const KNOWN = ['JNE', 'J&T', 'LION PARCEL'];
-  const parse = (v: string): { base: string; detail: string } => {
-    if (!v) return { base: '', detail: '' };
-    const hit = KNOWN.find(k => v === k || v.startsWith(`${k} - `));
-    if (hit) return { base: hit, detail: v === hit ? '' : v.slice(hit.length + 3) };
-    return { base: 'LAINNYA', detail: v };
-  };
-  const initial = parse(value);
-  const [base, setBase] = useState(initial.base);
-  const [detail, setDetail] = useState(initial.detail);
-
-  const emit = (b: string, d: string) => {
-    if (!b) return onChange('');
-    if (b === 'LAINNYA') return onChange(d || '');
-    return onChange(d ? `${b} - ${d}` : b);
-  };
-
-  const inp = 'w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40';
-  const sel = `${inp} appearance-none cursor-pointer`;
-  return (
-    <div className="space-y-2">
-      <select value={base} onChange={e => { setBase(e.target.value); setDetail(''); emit(e.target.value, ''); }} className={sel}>
-        <option value="">Pilih ekspedisi...</option>
-        <option value="JNE">JNE</option>
-        <option value="J&T">J&T</option>
-        <option value="LION PARCEL">Lion Parcel</option>
-        <option value="LAINNYA">Lainnya</option>
-      </select>
-      {base && (
-        <input type="text" value={detail} onChange={e => { setDetail(e.target.value); emit(base, e.target.value); }}
-          placeholder={base === 'LAINNYA' ? 'Ketik nama ekspedisi...' : 'Nomor resi / keterangan...'}
-          className={inp} />
-      )}
     </div>
   );
 }
