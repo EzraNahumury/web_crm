@@ -243,6 +243,15 @@ const MIGRATIONS: Migration[] = [
       "UPDATE `production_stages` SET `urutan` = 15 WHERE `nama` = 'Finishing'",
       "UPDATE `production_stages` SET `urutan` = 16 WHERE `nama` = 'QC Final dan Packing'",
       "UPDATE `production_stages` SET `urutan` = 17 WHERE `nama` = 'Shipment'",
+      // Rescue any in-flight WOs sitting at QC Cutting before we retire it.
+      // Everything else follows the same before/after mapping (id doesn't
+      // change), but a WO whose current stage is QC Cutting would have no
+      // visible tab after deactivation, so bump it forward to Sewing.
+      "UPDATE `work_orders` w JOIN `production_stages` qc ON qc.nama = 'QC Cutting' JOIN `production_stages` sw ON sw.nama = 'Sewing' SET w.`current_stage_id` = sw.`id` WHERE w.`current_stage_id` = qc.`id`",
+      // Mark any active QC Cutting progress rows as done so the flow moves on.
+      "UPDATE `wo_progress` wp JOIN `production_stages` qc ON qc.nama = 'QC Cutting' SET wp.`status` = 'SELESAI', wp.`completed_at` = IFNULL(wp.`completed_at`, NOW()) WHERE wp.`stage_id` = qc.`id` AND wp.`status` IN ('TERSEDIA','SEDANG')",
+      // Open Sewing for any WO whose QC Cutting was just closed above.
+      "UPDATE `wo_progress` wp JOIN `production_stages` sw ON sw.nama = 'Sewing' JOIN `wo_progress` qcp ON qcp.work_order_id = wp.work_order_id JOIN `production_stages` qc ON qc.id = qcp.stage_id AND qc.nama = 'QC Cutting' SET wp.`status` = 'TERSEDIA' WHERE wp.`stage_id` = sw.`id` AND wp.`status` = 'BELUM' AND qcp.`status` = 'SELESAI'",
       "UPDATE `production_stages` SET `urutan` = 999, `active` = 0 WHERE `nama` = 'QC Cutting'",
     ],
   },
