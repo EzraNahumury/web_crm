@@ -1,5 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { computeDeadlineLock } from '@/lib/business-days';
+
+// Stages the customer is allowed to see on the tracking timeline. Every
+// other stage stays inside the wo_progress table (still drives current
+// stage + progressPercent) but is filtered out before the JSON goes to
+// the customer.
+const CUSTOMER_VISIBLE_STAGES = new Set([
+  'Proofing',
+  'Printing Process',
+  'Sublim Press',
+  'Fabric Cutting',
+  'Sewing',
+  'Finishing',
+  'Shipment',
+]);
 
 interface WoRow {
   id: number;
@@ -24,6 +39,9 @@ interface OrderRow {
   tanggal_order: string;
   estimasi_deadline: string;
   nominal_order: number;
+  pilihan_paket: string | null;
+  tanggal_acc_proofing: string | Date | null;
+  deadline_lock: string | Date | null;
 }
 
 interface WpRow {
@@ -74,32 +92,83 @@ export async function GET(req: NextRequest) {
     const progressMap: Record<number, WpRow> = {};
     for (const p of progress) progressMap[p.stage_id] = p;
 
-    // Compute progress
-    const totalStages = stages.length;
-    const selesaiCount = progress.filter(p => p.status === 'SELESAI').length;
-    const progressPercent = totalStages > 0 ? Math.round((selesaiCount / totalStages) * 100) : 0;
+    // Compute progress based on the stages the customer actually sees,
+    // so 70% on the bar corresponds to 5/7 checkmarks on the timeline
+    // rather than 5/15 hidden internal steps.
+    const visibleStageIds = new Set(
+      stages.filter(s => CUSTOMER_VISIBLE_STAGES.has(s.nama)).map(s => s.id)
+    );
+    const visibleTotal = visibleStageIds.size;
+    const visibleSelesai = progress.filter(p => p.status === 'SELESAI' && visibleStageIds.has(p.stage_id)).length;
+    const progressPercent = visibleTotal > 0 ? Math.round((visibleSelesai / visibleTotal) * 100) : 0;
 
-    // Find current stage
-    const activeStage = progress.find(p => p.status === 'SEDANG') || progress.find(p => p.status === 'TERSEDIA');
+    // "Current stage" — prefer the deepest visible stage that's active or
+    // completed. Hides "Approval Design" etc. from the summary card so it
+    // matches the filtered timeline below.
     let currentStageName = 'Belum mulai';
-    if (progressPercent >= 100) currentStageName = 'Selesai';
-    else if (activeStage) {
-      const s = stages.find(st => st.id === activeStage.stage_id);
-      if (s) currentStageName = s.nama;
+    if (progressPercent >= 100) {
+      currentStageName = 'Selesai';
+    } else {
+      const visibleStages = stages.filter(s => CUSTOMER_VISIBLE_STAGES.has(s.nama));
+      const activeVisible = visibleStages.find(s => {
+        const p = progressMap[s.id];
+        return p && (p.status === 'SEDANG' || p.status === 'TERSEDIA');
+      });
+      if (activeVisible) {
+        currentStageName = activeVisible.nama;
+      } else {
+        // Fall back to the last completed visible stage
+        const doneVisible = [...visibleStages].reverse().find(s => progressMap[s.id]?.status === 'SELESAI');
+        if (doneVisible) currentStageName = doneVisible.nama;
+      }
     }
 
-    // Build stage list with status
-    const stageList = stages.map(s => {
-      const p = progressMap[s.id];
-      return {
-        id: s.id,
-        urutan: s.urutan,
-        nama: s.nama,
-        status: p?.status || 'BELUM',
-        started_at: p?.started_at || null,
-        completed_at: p?.completed_at || null,
-      };
-    });
+    // Build stage list with status — only the stages the customer is
+    // meant to see. Renumber the visible ones 1..N so the timeline stays
+    // sequential even though hidden stages sit between them internally.
+    const stageList = stages
+      .filter(s => CUSTOMER_VISIBLE_STAGES.has(s.nama))
+      .map((s, i) => {
+        const p = progressMap[s.id];
+        return {
+          id: s.id,
+          urutan: i + 1,
+          nama: s.nama,
+          status: p?.status || 'BELUM',
+          started_at: p?.started_at || null,
+          completed_at: p?.completed_at || null,
+        };
+      });
+
+    // Tgl Selesai = deadline lock (same math as the CRM Deadline Lock
+    // board). Reguler = ACC + 21 working days, Express = ACC + N working
+    // days, Prioritas = manual orders.deadline_lock. Falls back to
+    // estimasi_deadline / wo.deadline if the order isn't tagged yet.
+    let holidays = new Set<string>();
+    try {
+      const holidayRows = await query<{ tanggal: string | Date }>('SELECT tanggal FROM libur_nasional');
+      holidays = new Set(
+        holidayRows
+          .map(h => {
+            if (!h.tanggal) return '';
+            if (h.tanggal instanceof Date) {
+              return `${h.tanggal.getFullYear()}-${String(h.tanggal.getMonth() + 1).padStart(2, '0')}-${String(h.tanggal.getDate()).padStart(2, '0')}`;
+            }
+            const m = String(h.tanggal).match(/(\d{4})-(\d{2})-(\d{2})/);
+            return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+          })
+          .filter(Boolean)
+      );
+    } catch {}
+    const tglSelesai = order
+      ? computeDeadlineLock({
+          pilihanPaket: order.pilihan_paket,
+          tanggalAccProofing: order.tanggal_acc_proofing,
+          deadlineLock: order.deadline_lock,
+          holidays,
+        })
+      : '';
+    const displayDeadline = tglSelesai || order?.estimasi_deadline || wo.deadline;
 
     // Admin/CS contact number for the "Hubungi via WhatsApp" button.
     // Prefer the `admin_whatsapp` row in the settings table so it can be
@@ -126,7 +195,7 @@ export async function GET(req: NextRequest) {
         jumlah: wo.jumlah,
         keterangan: wo.keterangan || '',
         tanggal_order: order?.tanggal_order || wo.up_produksi || '',
-        deadline: order?.estimasi_deadline || wo.deadline,
+        deadline: displayDeadline,
         status: wo.status,
         progressPercent,
         currentStageName,

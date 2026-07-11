@@ -157,7 +157,7 @@ export default function TrackingPage() {
                   <p className="mt-2 text-base font-semibold text-slate-900">{data.currentStageName}</p>
                 </div>
                 <div className="rounded-[20px] border border-slate-100 bg-[#fcfbf8] p-4">
-                  <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Estimasi Selesai</p>
+                  <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Tgl Selesai</p>
                   <p className="mt-2 text-base font-semibold text-slate-900">{fmtDate(data.deadline)}</p>
                 </div>
               </div>
@@ -224,7 +224,7 @@ export default function TrackingPage() {
               ['No. Work Order', data.no_wo],
               ['No. Order', data.no_order || '-'],
               ['Tanggal Order', fmtDate(data.tanggal_order)],
-              ['Estimasi Selesai', fmtDate(data.deadline)],
+              ['Tgl Selesai', fmtDate(data.deadline)],
             ]} />
 
             <SideCard title="Detail Pesanan" rows={[
