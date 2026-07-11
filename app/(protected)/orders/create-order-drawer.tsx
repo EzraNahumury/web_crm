@@ -73,6 +73,87 @@ function weekLater() {
   return d.toISOString().split('T')[0];
 }
 
+// Structured payment entry — reused for Nominal Order, DP Desain, and each
+// row of DP Produksi (the last one can repeat).
+interface PaymentInfo {
+  amount: number;
+  bank: string;    // e.g. 'BCA', 'MANDIRI', 'DANA', ...
+  method: string;  // 'TF' | 'QRIS' | 'DLL' (empty = not specified)
+  methodOther: string; // free-text when method === 'DLL'
+}
+
+const BANK_OPTIONS = ['BRI', 'BCA', 'BNI', 'MANDIRI', 'DANA', 'WISE', 'FLIP', 'F-BANK', 'SHOOPE PAY', 'GOPAY'];
+const METHOD_OPTIONS = ['TF', 'QRIS', 'DLL'];
+
+// Payment editor: Rp input followed by bank + method selects (grid), plus a
+// free-text field revealed when method = DLL. Keeps the same visual weight
+// as the old flat inputs so the Pembayaran section doesn't balloon.
+function PaymentField({
+  label,
+  value,
+  onChange,
+  onRemove,
+  showRemove,
+  labelClassName,
+}: {
+  label: string;
+  value: PaymentInfo;
+  onChange: (v: PaymentInfo) => void;
+  onRemove?: () => void;
+  showRemove?: boolean;
+  labelClassName?: string;
+}) {
+  const patch = (p: Partial<PaymentInfo>) => onChange({ ...value, ...p });
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className={labelClassName || 'block text-sm font-medium text-white mb-1.5'}>{label}</label>
+        {showRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-slate-500 hover:text-red-400 transition-colors p-0.5"
+            title="Hapus DP Produksi ini"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        )}
+      </div>
+      <RupiahInput value={value.amount} onChange={v => patch({ amount: v })} />
+      <div className="grid grid-cols-2 gap-2">
+        <select
+          value={value.bank}
+          onChange={e => patch({ bank: e.target.value })}
+          className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer"
+        >
+          <option value="">Nama Bank...</option>
+          {BANK_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <select
+          value={value.method}
+          onChange={e => {
+            const m = e.target.value;
+            patch({ method: m, methodOther: m === 'DLL' ? value.methodOther : '' });
+          }}
+          className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer"
+        >
+          <option value="">Metode...</option>
+          {METHOD_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
+      {value.method === 'DLL' && (
+        <input
+          type="text"
+          value={value.methodOther}
+          onChange={e => patch({ methodOther: e.target.value })}
+          placeholder="Ketik metode pembayaran..."
+          className="w-full bg-[#0d1117] border border-white/10 text-white text-xs placeholder-slate-500 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40"
+        />
+      )}
+    </div>
+  );
+}
+
 // Dropdown with a search box on top. Renders the visible trigger the same
 // way our other selects look so it drops in as a swap for a <select>.
 // Options are strings; the caller controls option list + which value maps
@@ -217,10 +298,17 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const [deadline, setDeadline] = useState(weekLater());
   const [tglAccProofing, setTglAccProofing] = useState('');
   const [keterangan, setKeterangan] = useState('');
-  const [nominalOrder, setNominalOrder] = useState(0);
-  const [dpDesain, setDpDesain] = useState(0);
-  const [dpProduksi, setDpProduksi] = useState(0);
-  const kekurangan = Math.max(0, nominalOrder - dpDesain - dpProduksi);
+  // Payment fields now capture bank + method as well. DP Produksi can hold
+  // multiple entries (fan-out via +Tambah button) since some orders are paid
+  // in staged production installments.
+  const emptyPayment = (): PaymentInfo => ({ amount: 0, bank: '', method: '', methodOther: '' });
+  const [nominalPay, setNominalPay] = useState<PaymentInfo>(emptyPayment());
+  const [dpDesainPay, setDpDesainPay] = useState<PaymentInfo>(emptyPayment());
+  const [dpProduksiPays, setDpProduksiPays] = useState<PaymentInfo[]>([emptyPayment()]);
+  const nominalOrder = nominalPay.amount;
+  const dpDesain = dpDesainPay.amount;
+  const dpProduksiTotal = dpProduksiPays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const kekurangan = Math.max(0, nominalOrder - dpDesain - dpProduksiTotal);
   const [selectedPromos, setSelectedPromos] = useState<string[]>([]);
 
   // Fetch dropdown data from DB
@@ -361,7 +449,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
         status: 'PENDING',
         nominal_order: nominalOrder,
         dp_desain: dpDesain,
-        dp_produksi: dpProduksi,
+        dp_produksi: dpProduksiTotal,
         kekurangan,
         tanggal_acc_proofing: tglAccProofing || null,
       });
@@ -376,6 +464,31 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
             qty: item.qty || 0,
           });
         }
+      }
+
+      // Create order_payments rows for anything with an amount (bank + method
+      // travel with each entry). DP Produksi keeps a stable `urutan` so a
+      // future UI can show DP #1, DP #2 etc in order.
+      const insertPayment = async (
+        tipe: 'nominal_order' | 'dp_desain' | 'dp_produksi',
+        p: PaymentInfo,
+        urutan: number
+      ) => {
+        if (!p.amount || p.amount <= 0) return;
+        await dbCreate('order_payments', {
+          order_id: orderId,
+          tipe,
+          amount: p.amount,
+          bank_name: p.bank || null,
+          method: p.method || null,
+          method_other: p.method === 'DLL' ? (p.methodOther || null) : null,
+          urutan,
+        });
+      };
+      await insertPayment('nominal_order', nominalPay, 1);
+      await insertPayment('dp_desain', dpDesainPay, 1);
+      for (let i = 0; i < dpProduksiPays.length; i++) {
+        await insertPayment('dp_produksi', dpProduksiPays[i], i + 1);
       }
 
       // Create order promos
@@ -403,7 +516,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
     setNoHp(''); setLeadId(''); setPilihanPaket(''); setExpressDurasi(''); setDeadlineLock(''); setNamaTim('');
     setItems([{ id: 1, paket: '', qty: 0 }]); setTglOrder(today());
     setDeadline(weekLater()); setTglAccProofing(''); setKeterangan('');
-    setNominalOrder(0); setDpDesain(0); setDpProduksi(0);
+    setNominalPay(emptyPayment()); setDpDesainPay(emptyPayment()); setDpProduksiPays([emptyPayment()]);
     setSelectedPromos([]);
   }
 
@@ -652,21 +765,43 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
           {/* ── Pembayaran ── */}
           <div>
             <h3 className="text-sm font-bold text-white mb-4 uppercase">Pembayaran</h3>
-            <div className="space-y-4">
-              <div>
-                <label className={`${labelCls} text-amber-400`}>Nominal Order</label>
-                <RupiahInput value={nominalOrder} onChange={setNominalOrder} />
+            <div className="space-y-5">
+              <PaymentField
+                label="Nominal Order"
+                labelClassName={`${labelCls} text-amber-400`}
+                value={nominalPay}
+                onChange={setNominalPay}
+              />
+              <PaymentField
+                label="DP Desain"
+                labelClassName={`${labelCls} text-amber-400`}
+                value={dpDesainPay}
+                onChange={setDpDesainPay}
+              />
+
+              {/* DP Produksi — bisa lebih dari satu, tiap entry punya bank + metode sendiri */}
+              <div className="space-y-3">
+                {dpProduksiPays.map((p, i) => (
+                  <PaymentField
+                    key={i}
+                    label={dpProduksiPays.length > 1 ? `DP Produksi #${i + 1}` : 'DP Produksi'}
+                    labelClassName={`${labelCls} text-amber-400`}
+                    value={p}
+                    onChange={v => setDpProduksiPays(prev => prev.map((x, idx) => idx === i ? v : x))}
+                    onRemove={() => setDpProduksiPays(prev => prev.filter((_, idx) => idx !== i))}
+                    showRemove={dpProduksiPays.length > 1}
+                  />
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setDpProduksiPays(prev => [...prev, emptyPayment()])}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed border-white/10 text-xs text-slate-400 hover:text-blue-400 hover:border-blue-500/30 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                  Tambah DP Produksi
+                </button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={`${labelCls} text-amber-400`}>DP Desain</label>
-                  <RupiahInput value={dpDesain} onChange={setDpDesain} />
-                </div>
-                <div>
-                  <label className={`${labelCls} text-amber-400`}>DP Produksi</label>
-                  <RupiahInput value={dpProduksi} onChange={setDpProduksi} />
-                </div>
-              </div>
+
               <div>
                 <label className={labelCls}>Kekurangan</label>
                 <RupiahInput value={kekurangan} readOnly />

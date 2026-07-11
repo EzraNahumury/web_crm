@@ -185,6 +185,31 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `monitoring_produksi` ADD UNIQUE KEY `uniq_mp_order_board` (`order_id`, `board`)",
     ],
   },
+  {
+    name: '015_order_payments',
+    up: [
+      // Detailed payment rows per order — captures bank + method for each
+      // payment plus supports multiple DP Produksi entries. The scalar
+      // columns on orders (nominal_order / dp_desain / dp_produksi) are
+      // kept as summed totals for backward compat.
+      // tipe: 'nominal_order' | 'dp_desain' | 'dp_produksi'
+      // method: 'TF' | 'QRIS' | 'DLL' (method_other used when method='DLL')
+      `CREATE TABLE IF NOT EXISTS \`order_payments\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`order_id\` INT UNSIGNED NOT NULL,
+        \`tipe\` VARCHAR(30) NOT NULL,
+        \`amount\` DECIMAL(15,2) NOT NULL DEFAULT 0,
+        \`bank_name\` VARCHAR(50) NULL,
+        \`method\` VARCHAR(20) NULL,
+        \`method_other\` VARCHAR(100) NULL,
+        \`urutan\` INT NOT NULL DEFAULT 1,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_op_order\` (\`order_id\`),
+        CONSTRAINT \`fk_op_order\` FOREIGN KEY (\`order_id\`) REFERENCES \`orders\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

@@ -42,6 +42,11 @@ export interface Order {
   // Raw pilihan_paket string from orders (e.g. "Reguler", "Express - 3 hari",
   // "Prioritas"). Used by the Orders table to tint the row per service tier.
   pilihanPaket?: string;
+  // Raw money + flags used by the header stat cards (customers who paid DP,
+  // customers with ACC proofing scheduled).
+  dpDesainAmount?: number;
+  dpProduksiAmount?: number;
+  hasAccProofing?: boolean;
 }
 
 export interface DashboardStats {

@@ -94,6 +94,7 @@ interface DbOrder {
   keterangan: string;
   status: string;
   nominal_order: number;
+  dp_desain: number;
   dp_produksi: number;
   tracking_link: string;
   tanggal_acc_proofing: string;
@@ -284,6 +285,9 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
         isJaket: hasJaket(orderItems.map(it => it.paket_nama)),
       })),
       pilihanPaket: r.pilihan_paket || '',
+      dpDesainAmount: Number(r.dp_desain) || 0,
+      dpProduksiAmount: Number(r.dp_produksi) || 0,
+      hasAccProofing: !!r.tanggal_acc_proofing,
       status,
       progress: { PROOFING: false, WAITINGLIST: false, PRINT: false, PRES: false, CUT_FABRIC: false, JAHIT: false, QC_JAHIT_STEAM: false, FINISHING: false, PENGIRIMAN: false },
       progressPercent,

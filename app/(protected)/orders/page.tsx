@@ -208,26 +208,33 @@ export default function OrdersPage() {
     </div>
   );
 
-  const countOpen = orders.filter(o => o.status === 'OPEN').length;
-  const countProgress = orders.filter(o => o.status === 'IN_PROGRESS').length;
-  const countDone = orders.filter(o => o.status === 'DONE').length;
   const countOverdue = orders.filter(o => o.riskLevel === 'OVERDUE').length;
+  // Unique customer counts for the three payment/proofing stat cards.
+  // Deduplicated by customer name so multiple orders from the same buyer
+  // only tick each card once.
+  const uniqueCust = (list: Order[]) => new Set(list.map(o => o.customer)).size;
+  const custDpDesain = uniqueCust(orders.filter(o => (o.dpDesainAmount || 0) > 0));
+  const custDpProduksi = uniqueCust(orders.filter(o => (o.dpProduksiAmount || 0) > 0));
+  const custAccProofing = uniqueCust(orders.filter(o => o.hasAccProofing));
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
-      {/* Summary stat cards */}
-      <div className="grid grid-cols-4 gap-3">
+      {/* Summary stat cards — customer counts per payment/proofing milestone */}
+      <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Pending', count: countOpen, color: 'from-blue-500/20 to-blue-500/5', border: 'border-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-400' },
-          { label: 'Proses', count: countProgress, color: 'from-amber-500/20 to-amber-500/5', border: 'border-amber-500/10', text: 'text-amber-400', dot: 'bg-amber-400' },
-          { label: 'Selesai', count: countDone, color: 'from-emerald-500/20 to-emerald-500/5', border: 'border-emerald-500/10', text: 'text-emerald-400', dot: 'bg-emerald-400' },
+          { label: 'DP Desain', count: custDpDesain, color: 'from-cyan-500/20 to-cyan-500/5', border: 'border-cyan-500/15', text: 'text-cyan-400', dot: 'bg-cyan-400', suffix: 'Customer' },
+          { label: 'DP Produksi', count: custDpProduksi, color: 'from-amber-500/20 to-amber-500/5', border: 'border-amber-500/15', text: 'text-amber-400', dot: 'bg-amber-400', suffix: 'Customer' },
+          { label: 'ACC Proofing', count: custAccProofing, color: 'from-emerald-500/20 to-emerald-500/5', border: 'border-emerald-500/15', text: 'text-emerald-400', dot: 'bg-emerald-400', suffix: 'Customer' },
         ].map(s => (
           <div key={s.label} className={`relative rounded-xl bg-gradient-to-br ${s.color} border ${s.border} p-4 overflow-hidden`}>
             <div className="flex items-center gap-2 mb-1">
               <div className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
               <span className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{s.label}</span>
             </div>
-            <p className={`text-2xl font-bold ${s.text} tabular-nums`}>{s.count}</p>
+            <div className="flex items-baseline gap-1.5">
+              <p className={`text-2xl font-bold ${s.text} tabular-nums`}>{s.count}</p>
+              <span className="text-[11px] text-white/30">{s.suffix}</span>
+            </div>
           </div>
         ))}
       </div>
