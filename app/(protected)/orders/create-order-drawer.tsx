@@ -36,18 +36,6 @@ interface OrderItem {
   qty: number;
 }
 
-interface DetailBahanItem {
-  id: number;
-  bagian: string;
-  bahan: string;
-}
-
-const DEFAULT_BAGIAN = ['FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION', 'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS'];
-
-function initDetailBahan(): DetailBahanItem[] {
-  return DEFAULT_BAGIAN.map((b, i) => ({ id: i + 1, bagian: b, bahan: '' }));
-}
-
 // bahan options now fetched from DB
 
 const fmtDate = (d: string) => { if (!d) return ''; try { return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }); } catch { return d; } };
@@ -225,13 +213,10 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const [deadlineLock, setDeadlineLock] = useState('');
   const [namaTim, setNamaTim] = useState('');
   const [items, setItems] = useState<OrderItem[]>([{ id: 1, paket: '', qty: 0 }]);
-  const [detailBahan, setDetailBahan] = useState<DetailBahanItem[]>(initDetailBahan);
   const [tglOrder, setTglOrder] = useState(today());
   const [deadline, setDeadline] = useState(weekLater());
   const [tglAccProofing, setTglAccProofing] = useState('');
   const [keterangan, setKeterangan] = useState('');
-  const [ekspedisi, setEkspedisi] = useState('');
-  const [ekspedisiLainnya, setEkspedisiLainnya] = useState('');
   const [nominalOrder, setNominalOrder] = useState(0);
   const [dpDesain, setDpDesain] = useState(0);
   const [dpProduksi, setDpProduksi] = useState(0);
@@ -242,14 +227,12 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const [leadsList, setLeadsList] = useState<Row[]>([]);
   const [promoList, setPromoList] = useState<Row[]>([]);
   const [paketList, setPaketList] = useState<Row[]>([]);
-  const [barangList, setBarangList] = useState<Row[]>([]);
   const [customersList, setCustomersList] = useState<Row[]>([]);
   useEffect(() => {
     if (open) {
       dbGet('leads').then(setLeadsList).catch(() => {});
       dbGet('promo').then(setPromoList).catch(() => {});
       dbGet('paket').then(setPaketList).catch(() => {});
-      dbGet('barang').then(setBarangList).catch(() => {});
       dbGet('customers').then(setCustomersList).catch(() => {});
     }
   }, [open]);
@@ -381,9 +364,6 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
         dp_produksi: dpProduksi,
         kekurangan,
         tanggal_acc_proofing: tglAccProofing || null,
-        ekspedisi: ekspedisi === 'LAINNYA'
-          ? (ekspedisiLainnya || null)
-          : ekspedisi ? (ekspedisiLainnya ? `${ekspedisi} - ${ekspedisiLainnya}` : ekspedisi) : null,
       });
 
       // Create order items
@@ -394,17 +374,6 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
             paket_nama: item.paket,
             bahan_kain: '',
             qty: item.qty || 0,
-          });
-        }
-      }
-
-      // Create detail bahan
-      for (const db of detailBahan) {
-        if (db.bahan) {
-          await dbCreate('order_detail_bahan', {
-            order_id: orderId,
-            bagian: db.bagian,
-            bahan: db.bahan,
           });
         }
       }
@@ -433,9 +402,7 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
     setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
     setNoHp(''); setLeadId(''); setPilihanPaket(''); setExpressDurasi(''); setDeadlineLock(''); setNamaTim('');
     setItems([{ id: 1, paket: '', qty: 0 }]); setTglOrder(today());
-    setDetailBahan(initDetailBahan());
     setDeadline(weekLater()); setTglAccProofing(''); setKeterangan('');
-    setEkspedisi(''); setEkspedisiLainnya('');
     setNominalOrder(0); setDpDesain(0); setDpProduksi(0);
     setSelectedPromos([]);
   }
@@ -652,37 +619,6 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 </button>
               </div>
 
-              {/* Detail Bahan */}
-              <div>
-                <label className={labelCls}>Detail Bahan</label>
-                <div className="rounded-lg border border-white/[0.06] overflow-hidden">
-                  {detailBahan.map((db, idx) => (
-                    <div key={db.id} className={`flex items-center ${idx !== 0 ? 'border-t border-white/[0.06]' : ''}`}>
-                      <input value={db.bagian} onChange={e => setDetailBahan(prev => prev.map(d => d.id === db.id ? { ...d, bagian: e.target.value } : d))}
-                        className="text-xs font-medium text-slate-400 w-[140px] shrink-0 px-3 py-2.5 bg-white/[0.02] uppercase border-0 focus:outline-none focus:text-white" placeholder="Nama bagian" />
-                      <div className="flex-1 border-l border-white/[0.06]">
-                        <SearchableSelect
-                          value={db.bahan}
-                          options={[...barangList].sort((a, b) => String(a.nama).localeCompare(String(b.nama))).map(b => ({ value: String(b.nama), label: String(b.nama) }))}
-                          placeholder="Pilih bahan"
-                          onChange={v => setDetailBahan(prev => prev.map(d => d.id === db.id ? { ...d, bahan: v } : d))}
-                          className="[&>button]:!bg-transparent [&>button]:!border-0 [&>button]:!rounded-none [&>button]:!py-2.5"
-                        />
-                      </div>
-                      <button onClick={() => setDetailBahan(prev => prev.filter(d => d.id !== db.id))}
-                        className="shrink-0 text-slate-500 hover:text-red-400 transition-colors px-2 py-2.5 border-l border-white/[0.06]">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <button onClick={() => setDetailBahan(prev => [...prev, { id: Date.now(), bagian: '', bahan: '' }])}
-                  className="mt-2 w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed border-white/10 text-sm text-slate-400 hover:text-blue-400 hover:border-blue-500/30 transition-colors">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                  Tambah Item
-                </button>
-              </div>
-
               {/* Dates */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -710,23 +646,6 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                   className={`${inputCls} resize-none`} />
               </div>
 
-              {/* Ekspedisi */}
-              <div>
-                <label className={labelCls}>Ekspedisi</label>
-                <select value={ekspedisi} onChange={e => { setEkspedisi(e.target.value); setEkspedisiLainnya(''); }}
-                  className={selectCls}>
-                  <option value="">Pilih ekspedisi...</option>
-                  <option value="JNE">JNE</option>
-                  <option value="J&T">J&T</option>
-                  <option value="LION PARCEL">Lion Parcel</option>
-                  <option value="LAINNYA">Lainnya</option>
-                </select>
-                {ekspedisi && (
-                  <input type="text" value={ekspedisiLainnya} onChange={e => setEkspedisiLainnya(e.target.value)}
-                    placeholder={ekspedisi === 'LAINNYA' ? 'Ketik nama ekspedisi...' : 'Nomor resi / keterangan...'}
-                    className={`${inputCls} mt-2`} />
-                )}
-              </div>
             </div>
           </div>
 
