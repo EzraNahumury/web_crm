@@ -359,6 +359,17 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `order_payments` ADD COLUMN `trf` DECIMAL(15,2) NULL",
     ],
   },
+  {
+    // Marks which team originated the order. CS_SELLING = created via
+    // /cs-selling drawer; CS_ORDER = existing behaviour (create drawer
+    // on /orders or auto-created placeholder from the old flow).
+    // Legacy rows default to CS_ORDER so the CS Selling menu only lists
+    // orders that team actually created; CS Order stays exhaustive.
+    name: '023_orders_created_via',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `created_via` VARCHAR(30) NOT NULL DEFAULT 'CS_ORDER'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

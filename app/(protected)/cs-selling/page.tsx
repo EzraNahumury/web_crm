@@ -230,21 +230,45 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
       const noOrder = `ORD${String(maxNum + 1).padStart(3, '0')}`;
       const todayIso = new Date().toISOString().split('T')[0];
 
-      const orderId = await dbCreate('orders', {
-        no_order: noOrder,
-        customer_id: custId,
-        customer_nama: customer.trim(),
-        customer_phone: noHp || null,
-        customer_alamat: alamat || null,
-        customer_kecamatan: kecamatan || null,
-        customer_kabupaten: kabupaten || null,
-        customer_provinsi: provinsi || null,
-        lead_id: leadId ? Number(leadId) : null,
-        nama_tim: namaTim || null,
-        tanggal_order: todayIso,
-        status: 'SELLING',
-        dp_desain: dpAmount || 0,
-      });
+      // Mark this record so CS Selling can distinguish its own rows
+      // from orders CS Order created directly. Fall back without the
+      // column if migration 023 hasn't landed on this instance yet.
+      let orderId: number;
+      try {
+        orderId = await dbCreate('orders', {
+          no_order: noOrder,
+          customer_id: custId,
+          customer_nama: customer.trim(),
+          customer_phone: noHp || null,
+          customer_alamat: alamat || null,
+          customer_kecamatan: kecamatan || null,
+          customer_kabupaten: kabupaten || null,
+          customer_provinsi: provinsi || null,
+          lead_id: leadId ? Number(leadId) : null,
+          nama_tim: namaTim || null,
+          tanggal_order: todayIso,
+          status: 'SELLING',
+          dp_desain: dpAmount || 0,
+          created_via: 'CS_SELLING',
+        });
+      } catch (err) {
+        console.warn('orders insert with created_via failed, retrying without:', err);
+        orderId = await dbCreate('orders', {
+          no_order: noOrder,
+          customer_id: custId,
+          customer_nama: customer.trim(),
+          customer_phone: noHp || null,
+          customer_alamat: alamat || null,
+          customer_kecamatan: kecamatan || null,
+          customer_kabupaten: kabupaten || null,
+          customer_provinsi: provinsi || null,
+          lead_id: leadId ? Number(leadId) : null,
+          nama_tim: namaTim || null,
+          tanggal_order: todayIso,
+          status: 'SELLING',
+          dp_desain: dpAmount || 0,
+        });
+      }
 
       if (dpAmount > 0 || buktiTf) {
         try {
@@ -493,18 +517,17 @@ export default function CsSellingPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // CS Selling scope: any order that was created via this page (status
-  // still SELLING, or already promoted by CS Order but originated here).
-  // We surface the SELLING ones prominently since they still need CS Order.
+  // CS Selling scope: only orders that came in through this menu.
+  // `created_via='CS_SELLING'` is set on save (migration 023). Legacy
+  // rows default to 'CS_ORDER' and never appear here. During the brief
+  // window before migration 023 lands, we fall back to status='SELLING'
+  // so freshly created rows still surface.
   const rows = useMemo(() => {
-    // A SELLING row = still awaiting CS Order handoff.
-    // We also show recently promoted ones so CS Selling can see the follow-up.
     return orders
       .filter((o: Row) => {
         const st = String(o.status || '').toUpperCase();
-        // Include SELLING always; include others only if lead_id is set
-        // (indicates the order was seeded by CS Selling with a leads pick).
-        return st === 'SELLING' || (o.lead_id && ['PENDING', 'IN_PROGRESS', 'CONFIRMED'].includes(st));
+        const via = String(o.created_via || '').toUpperCase();
+        return via === 'CS_SELLING' || (!via && st === 'SELLING');
       })
       .sort((a: Row, b: Row) => Number(b.id) - Number(a.id));
   }, [orders]);
@@ -541,7 +564,9 @@ export default function CsSellingPage() {
     return m;
   }, [leads]);
 
-  const countSelling = orders.filter((o: Row) => String(o.status || '').toUpperCase() === 'SELLING').length;
+  // Counts scoped to CS Selling rows only, not the whole orders table,
+  // so promoted-elsewhere orders don't inflate "Sudah Dilengkapi".
+  const countSelling = rows.filter((o: Row) => String(o.status || '').toUpperCase() === 'SELLING').length;
   const countPromoted = rows.length - countSelling;
 
   return (
