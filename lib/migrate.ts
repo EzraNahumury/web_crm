@@ -370,6 +370,22 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `created_via` VARCHAR(30) NOT NULL DEFAULT 'CS_ORDER'",
     ],
   },
+  {
+    // orders.status was originally an ENUM('PENDING','CONFIRMED','IN_PROGRESS',
+    // 'DONE','CANCELLED'). Inserting a value outside that set (e.g.
+    // 'SELLING' for CS Selling handoffs) silently gets coerced to the
+    // default 'PENDING' on non-strict MySQL — so CS Selling saves that
+    // *looked* successful were being stashed as PENDING, hidden from
+    // CS Selling and prematurely visible in CS Order.
+    //
+    // Widen to VARCHAR(30) so any status string round-trips as written.
+    // Existing rows keep their values (ENUM → VARCHAR is a lossless
+    // conversion for the already-legal values).
+    name: '024_orders_status_varchar',
+    up: [
+      "ALTER TABLE `orders` MODIFY COLUMN `status` VARCHAR(30) NOT NULL DEFAULT 'PENDING'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
