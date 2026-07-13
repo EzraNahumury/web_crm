@@ -340,6 +340,25 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `order_payments` ADD COLUMN `bukti_tf_name` VARCHAR(255) NULL",
     ],
   },
+  {
+    // Pembayaran AYRES invoice fields:
+    // - order_items.harga: per-line unit price (image shows 4 line items
+    //   with independent Rp prices, needed to compute TOTAL PEMBELIAN)
+    // - orders.ekspedisi_{nama,kg,biaya}: the invoice's shipping row
+    // - order_payments.{tanggal,tunai,trf}: the DP schedule expresses
+    //   both Tunai and TRF columns; keep amount as the row total for
+    //   backwards compatibility
+    name: '022_pembayaran_ayres',
+    up: [
+      "ALTER TABLE `order_items` ADD COLUMN `harga` DECIMAL(15,2) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `ekspedisi_nama` VARCHAR(150) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `ekspedisi_kg` DECIMAL(10,2) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `ekspedisi_biaya` DECIMAL(15,2) NULL",
+      "ALTER TABLE `order_payments` ADD COLUMN `tanggal` DATE NULL",
+      "ALTER TABLE `order_payments` ADD COLUMN `tunai` DECIMAL(15,2) NULL",
+      "ALTER TABLE `order_payments` ADD COLUMN `trf` DECIMAL(15,2) NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

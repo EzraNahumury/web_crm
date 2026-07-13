@@ -10,6 +10,7 @@ import { STAGES, RISK_LABELS, STATUS_LABELS } from '@/lib/constants';
 import { formatDate } from '@/lib/utils';
 import { Pagination } from '@/lib/pagination';
 import CreateOrderDrawer from './create-order-drawer';
+import PembayaranModal from './pembayaran-modal';
 import { dbUpdate } from '@/lib/api-db';
 import { classifyLayanan } from '@/lib/business-days';
 
@@ -138,6 +139,8 @@ export default function OrdersPage() {
   const [selected, setSelected] = useState<Order | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [pembayaranOpen, setPembayaranOpen] = useState(false);
+  const [pembayaranOrderId, setPembayaranOrderId] = useState<number | null>(null);
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -293,6 +296,11 @@ export default function OrdersPage() {
               )}
             </div>
           )}
+          <button onClick={() => { setPembayaranOrderId(null); setPembayaranOpen(true); }}
+            className="flex items-center gap-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white px-4 py-2 rounded-xl text-[13px] font-medium transition-colors shadow-lg shadow-fuchsia-600/20">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            Pembayaran AYRES
+          </button>
           {user?.role === 'admin' && (
             <button onClick={() => setCreateOpen(true)}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-[13px] font-medium transition-colors shadow-lg shadow-blue-600/20">
@@ -412,11 +420,16 @@ export default function OrdersPage() {
                           {STATUS_LABELS[order.status]}
                         </span>
                         {order.rawStatus === 'SELLING' && (
-                          <span
-                            title="Order dari CS Selling — lengkapi paket, deadline, dan DP Produksi."
-                            className="text-[10px] px-2 py-0.5 rounded-full font-medium border border-fuchsia-500/30 text-fuchsia-300 bg-fuchsia-500/10 whitespace-nowrap">
-                            Dari CS Selling
-                          </span>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              setPembayaranOrderId(order.rowIndex);
+                              setPembayaranOpen(true);
+                            }}
+                            title="Buka form PEMBAYARAN AYRES pre-filled dari CS Selling"
+                            className="text-[10px] px-2 py-0.5 rounded-full font-medium border border-fuchsia-500/30 text-fuchsia-300 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 whitespace-nowrap transition-colors">
+                            Dari CS Selling → Isi Pembayaran
+                          </button>
                         )}
                       </div>
                     </td>
@@ -456,6 +469,12 @@ export default function OrdersPage() {
       </div>
 
       <CreateOrderDrawer open={createOpen} onClose={() => setCreateOpen(false)} />
+      <PembayaranModal
+        open={pembayaranOpen}
+        onClose={() => setPembayaranOpen(false)}
+        onSaved={() => fetchOrders()}
+        seedOrderId={pembayaranOrderId}
+      />
     </div>
   );
 }
