@@ -25,6 +25,21 @@ function fmtDateID(iso: string): string {
   return `${parseInt(m[3], 10)} ${BULAN[parseInt(m[2], 10) - 1]} ${m[1]}`;
 }
 
+// Normalise anything MySQL2 hands back for a DATE column (string 'YYYY-MM-DD',
+// Date object, or ISO-8601 string) to the 'YYYY-MM-DD' form that
+// <input type="date"> understands. Without this a Date object stringifies
+// to "Sun Jul 13 2026 …" which the date input treats as empty.
+function isoDateOnly(v: unknown): string {
+  if (!v) return '';
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return '';
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  const s = String(v);
+  const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+}
+
 interface ItemLine { id: number; nama: string; qty: number; harga: number }
 interface DpLine { tanggal: string; tunai: number; trf: number; existingId?: number; tipe?: string; urutan?: number }
 
@@ -169,9 +184,12 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     ];
     orderPays.slice(0, 4).forEach((pp, idx) => {
       dpArr[idx] = {
-        tanggal: String(pp.tanggal || '').slice(0, 10),
+        tanggal: isoDateOnly(pp.tanggal),
         tunai: Number(pp.tunai) || 0,
-        trf: Number(pp.trf) || Number(pp.amount) || 0,
+        // If migration 022 already ran we have a proper trf column. If
+        // not, we saved the total under `amount` — display that as TRF so
+        // the row isn't blank on reload.
+        trf: Number(pp.trf) || (pp.tunai == null ? Number(pp.amount) || 0 : 0),
         existingId: Number(pp.id),
         tipe: String(pp.tipe),
         urutan: Number(pp.urutan) || 1,
@@ -179,6 +197,19 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     });
     setDpLines(dpArr);
   }, [pickedOrderId, orders, items, payments]);
+
+  // One-shot migration bootstrap on modal open — makes sure migration
+  // 022 (order_payments.tanggal/tunai/trf) has landed before anyone
+  // saves a Pembayaran, otherwise the DP schedule reads back blank.
+  const bootstrappedRef = useRef(false);
+  useEffect(() => {
+    if (!open || bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
+    fetch('/api/admin/run-migrations')
+      .then(r => r.json())
+      .then(j => console.log('[pembayaran] migration bootstrap:', j))
+      .catch(err => console.warn('[pembayaran] migration bootstrap failed:', err));
+  }, [open]);
 
   // ─── Derived totals ───
   const totalPembelian = useMemo(
@@ -244,6 +275,58 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
         backgroundColor: '#ffffff',
         scale: 2,
         logging: false,
+        onclone: (clonedDoc) => {
+          // html2canvas renders <input>/<textarea>/<select> as an empty
+          // frame — the value never makes it into the PNG. Swap each
+          // form control in the cloned tree for a static <span>/<div>
+          // that displays the same value with roughly the same spacing.
+          const controls = clonedDoc.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select');
+          controls.forEach(el => {
+            let text = '';
+            if (el.tagName === 'SELECT') {
+              const sel = el as HTMLSelectElement;
+              text = sel.options[sel.selectedIndex]?.text || '';
+            } else if (el.tagName === 'TEXTAREA') {
+              text = (el as HTMLTextAreaElement).value;
+            } else {
+              const inp = el as HTMLInputElement;
+              if (inp.type === 'radio' || inp.type === 'checkbox') {
+                // Keep the checkbox but freeze it as a small mark so
+                // it renders as ●/○ instead of interactive input.
+                const mark = clonedDoc.createElement('span');
+                mark.textContent = inp.checked ? '●' : '○';
+                mark.setAttribute('style', 'display:inline-block; width:12px; text-align:center; color:#111;');
+                el.replaceWith(mark);
+                return;
+              }
+              text = inp.value;
+            }
+            const replacement = clonedDoc.createElement(el.tagName === 'TEXTAREA' ? 'div' : 'span');
+            replacement.textContent = text;
+            // Carry over enough of the input styling that the row height
+            // and alignment don't visibly shift compared to the on-screen
+            // preview.
+            const cs = clonedDoc.defaultView?.getComputedStyle(el);
+            replacement.setAttribute(
+              'style',
+              [
+                `display:${el.tagName === 'TEXTAREA' ? 'block' : 'inline-block'}`,
+                'padding:0 4px',
+                'min-height:1.25rem',
+                'width:' + (cs?.width || 'auto'),
+                'text-align:' + (cs?.textAlign || 'left'),
+                'font-family:' + (cs?.fontFamily || 'inherit'),
+                'font-size:' + (cs?.fontSize || 'inherit'),
+                'font-weight:' + (cs?.fontWeight || 'inherit'),
+                'color:' + (cs?.color || '#111'),
+                'white-space:pre-wrap',
+                'vertical-align:middle',
+                'box-sizing:border-box',
+              ].join(';')
+            );
+            el.replaceWith(replacement);
+          });
+        },
       });
       const link = document.createElement('a');
       link.download = `pembayaran-${nama.replace(/\s+/g, '-') || 'ayres'}.png`;
