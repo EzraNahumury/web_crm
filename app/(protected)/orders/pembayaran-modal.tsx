@@ -404,48 +404,65 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
         }
       }
 
-      // Sync DP schedule: update existing where possible, create new otherwise
-      // Row 0 = dp_desain, rows 1..3 = dp_produksi urutan 1..3
+      // Sync DP schedule. Row 0 = dp_desain, rows 1..3 = dp_produksi
+      // urutan 1..3. Wipe every existing payment for this order first
+      // so the DP shape matches exactly what's on screen — otherwise a
+      // half-written row from CS Selling could stay and confuse the
+      // pre-fill on the next open. Then insert every filled row back in.
+      const existingPayments = payments.filter(pp => Number(pp.order_id) === orderId);
+      for (const pp of existingPayments) {
+        try { await dbDelete('order_payments', Number(pp.id)); } catch {}
+      }
+      // Preserve bank_name / method / method_other / bukti_tf from the
+      // original CS Selling dp_desain row so re-inserting doesn't drop
+      // the transfer proof and payment method labels.
+      const prevDpDesain = existingPayments.find(pp => String(pp.tipe) === 'dp_desain');
+
+      let dpDesainSaved = 0;
       for (let i = 0; i < dpLines.length; i++) {
         const d = dpLines[i];
         const rowAmount = (Number(d.tunai) || 0) + (Number(d.trf) || 0);
-        if (rowAmount === 0 && !d.tanggal && !d.existingId) continue;
+        if (rowAmount === 0 && !d.tanggal) continue;
 
         const tipe = i === 0 ? 'dp_desain' : 'dp_produksi';
         const urutan = i === 0 ? 1 : i;
+        const carry = i === 0 && prevDpDesain ? {
+          bank_name: prevDpDesain.bank_name || null,
+          method: prevDpDesain.method || null,
+          method_other: prevDpDesain.method_other || null,
+          bukti_tf: prevDpDesain.bukti_tf || null,
+          bukti_tf_name: prevDpDesain.bukti_tf_name || null,
+        } : {};
         const payload: Row = {
+          order_id: orderId,
           amount: rowAmount,
           tanggal: d.tanggal || null,
           tunai: d.tunai || null,
           trf: d.trf || null,
           tipe,
           urutan,
+          ...carry,
         };
 
-        if (d.existingId) {
+        try {
+          await dbCreate('order_payments', payload);
+          dpDesainSaved++;
+        } catch (err) {
+          console.warn('payment create failed, retrying minimal:', err);
+          // Fallback drops migration-022-only columns (tanggal/tunai/trf)
+          // and any legacy columns the schema doesn't have.
+          const minimal: Row = { order_id: orderId, tipe, urutan, amount: rowAmount };
+          if (i === 0 && prevDpDesain?.bank_name) minimal.bank_name = prevDpDesain.bank_name;
+          if (i === 0 && prevDpDesain?.method) minimal.method = prevDpDesain.method;
           try {
-            await dbUpdate('order_payments', d.existingId, payload);
-          } catch (err) {
-            console.warn('payment update failed, retrying minimal:', err);
-            try {
-              await dbUpdate('order_payments', d.existingId, {
-                amount: rowAmount, tipe, urutan,
-              });
-            } catch {}
-          }
-        } else if (rowAmount > 0) {
-          try {
-            await dbCreate('order_payments', { order_id: orderId, ...payload });
-          } catch (err) {
-            console.warn('payment create failed, retrying minimal:', err);
-            try {
-              await dbCreate('order_payments', {
-                order_id: orderId, tipe, urutan, amount: rowAmount,
-              });
-            } catch {}
+            await dbCreate('order_payments', minimal);
+            dpDesainSaved++;
+          } catch (err2) {
+            console.error('payment fallback create also failed:', err2);
           }
         }
       }
+      console.log('[pembayaran] dp rows persisted:', dpDesainSaved);
 
       // Refresh scalar dp_produksi total on orders for the stat cards
       const totalDpProduksi = dpLines.slice(1).reduce((s, r) => s + (r.tunai || 0) + (r.trf || 0), 0);
@@ -457,6 +474,11 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       } catch {}
 
       invalidateCache('wp_orders', 'wp_dashboard');
+      // Refetch the modal's own payments/items list so the pre-fill
+      // effect re-runs with the just-persisted rows. Without this,
+      // closing + reopening the same session could still see stale
+      // state because we hadn't picked up the new inserts.
+      await fetchAll();
       toast.success('Pembayaran Tersimpan', 'Order berhasil dilengkapi dari CS Order.');
       onSaved();
       onClose();
