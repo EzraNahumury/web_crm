@@ -46,6 +46,21 @@ export async function GET() {
       columnsFor('order_payments'),
     ]);
 
+    // Full column type map for a couple of key tables — helps diagnose
+    // "CREATE TABLE with FK silently fails" because MySQL requires the
+    // referencing and referenced columns to match exactly.
+    async function columnTypes(table: string): Promise<Record<string, string>> {
+      try {
+        const rows = await query<{ COLUMN_NAME: string; COLUMN_TYPE: string }>(
+          "SELECT COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_NAME = ? AND TABLE_SCHEMA = DATABASE()",
+          [table]
+        );
+        return Object.fromEntries(rows.map(r => [r.COLUMN_NAME, r.COLUMN_TYPE]));
+      } catch { return {}; }
+    }
+    const ordersColTypes = await columnTypes('orders');
+    const ordersIdType = ordersColTypes.id || '(missing)';
+
     return NextResponse.json({
       success: true,
       message: 'Migrations run (or already applied).',
@@ -57,6 +72,7 @@ export async function GET() {
         order_items: orderItemsCols,
         order_payments: orderPaymentsCols,
       },
+      orders_id_column_type: ordersIdType,
     });
   } catch (err) {
     console.error('/api/admin/run-migrations error:', err);

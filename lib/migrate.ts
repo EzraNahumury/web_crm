@@ -488,6 +488,73 @@ const MIGRATIONS: Migration[] = [
     ],
   },
   {
+    // Second recovery attempt for order_payments. Migration 026 was
+    // getting marked applied but the table still wasn't materialising —
+    // the most likely culprit is a name collision on the FK constraint
+    // (`fk_op_order` had been registered in an earlier lifetime of the
+    // DB and its metadata lingered even after the underlying table was
+    // dropped, so a fresh CREATE TABLE reintroducing the same
+    // constraint name silently returned a benign-matching error).
+    //
+    // This variant omits the CONSTRAINT name entirely — MySQL then
+    // auto-generates a guaranteed-unique one. No FK is dropped, and we
+    // fall back to a plain INDEX + a schema-level FK check via ON
+    // DELETE CASCADE inline (still catches orphan rows at the DB level
+    // when possible; if MySQL refuses that too we drop the FK entirely
+    // in the fallback).
+    name: '028_order_payments_recreate_v2',
+    up: [
+      // Recreate with no named CONSTRAINT so any residual FK name is not
+      // an issue. Same columns as before.
+      `CREATE TABLE IF NOT EXISTS \`order_payments\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`order_id\` INT UNSIGNED NOT NULL,
+        \`tipe\` VARCHAR(30) NOT NULL,
+        \`amount\` DECIMAL(15,2) NOT NULL DEFAULT 0,
+        \`bank_name\` VARCHAR(50) NULL,
+        \`method\` VARCHAR(20) NULL,
+        \`method_other\` VARCHAR(100) NULL,
+        \`urutan\` INT NOT NULL DEFAULT 1,
+        \`bukti_tf\` LONGTEXT NULL,
+        \`bukti_tf_name\` VARCHAR(255) NULL,
+        \`tanggal\` DATE NULL,
+        \`tunai\` DECIMAL(15,2) NULL,
+        \`trf\` DECIMAL(15,2) NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_op_order\` (\`order_id\`),
+        FOREIGN KEY (\`order_id\`) REFERENCES \`orders\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
+  {
+    // Belt-and-braces: if 028 still couldn't add the FK (say the
+    // referenced column type on `orders` was ever tweaked), create the
+    // table WITHOUT any foreign key. We rely on the app to keep
+    // order_id in sync.
+    name: '029_order_payments_no_fk',
+    up: [
+      `CREATE TABLE IF NOT EXISTS \`order_payments\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`order_id\` INT UNSIGNED NOT NULL,
+        \`tipe\` VARCHAR(30) NOT NULL,
+        \`amount\` DECIMAL(15,2) NOT NULL DEFAULT 0,
+        \`bank_name\` VARCHAR(50) NULL,
+        \`method\` VARCHAR(20) NULL,
+        \`method_other\` VARCHAR(100) NULL,
+        \`urutan\` INT NOT NULL DEFAULT 1,
+        \`bukti_tf\` LONGTEXT NULL,
+        \`bukti_tf_name\` VARCHAR(255) NULL,
+        \`tanggal\` DATE NULL,
+        \`tunai\` DECIMAL(15,2) NULL,
+        \`trf\` DECIMAL(15,2) NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_op_order\` (\`order_id\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
+  {
     // Finance approval gate between CS Selling and CS Order.
     //   NULL       → freshly saved by CS Selling, waiting Finance review.
     //   'APPROVED' → Finance verified the bukti TF; CS Order can now
