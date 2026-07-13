@@ -298,22 +298,39 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
       }
 
       if (dpAmount > 0 || buktiTf) {
+        // Try the full insert first (needs migration 021 for bukti_tf).
+        // If the column doesn't exist yet, retry without it so at least
+        // the amount + bank + method land in order_payments. Finance
+        // sees "Belum ada bukti TF" and CS Selling can re-upload once
+        // migrations catch up.
+        const basePayment = {
+          order_id: orderId,
+          tipe: 'dp_desain',
+          amount: dpAmount || 0,
+          bank_name: dpBank || null,
+          method: dpMethod || null,
+          method_other: dpMethod === 'DLL' ? (dpMethodOther || null) : null,
+          urutan: 1,
+        };
         try {
           await dbCreate('order_payments', {
-            order_id: orderId,
-            tipe: 'dp_desain',
-            amount: dpAmount || 0,
-            bank_name: dpBank || null,
-            method: dpMethod || null,
-            method_other: dpMethod === 'DLL' ? (dpMethodOther || null) : null,
-            urutan: 1,
+            ...basePayment,
             bukti_tf: buktiTf || null,
             bukti_tf_name: buktiTfName || null,
           });
         } catch (err) {
-          console.warn('order_payments insert failed:', err);
-          toast.warning('Detail DP Belum Tersimpan',
-            'Order tersimpan tapi detail bank/bukti TF belum. Jalankan /api/admin/run-migrations.');
+          console.warn('order_payments insert with bukti_tf failed, retrying without:', err);
+          try {
+            await dbCreate('order_payments', basePayment);
+            if (buktiTf) {
+              toast.warning('Bukti TF Belum Tersimpan',
+                'Order + nominal tersimpan tapi bukti TF gagal upload. Jalankan /api/admin/run-migrations lalu upload ulang.');
+            }
+          } catch (err2) {
+            console.warn('order_payments fallback insert also failed:', err2);
+            toast.warning('Detail DP Belum Tersimpan',
+              'Order tersimpan tapi detail bank/bukti TF belum. Jalankan /api/admin/run-migrations.');
+          }
         }
       }
 

@@ -34,6 +34,8 @@ export default function ApprovalFinancePage() {
   const [detail, setDetail] = useState<Row | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  // Full-screen image preview when Finance clicks the bukti TF thumbnail.
+  const [zoomedImg, setZoomedImg] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -295,9 +297,58 @@ export default function ApprovalFinancePage() {
                       </div>
                       {dpDesain?.bukti_tf ? (
                         String(dpDesain.bukti_tf).startsWith('data:image') ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={dpDesain.bukti_tf} alt="Bukti TF"
-                            className="mt-2 max-h-72 rounded border border-white/10 mx-auto" />
+                          <div className="mt-3 space-y-2">
+                            <div className="text-[11px] text-slate-500">
+                              Bukti TF ({dpDesain.bukti_tf_name || 'image'}) — klik untuk perbesar
+                            </div>
+                            <button type="button" onClick={() => setZoomedImg(String(dpDesain.bukti_tf))}
+                              className="block mx-auto group relative">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={dpDesain.bukti_tf} alt="Bukti TF"
+                                className="max-h-72 rounded border border-white/10 cursor-zoom-in" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                <span className="bg-white/90 text-slate-800 text-xs font-medium px-3 py-1.5 rounded-full shadow-lg">
+                                  Klik untuk perbesar
+                                </span>
+                              </div>
+                            </button>
+                            <div className="flex items-center justify-center gap-3 text-[11px]">
+                              <a href={dpDesain.bukti_tf} download={dpDesain.bukti_tf_name || 'bukti-tf.png'}
+                                className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
+                                Download gambar
+                              </a>
+                              <span className="text-slate-700">·</span>
+                              <a href={dpDesain.bukti_tf} target="_blank" rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
+                                Buka di tab baru
+                              </a>
+                            </div>
+                          </div>
+                        ) : String(dpDesain.bukti_tf).startsWith('data:application/pdf') ? (
+                          <div className="mt-3 space-y-2">
+                            <div className="text-[11px] text-slate-500">
+                              Bukti TF (PDF — {dpDesain.bukti_tf_name || 'file'})
+                            </div>
+                            <object data={dpDesain.bukti_tf} type="application/pdf"
+                              className="w-full h-96 border border-white/10 rounded">
+                              <div className="p-4 text-xs text-slate-400">
+                                Browser tidak bisa menampilkan PDF inline.
+                                <a href={dpDesain.bukti_tf} target="_blank" rel="noopener noreferrer"
+                                  className="ml-1 text-blue-400 hover:text-blue-300 underline">Buka di tab baru</a>.
+                              </div>
+                            </object>
+                            <div className="flex items-center justify-center gap-3 text-[11px]">
+                              <a href={dpDesain.bukti_tf} download={dpDesain.bukti_tf_name || 'bukti-tf.pdf'}
+                                className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
+                                Download PDF
+                              </a>
+                              <span className="text-slate-700">·</span>
+                              <a href={dpDesain.bukti_tf} target="_blank" rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
+                                Buka di tab baru
+                              </a>
+                            </div>
+                          </div>
                         ) : (
                           <a href={dpDesain.bukti_tf} target="_blank" rel="noopener noreferrer"
                             className="mt-2 inline-flex items-center gap-2 text-xs text-blue-400 hover:text-blue-300 underline">
@@ -308,7 +359,15 @@ export default function ApprovalFinancePage() {
                           </a>
                         )
                       ) : (
-                        <p className="mt-2 text-xs text-slate-500 italic">Belum ada bukti TF yang diupload.</p>
+                        <div className="mt-3 border border-dashed border-white/10 rounded-lg p-4 text-center">
+                          <svg className="w-8 h-8 text-slate-600 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                          </svg>
+                          <p className="text-xs text-slate-500 italic">Belum ada bukti TF yang diupload.</p>
+                          <p className="text-[10px] text-slate-600 mt-1">
+                            Kemungkinan migration 021 belum jalan atau CS Selling belum upload.
+                          </p>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -353,6 +412,22 @@ export default function ApprovalFinancePage() {
           </>
         );
       })()}
+
+      {zoomedImg && (
+        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setZoomedImg(null)}>
+          <button onClick={() => setZoomedImg(null)}
+            className="absolute top-4 right-4 text-white/70 hover:text-white p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={zoomedImg} alt="Bukti TF (perbesar)"
+            className="max-w-full max-h-full object-contain rounded"
+            onClick={e => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }
