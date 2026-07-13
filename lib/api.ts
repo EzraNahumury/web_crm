@@ -102,6 +102,7 @@ interface DbOrder {
   pilihan_paket?: string | null;
   deadline_lock?: string | null;
   created_at: string;
+  created_via?: string;
   // joined from order_items (first item for compat)
   paket_nama?: string;
   bahan_kain?: string;
@@ -290,6 +291,7 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
       hasAccProofing: !!r.tanggal_acc_proofing,
       status,
       rawStatus: r.status || '',
+      createdVia: r.created_via || '',
       progress: { PROOFING: false, WAITINGLIST: false, PRINT: false, PRES: false, CUT_FABRIC: false, JAHIT: false, QC_JAHIT_STEAM: false, FINISHING: false, PENGIRIMAN: false },
       progressPercent,
       currentStageName,

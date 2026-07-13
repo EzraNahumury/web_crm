@@ -35,6 +35,7 @@ export default function ProduksiPage() {
   const [stages, setStages] = useState<Row[]>([]);
   const [progress, setProgress] = useState<Row[]>([]);
   const [wos, setWos] = useState<Row[]>([]);
+  const [ordersById, setOrdersById] = useState<Record<number, Row>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   // Reset the search box whenever CS switches to a different stage tab.
@@ -171,15 +172,20 @@ export default function ProduksiPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, p, w, r] = await Promise.all([
+      const [s, p, w, r, o] = await Promise.all([
         dbGet('production_stages'),
         dbGet('wo_progress'),
         dbGet('work_orders'),
         // stage_rejects may not exist yet if migration 018 hasn't run,
         // swallow the error so the page still loads.
         dbGet('stage_rejects').catch(() => []),
+        // orders — needed for the Waiting List → next-stage finance gate.
+        dbGet('orders').catch(() => []),
       ]);
       setRejects(r);
+      const ordersMap: Record<number, Row> = {};
+      for (const row of o as Row[]) ordersMap[Number(row.id)] = row;
+      setOrdersById(ordersMap);
       // Filter out inactive stages (QC Cutting retired in migration 016)
       const sortedStages = s
         .filter((r: Row) => r.active === undefined || r.active === 1 || r.active === true)
@@ -257,6 +263,21 @@ export default function ProduksiPage() {
     return !(conf === 1 || conf === true || conf === undefined);
   }
 
+  // Gate for Waiting List → Approval Design: Finance must have approved
+  // the completed invoice from CS Order first. Legacy orders without a
+  // finance_status column are treated as approved so they aren't stuck.
+  function isWaitingListGated(item: Row): boolean {
+    if (activeStage !== 'Waiting List') return false;
+    const ord = ordersById[Number(item.wo?.order_id)];
+    if (!ord) return false;
+    // Only gate CS_SELLING-originated orders. Legacy CS_ORDER rows
+    // don't have finance approval in this flow.
+    const via = String(ord.created_via || '').toUpperCase();
+    if (via !== 'CS_SELLING') return false;
+    const fs = String(ord.finance_status || '').toUpperCase();
+    return fs !== 'APPROVED';
+  }
+
   // Return the most recent non-terminal reject for a given WO at the
   // current stage, or null. Non-terminal = PENDING (waiting gudang) or
   // RETURNED (rework in place). APPROVED / GUDANG_REJECTED / CANCELLED
@@ -285,6 +306,10 @@ export default function ProduksiPage() {
   // Single-click handler: marks the current stage SELESAI (with both started_at
   // and completed_at) and advances the next stage to TERSEDIA in one shot.
   async function handleSelesai(progressRow: Row) {
+    if (isWaitingListGated(progressRow)) {
+      toast.error('Menunggu Approval Finance', 'Finance belum menyetujui invoice. Buka menu Approval Finance untuk review.');
+      return;
+    }
     if (isProofingGated(progressRow)) {
       toast.error('WO Belum Dikonfirmasi', 'Buat/konfirmasi Work Order di Menu Work Orders terlebih dahulu.');
       return;
@@ -542,15 +567,20 @@ export default function ProduksiPage() {
             </div>
           ) : (
             tersediaWos.map(item => {
+              const gatedWaiting = isWaitingListGated(item);
               const gatedProof = isProofingGated(item);
               const gatedReject = isRejectGated(item);
-              const gated = gatedProof || gatedReject;
-              const gateLabel = gatedProof ? 'Menunggu WO' : gatedReject ? 'Menunggu Gudang' : 'Selesai & Lanjut';
-              const gateTitle = gatedProof
-                ? 'Buat/konfirmasi WO di Menu Work Orders dulu'
-                : gatedReject
-                  ? 'Permintaan bahan reject masih menunggu approval gudang'
-                  : undefined;
+              const gated = gatedWaiting || gatedProof || gatedReject;
+              const gateLabel = gatedWaiting
+                ? 'Menunggu Finance'
+                : gatedProof ? 'Menunggu WO' : gatedReject ? 'Menunggu Gudang' : 'Selesai & Lanjut';
+              const gateTitle = gatedWaiting
+                ? 'Finance belum approve invoice — buka menu Approval Finance'
+                : gatedProof
+                  ? 'Buat/konfirmasi WO di Menu Work Orders dulu'
+                  : gatedReject
+                    ? 'Permintaan bahan reject masih menunggu approval gudang'
+                    : undefined;
               return (
               <WoCard key={item.id} item={item} actions={
                 activeStageCanManage || isFullAccess ? (

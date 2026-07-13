@@ -51,6 +51,9 @@ export interface Order {
   // preserved so the Orders page can flag orders that came in from
   // CS Selling and still need CS Order to complete them.
   rawStatus?: string;
+  // 'CS_SELLING' | 'CS_ORDER' — origin badge on the CS Order table
+  // so users can tell handoff rows from directly-entered legacy rows.
+  createdVia?: string;
 }
 
 export interface DashboardStats {
