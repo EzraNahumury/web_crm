@@ -414,6 +414,7 @@ async function runMigrations(): Promise<void> {
 
   for (const mig of MIGRATIONS) {
     if (applied.has(mig.name)) continue;
+    let allOk = true;
     for (const stmt of mig.up) {
       try {
         await pool.query(stmt);
@@ -421,12 +422,23 @@ async function runMigrations(): Promise<void> {
         const msg = err instanceof Error ? err.message : String(err);
         const benign = /Duplicate column|already exists|Duplicate key|check that (column|it) exists|Can't DROP.*check that/i.test(msg);
         if (!benign) {
-          console.error(`[migrate] ${mig.name} failed:`, msg);
-          throw err;
+          // Log and keep going instead of throwing — one bad migration
+          // used to halt every subsequent one, which meant migration 024
+          // (the ENUM widening for orders.status) never ran when any
+          // earlier alter hiccuped. The DB stays in a consistent state
+          // because MySQL rolls back the failing statement, and we
+          // simply skip marking this migration as applied so it retries
+          // next time.
+          console.error(`[migrate] ${mig.name} stmt failed (continuing):`, msg);
+          allOk = false;
         }
       }
     }
-    await pool.execute('INSERT IGNORE INTO `_migrations` (`filename`) VALUES (?)', [mig.name]);
-    console.log(`[migrate] applied ${mig.name}`);
+    if (allOk) {
+      await pool.execute('INSERT IGNORE INTO `_migrations` (`filename`) VALUES (?)', [mig.name]);
+      console.log(`[migrate] applied ${mig.name}`);
+    } else {
+      console.warn(`[migrate] ${mig.name} had errors, not marking applied — will retry`);
+    }
   }
 }
