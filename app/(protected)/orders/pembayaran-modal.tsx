@@ -35,9 +35,13 @@ interface Props {
   // Optional order to pre-fill from CS Selling handoff. If omitted, users can
   // pick from a dropdown inside the modal.
   seedOrderId?: number | null;
+  // Read-only view (from Aksi → Read on the /orders list): every input is
+  // disabled, the Simpan button hides, and a tracking link appears at the
+  // bottom so the reader can jump to the customer tracking page.
+  readOnly?: boolean;
 }
 
-export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }: Props) {
+export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, readOnly = false }: Props) {
   const toast = useToast();
   const invoiceRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
@@ -77,6 +81,9 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
   const [nb, setNb] = useState('');
   // DP Produksi percentage override (default 70)
   const [dpProdPct, setDpProdPct] = useState(70);
+  // Tracking link surfaced at the bottom in read-only mode.
+  const [trackingLink, setTrackingLink] = useState('');
+  const [noOrder, setNoOrder] = useState('');
 
   const fetchAll = useCallback(async () => {
     try {
@@ -94,11 +101,29 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
   }, []);
 
   useEffect(() => { if (open) fetchAll(); }, [open, fetchAll]);
-  useEffect(() => { if (open && seedOrderId) setPickedOrderId(String(seedOrderId)); }, [open, seedOrderId]);
+  useEffect(() => {
+    if (!open) return;
+    // Sync picker with the seed each time the modal opens so switching
+    // between rows shows the right order, and opening the blank "Pembayaran
+    // AYRES" button clears any stale pick.
+    setPickedOrderId(seedOrderId ? String(seedOrderId) : '');
+  }, [open, seedOrderId]);
 
   // Prefill from the picked order
   useEffect(() => {
-    if (!pickedOrderId) return;
+    if (!pickedOrderId) {
+      // Clear so a fresh open (no seed) shows an empty invoice.
+      setNama(''); setAlamat(''); setLeadId(''); setEkspNama(''); setEkspKg(''); setEkspBiaya(0);
+      setNb(''); setTrackingLink(''); setNoOrder('');
+      setItemLines([{ id: 1, nama: '', qty: 0, harga: 0 }]);
+      setDpLines([
+        { tanggal: '', tunai: 0, trf: 0 },
+        { tanggal: '', tunai: 0, trf: 0 },
+        { tanggal: '', tunai: 0, trf: 0 },
+        { tanggal: '', tunai: 0, trf: 0 },
+      ]);
+      return;
+    }
     const o = orders.find(x => String(x.id) === pickedOrderId);
     if (!o) return;
     setNama(String(o.customer_nama || ''));
@@ -110,6 +135,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
     setEkspKg(o.ekspedisi_kg ? String(o.ekspedisi_kg) : '');
     setEkspBiaya(Number(o.ekspedisi_biaya) || 0);
     setNb(String(o.keterangan || ''));
+    setTrackingLink(String(o.tracking_link || ''));
+    setNoOrder(String(o.no_order || ''));
 
     // Load item lines
     const orderItems = items.filter(it => Number(it.order_id) === Number(o.id));
@@ -360,26 +387,36 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
           {/* Top bar: picker + actions (screen only) */}
           <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-3 flex-wrap shrink-0">
             <div className="flex items-center gap-3 flex-1">
-              <label className="text-xs font-medium text-slate-600 shrink-0">Order:</label>
-              <select value={pickedOrderId} onChange={e => setPickedOrderId(e.target.value)}
-                className="flex-1 max-w-xs bg-white border border-slate-300 text-slate-900 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
-                <option value="">— Pilih order —</option>
-                {orderPickerOptions.map(o => (
-                  <option key={o.id} value={o.id}>
-                    {o.label} {o.status === 'SELLING' ? '(dari CS Selling)' : ''}
-                  </option>
-                ))}
-              </select>
+              {readOnly ? (
+                <div className="text-sm font-semibold text-slate-800">
+                  {noOrder || 'Order'} · <span className="text-slate-500 font-normal">Read only</span>
+                </div>
+              ) : (
+                <>
+                  <label className="text-xs font-medium text-slate-600 shrink-0">Order:</label>
+                  <select value={pickedOrderId} onChange={e => setPickedOrderId(e.target.value)}
+                    className="flex-1 max-w-xs bg-white border border-slate-300 text-slate-900 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+                    <option value="">— Pilih order —</option>
+                    {orderPickerOptions.map(o => (
+                      <option key={o.id} value={o.id}>
+                        {o.label} {o.status === 'SELLING' ? '(dari CS Selling)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button onClick={handleDownload} disabled={downloading || !nama}
                 className="text-xs font-medium text-slate-700 border border-slate-300 hover:bg-slate-100 px-3 py-1.5 rounded transition-colors disabled:opacity-40">
                 {downloading ? 'Menyiapkan...' : 'Download PNG'}
               </button>
-              <button onClick={handleSave} disabled={saving || !pickedOrderId}
-                className="text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 px-4 py-1.5 rounded transition-colors disabled:opacity-40">
-                {saving ? 'Menyimpan...' : 'Simpan'}
-              </button>
+              {!readOnly && (
+                <button onClick={handleSave} disabled={saving || !pickedOrderId}
+                  className="text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 px-4 py-1.5 rounded transition-colors disabled:opacity-40">
+                  {saving ? 'Menyimpan...' : 'Simpan'}
+                </button>
+              )}
               <button onClick={onClose} className="text-slate-500 hover:text-slate-800 p-1">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
@@ -405,7 +442,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                     <td className={`${cellCls} w-4 text-center`}>:</td>
                     <td className={`${cellCls}`}>
                       <input type="text" value={nama} onChange={e => setNama(e.target.value)}
-                        placeholder="Nama customer" className={inputCls} />
+                        placeholder="Nama customer" className={inputCls} readOnly={readOnly} />
                     </td>
                   </tr>
                   <tr>
@@ -413,7 +450,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                     <td className={`${cellCls} text-center`}>:</td>
                     <td className={`${cellCls}`}>
                       <input type="text" value={alamat} onChange={e => setAlamat(e.target.value)}
-                        placeholder="Alamat lengkap" className={inputCls} />
+                        placeholder="Alamat lengkap" className={inputCls} readOnly={readOnly} />
                     </td>
                   </tr>
                   <tr>
@@ -421,7 +458,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                     <td className={`${cellCls} text-center`}>:</td>
                     <td className={`${cellCls}`}>
                       <select value={leadId} onChange={e => setLeadId(e.target.value)}
-                        className={`${inputCls} appearance-none cursor-pointer`}>
+                        disabled={readOnly}
+                        className={`${inputCls} appearance-none cursor-pointer disabled:cursor-not-allowed`}>
                         <option value="">— Pilih leads —</option>
                         {leads.map((l: Row) => (
                           <option key={l.id} value={l.id}>{l.nama}</option>
@@ -435,13 +473,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                     <td className={`${cellCls}`}>
                       <div className="flex items-center gap-4">
                         <input type="text" value={pembayTunai} onChange={e => setPembayTunai(e.target.value)}
-                          placeholder="Catatan tunai" className={`${inputCls} flex-1`} />
+                          placeholder="Catatan tunai" className={`${inputCls} flex-1`} readOnly={readOnly} />
                         <label className="flex items-center gap-1 text-xs">
-                          <input type="radio" name="payMethod" checked={payMethod === 'cash'} onChange={() => setPayMethod('cash')} />
+                          <input type="radio" name="payMethod" checked={payMethod === 'cash'} onChange={() => setPayMethod('cash')} disabled={readOnly} />
                           <span>Cash</span>
                         </label>
                         <label className="flex items-center gap-1 text-xs">
-                          <input type="radio" name="payMethod" checked={payMethod === 'bank'} onChange={() => setPayMethod('bank')} />
+                          <input type="radio" name="payMethod" checked={payMethod === 'bank'} onChange={() => setPayMethod('bank')} disabled={readOnly} />
                           <span>Bank</span>
                         </label>
                       </div>
@@ -469,8 +507,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                           <div className="flex items-center gap-2">
                             <input type="text" value={line.nama}
                               onChange={e => updateItemLine(idx, 'nama', e.target.value)}
-                              placeholder="Nama barang" className={inputCls} />
-                            {itemLines.length > 1 && (
+                              placeholder="Nama barang" className={inputCls} readOnly={readOnly} />
+                            {!readOnly && itemLines.length > 1 && (
                               <button onClick={() => removeItemLine(idx)} title="Hapus"
                                 className="text-slate-400 hover:text-rose-500 shrink-0 text-lg leading-none px-1">×</button>
                             )}
@@ -479,14 +517,14 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                         <td className={cellCls}>
                           <input type="number" value={line.qty || ''}
                             onChange={e => updateItemLine(idx, 'qty', Number(e.target.value) || 0)}
-                            className={smInputCls} />
+                            className={smInputCls} readOnly={readOnly} />
                         </td>
                         <td className={cellCls}>
                           <div className="flex items-center gap-1">
                             <span className="text-xs text-slate-500">Rp</span>
                             <input type="text" value={line.harga ? fmtRpPlain(line.harga) : ''}
                               onChange={e => updateItemLine(idx, 'harga', parseRp(e.target.value))}
-                              className={smInputCls} />
+                              className={smInputCls} readOnly={readOnly} />
                           </div>
                         </td>
                         <td className={`${cellCls} bg-slate-50`}>
@@ -516,13 +554,15 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                 </tbody>
               </table>
 
-              <div className="mb-3 flex justify-start">
-                <button onClick={addItemLine}
-                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 px-2 py-1">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                  Tambah Item
-                </button>
-              </div>
+              {!readOnly && (
+                <div className="mb-3 flex justify-start">
+                  <button onClick={addItemLine}
+                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 px-2 py-1">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                    Tambah Item
+                  </button>
+                </div>
+              )}
 
               {/* Ekspedisi */}
               <table className="w-full border-collapse mb-3 text-sm">
@@ -538,18 +578,18 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                   <tr>
                     <td className={cellCls}>
                       <input type="text" value={ekspNama} onChange={e => setEkspNama(e.target.value)}
-                        placeholder="Nama ekspedisi (contoh: JNE JTR 4-5 HARI)" className={inputCls} />
+                        placeholder="Nama ekspedisi (contoh: JNE JTR 4-5 HARI)" className={inputCls} readOnly={readOnly} />
                     </td>
                     <td className={cellCls}>
                       <input type="text" value={ekspKg} onChange={e => setEkspKg(e.target.value)}
-                        className={smInputCls} />
+                        className={smInputCls} readOnly={readOnly} />
                     </td>
                     <td className={cellCls}>
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-slate-500">Rp</span>
                         <input type="text" value={ekspBiaya ? fmtRpPlain(ekspBiaya) : ''}
                           onChange={e => setEkspBiaya(parseRp(e.target.value))}
-                          className={smInputCls} />
+                          className={smInputCls} readOnly={readOnly} />
                       </div>
                     </td>
                     <td className={`${cellCls} bg-slate-50 text-right tabular-nums`}>
@@ -588,7 +628,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                         <td className={cellCls}>
                           <input type="date" value={line.tanggal}
                             onChange={e => updateDpLine(idx, 'tanggal', e.target.value)}
-                            className={inputCls} />
+                            className={inputCls} readOnly={readOnly} disabled={readOnly} />
                           {line.tanggal && (
                             <div className="text-[10px] text-slate-500 mt-0.5">{fmtDateID(line.tanggal)}</div>
                           )}
@@ -599,7 +639,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                             <span className="text-xs text-slate-500">Rp</span>
                             <input type="text" value={line.tunai ? fmtRpPlain(line.tunai) : ''}
                               onChange={e => updateDpLine(idx, 'tunai', parseRp(e.target.value))}
-                              className={smInputCls} />
+                              className={smInputCls} readOnly={readOnly} />
                           </div>
                         </td>
                         <td className={cellCls}>
@@ -607,7 +647,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                             <span className="text-xs text-slate-500">Rp</span>
                             <input type="text" value={line.trf ? fmtRpPlain(line.trf) : ''}
                               onChange={e => updateDpLine(idx, 'trf', parseRp(e.target.value))}
-                              className={smInputCls} />
+                              className={smInputCls} readOnly={readOnly} />
                           </div>
                         </td>
                         <td className={`${cellCls} bg-slate-50 text-right tabular-nums`}>
@@ -624,7 +664,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                 <div>
                   <div className="text-sm font-bold mb-1">NB:</div>
                   <textarea value={nb} onChange={e => setNb(e.target.value)}
-                    rows={6}
+                    rows={6} readOnly={readOnly}
                     placeholder="Catatan bahan, promo, size dsb..."
                     className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-none" />
                 </div>
@@ -647,6 +687,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                         DP PRODUKSI
                         <input type="number" min={0} max={100} value={dpProdPct}
                           onChange={e => setDpProdPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                          readOnly={readOnly}
                           className="w-12 mx-1 border border-slate-300 rounded text-center text-xs" />%
                       </td>
                       <td className={`${cellCls} text-right tabular-nums font-bold text-blue-700`}>Rp {fmtRp(dpProduksi)}</td>
@@ -654,6 +695,31 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId }:
                   </tbody>
                 </table>
               </div>
+
+              {readOnly && trackingLink && (
+                <div className="mt-4 border border-blue-200 bg-blue-50 rounded-lg p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-semibold text-blue-700 uppercase tracking-wider">Link Tracking Customer</div>
+                    <a
+                      href={trackingLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 hover:text-blue-800 underline break-all"
+                    >
+                      {typeof window !== 'undefined' ? `${window.location.origin}${trackingLink}` : trackingLink}
+                    </a>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const url = typeof window !== 'undefined' ? `${window.location.origin}${trackingLink}` : trackingLink;
+                      navigator.clipboard?.writeText(url).then(() => toast.success('Tersalin', 'Link tracking sudah di-copy.'));
+                    }}
+                    className="text-xs font-medium text-blue-700 border border-blue-300 hover:bg-blue-100 px-3 py-1.5 rounded transition-colors shrink-0"
+                  >
+                    Copy Link
+                  </button>
+                </div>
+              )}
 
               <div className="text-[10px] text-slate-400 text-center mt-6 pt-3 border-t border-slate-200">
                 Diterbitkan oleh AYRES · {new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}

@@ -141,6 +141,7 @@ export default function OrdersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [pembayaranOpen, setPembayaranOpen] = useState(false);
   const [pembayaranOrderId, setPembayaranOrderId] = useState<number | null>(null);
+  const [pembayaranReadOnly, setPembayaranReadOnly] = useState(false);
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -296,7 +297,7 @@ export default function OrdersPage() {
               )}
             </div>
           )}
-          <button onClick={() => { setPembayaranOrderId(null); setPembayaranOpen(true); }}
+          <button onClick={() => { setPembayaranOrderId(null); setPembayaranReadOnly(false); setPembayaranOpen(true); }}
             className="flex items-center gap-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white px-4 py-2 rounded-xl text-[13px] font-medium transition-colors shadow-lg shadow-fuchsia-600/20">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
             Pembayaran AYRES
@@ -348,9 +349,7 @@ export default function OrdersPage() {
               <tr className="border-b border-white/[0.04]">
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">No</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Customer</th>
-                <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Paket</th>
-                <th className="text-right px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Qty</th>
-                {/* Bahan hidden */}
+                {/* Paket + Qty hidden per CS Order requirement — data still fetched */}
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Tgl ACC Proofing</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">DP Produksi</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">DL Customer</th>
@@ -373,20 +372,13 @@ export default function OrdersPage() {
                 return (
                   <tr key={order.rowIndex}
                     className={`border-b border-white/[0.03] transition-colors cursor-pointer group ${rowTint}`}
-                    onClick={() => orderRouter.push(`/orders/${order.rowIndex}`)}>
+                    onClick={() => { setPembayaranOrderId(order.rowIndex); setPembayaranReadOnly(true); setPembayaranOpen(true); }}>
                     <td className="px-4 py-3.5 text-white/20 font-mono text-[11px]">{order.no}</td>
                     <td className="px-4 py-3.5">
                       <div className="font-semibold text-white/80 group-hover:text-white transition-colors">{order.customer}</div>
                       {order.noWorkOrder && <div className="text-[11px] text-white/25 mt-0.5">{order.noWorkOrder}</div>}
                     </td>
-                    <td className="px-4 py-3.5">
-                      <span className="text-white/60 font-medium">{order.paket1}</span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right">
-                      <span className="text-white/80 font-semibold tabular-nums">{order.qty > 0 ? order.qty : '-'}</span>
-                      {order.qty > 0 && <span className="text-white/25 text-[11px] ml-1">pcs</span>}
-                    </td>
-                    {/* Bahan hidden: order.bahan still available */}
+                    {/* Paket + Qty columns removed per CS Order layout — data still on Order object */}
                     <td className="px-4 py-3.5">
                       <AccProofingCell
                         orderId={order.rowIndex}
@@ -424,6 +416,7 @@ export default function OrdersPage() {
                             onClick={e => {
                               e.stopPropagation();
                               setPembayaranOrderId(order.rowIndex);
+                              setPembayaranReadOnly(false);
                               setPembayaranOpen(true);
                             }}
                             title="Buka form PEMBAYARAN AYRES pre-filled dari CS Selling"
@@ -435,12 +428,22 @@ export default function OrdersPage() {
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-1.5">
-                        <button onClick={e => { e.stopPropagation(); orderRouter.push(`/orders/${order.rowIndex}`); }}
-                          className="text-white/15 hover:text-blue-400 transition-colors p-1" title="Lihat">
+                        <button onClick={e => {
+                            e.stopPropagation();
+                            setPembayaranOrderId(order.rowIndex);
+                            setPembayaranReadOnly(true);
+                            setPembayaranOpen(true);
+                          }}
+                          className="text-white/15 hover:text-blue-400 transition-colors p-1" title="Lihat (Read)">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                         </button>
-                        <button onClick={e => { e.stopPropagation(); orderRouter.push(`/orders/${order.rowIndex}`); }}
-                          className="text-white/15 hover:text-amber-400 transition-colors p-1" title="Edit">
+                        <button onClick={e => {
+                            e.stopPropagation();
+                            setPembayaranOrderId(order.rowIndex);
+                            setPembayaranReadOnly(false);
+                            setPembayaranOpen(true);
+                          }}
+                          className="text-white/15 hover:text-amber-400 transition-colors p-1" title="Edit Pembayaran AYRES">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                         </button>
                         <button onClick={async e => { e.stopPropagation(); const yes = await toast.confirm({ title: 'Hapus Order?', message: 'Order ini akan dihapus permanen.', type: 'danger', confirmText: 'Ya, Hapus' }); if(!yes) return; try { const { dbDelete: del } = await import('@/lib/api-db'); await del('orders', order.rowIndex); invalidateCache('wp_orders','wp_dashboard'); toast.deleted('Order Dihapus'); fetchOrders(); } catch {} }}
@@ -474,6 +477,7 @@ export default function OrdersPage() {
         onClose={() => setPembayaranOpen(false)}
         onSaved={() => fetchOrders()}
         seedOrderId={pembayaranOrderId}
+        readOnly={pembayaranReadOnly}
       />
     </div>
   );
