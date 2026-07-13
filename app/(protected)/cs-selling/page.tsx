@@ -495,7 +495,6 @@ export default function CsSellingPage() {
   const [customers, setCustomers] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'BELUM' | 'SUDAH'>('ALL');
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const fetchAll = useCallback(async () => {
@@ -517,37 +516,25 @@ export default function CsSellingPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // CS Selling scope: any order this menu owns.
-  //   • created_via='CS_SELLING' → definitely ours (post-migration 023).
-  //   • status='SELLING' → still ours pre-migration, because CS Order
-  //     never sets that status on its own.
-  // Union covers both cases so a fresh save shows up whether or not
-  // migration 023 has landed on this instance yet.
+  // CS Selling scope: only rows still waiting for CS Order to pick up.
+  // Once CS Order saves the Pembayaran, status flips SELLING → PENDING
+  // and the row leaves this menu completely — CS Selling doesn't track
+  // completed orders, that's the CS Order table's job.
   const rows = useMemo(() => {
     return orders
-      .filter((o: Row) => {
-        const st = String(o.status || '').toUpperCase();
-        const via = String(o.created_via || '').toUpperCase();
-        return via === 'CS_SELLING' || st === 'SELLING';
-      })
+      .filter((o: Row) => String(o.status || '').toUpperCase() === 'SELLING')
       .sort((a: Row, b: Row) => Number(b.id) - Number(a.id));
   }, [orders]);
 
   const filtered = useMemo(() => {
     return rows.filter((r: Row) => {
       const q = search.trim().toLowerCase();
-      const matchSearch = !q
-        || String(r.no_order || '').toLowerCase().includes(q)
+      if (!q) return true;
+      return String(r.no_order || '').toLowerCase().includes(q)
         || String(r.customer_nama || '').toLowerCase().includes(q)
         || String(r.customer_phone || '').toLowerCase().includes(q);
-      const st = String(r.status || '').toUpperCase();
-      const matchStatus =
-        statusFilter === 'ALL' ? true
-        : statusFilter === 'BELUM' ? st === 'SELLING'
-        : st !== 'SELLING';
-      return matchSearch && matchStatus;
     });
-  }, [rows, search, statusFilter]);
+  }, [rows, search]);
 
   const paymentsByOrder = useMemo(() => {
     const m: Record<number, Row[]> = {};
@@ -565,10 +552,8 @@ export default function CsSellingPage() {
     return m;
   }, [leads]);
 
-  // Counts scoped to CS Selling rows only, not the whole orders table,
-  // so promoted-elsewhere orders don't inflate "Sudah Dilengkapi".
-  const countSelling = rows.filter((o: Row) => String(o.status || '').toUpperCase() === 'SELLING').length;
-  const countPromoted = rows.length - countSelling;
+  // All rows here are SELLING by construction — the filter above drops
+  // anything else, so we just use rows.length for the single stat card.
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
@@ -586,11 +571,9 @@ export default function CsSellingPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:max-w-sm gap-3">
         {[
-          { label: 'Total Order', count: rows.length, color: 'from-blue-500/20 to-blue-500/5', border: 'border-blue-500/15', text: 'text-blue-400', dot: 'bg-blue-400' },
-          { label: 'Menunggu CS Order', count: countSelling, color: 'from-fuchsia-500/20 to-fuchsia-500/5', border: 'border-fuchsia-500/15', text: 'text-fuchsia-400', dot: 'bg-fuchsia-400' },
-          { label: 'Sudah Dilengkapi CS Order', count: countPromoted, color: 'from-emerald-500/20 to-emerald-500/5', border: 'border-emerald-500/15', text: 'text-emerald-400', dot: 'bg-emerald-400' },
+          { label: 'Menunggu CS Order', count: rows.length, color: 'from-fuchsia-500/20 to-fuchsia-500/5', border: 'border-fuchsia-500/15', text: 'text-fuchsia-400', dot: 'bg-fuchsia-400' },
         ].map(s => (
           <div key={s.label} className={`relative rounded-xl bg-gradient-to-br ${s.color} border ${s.border} p-4 overflow-hidden`}>
             <div className="flex items-center gap-2 mb-1">
@@ -611,20 +594,6 @@ export default function CsSellingPage() {
             placeholder="Cari no order, customer, no HP..."
             className="w-full pl-9 pr-3 py-2 bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg placeholder-white/25 focus:outline-none focus:border-blue-500/40" />
         </div>
-        <div className="flex items-center gap-1 bg-[#0d1117] border border-white/10 rounded-lg p-0.5">
-          {[
-            { key: 'ALL', label: 'Semua' },
-            { key: 'BELUM', label: 'Menunggu' },
-            { key: 'SUDAH', label: 'Sudah Dilengkapi' },
-          ].map(t => (
-            <button key={t.key} onClick={() => setStatusFilter(t.key as 'ALL' | 'BELUM' | 'SUDAH')}
-              className={`text-xs font-medium px-3 py-1.5 rounded-md transition-colors ${
-                statusFilter === t.key ? 'text-white bg-white/10' : 'text-slate-500 hover:text-slate-300'
-              }`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
@@ -640,23 +609,20 @@ export default function CsSellingPage() {
                 <th className="text-right px-4 py-3">DP Desain</th>
                 <th className="text-center px-4 py-3">Bukti TF</th>
                 <th className="text-left px-4 py-3">Tgl Order</th>
-                <th className="text-left px-4 py-3">Handoff</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">Memuat...</td></tr>
+                <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">Memuat...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
-                  Belum ada order. Klik <strong className="text-white">Buat Order Baru</strong> untuk mulai.
+                <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
+                  Belum ada order menunggu. Klik <strong className="text-white">Buat Order Baru</strong> untuk mulai.
                 </td></tr>
               ) : filtered.map((o: Row, i: number) => {
                 const p = paymentsByOrder[Number(o.id)] || [];
                 const dpDesain = p.find((x: Row) => String(x.tipe) === 'dp_desain');
                 const dpAmt = Number(dpDesain?.amount || o.dp_desain || 0);
                 const hasBukti = !!dpDesain?.bukti_tf;
-                const st = String(o.status || '').toUpperCase();
-                const isSelling = st === 'SELLING';
                 return (
                   <tr key={o.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                     <td className="px-4 py-3.5 text-sm text-slate-500 tabular-nums">{i + 1}</td>
@@ -678,19 +644,6 @@ export default function CsSellingPage() {
                       )}
                     </td>
                     <td className="px-4 py-3.5 text-sm text-slate-400">{fmtDate(o.tanggal_order)}</td>
-                    <td className="px-4 py-3.5">
-                      {isSelling ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-fuchsia-500/30 text-fuchsia-300 bg-fuchsia-500/10">
-                          <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400" />
-                          Menunggu CS Order
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          Sudah Dilengkapi
-                        </span>
-                      )}
-                    </td>
                   </tr>
                 );
               })}
