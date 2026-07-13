@@ -324,6 +324,22 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `stage_rejects` ADD COLUMN `gudang_notes` TEXT NULL",
     ],
   },
+  {
+    // Bukti transfer per payment entry, stored as a base64 data URI so
+    // the whole payload sits in the row (same pattern used by
+    // wo_spesifikasi.imported_file). Nullable — legacy payments
+    // captured before this migration have no attachment.
+    //
+    // Adding it to order_payments (not orders) means each payment
+    // stripe — Nominal Order, DP Desain, DP Produksi #N — carries its
+    // own bukti TF, which matches the multi-DP world introduced by
+    // migration 015.
+    name: '021_order_payments_bukti_tf',
+    up: [
+      "ALTER TABLE `order_payments` ADD COLUMN `bukti_tf` LONGTEXT NULL",
+      "ALTER TABLE `order_payments` ADD COLUMN `bukti_tf_name` VARCHAR(255) NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

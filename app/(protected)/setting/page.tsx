@@ -29,7 +29,7 @@ interface UserRow {
   role_nama: string;
 }
 
-const MENU_ITEMS = ['Dashboard','Orders','Work Orders','Produksi','Monitoring Produksi','Approval Gudang','CRM Deadline Lock','CRM Finishing','Laporan','Stok','Settings','Master Data','Analisa'];
+const MENU_ITEMS = ['Dashboard','CS Selling','CS Order','Work Orders','Produksi','Monitoring Produksi','Approval Gudang','CRM Deadline Lock','CRM Finishing','Laporan','Stok','Settings','Master Data','Analisa'];
 
 export default function SettingPage() {
   const toast = useToast();

@@ -47,6 +47,10 @@ export interface Order {
   dpDesainAmount?: number;
   dpProduksiAmount?: number;
   hasAccProofing?: boolean;
+  // Raw DB status ('SELLING', 'PENDING', 'IN_PROGRESS', 'DONE', ...) —
+  // preserved so the Orders page can flag orders that came in from
+  // CS Selling and still need CS Order to complete them.
+  rawStatus?: string;
 }
 
 export interface DashboardStats {

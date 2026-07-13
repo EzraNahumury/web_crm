@@ -407,9 +407,18 @@ export default function OrdersPage() {
                       <div className="text-[11px] text-white/20 mt-0.5">{order.currentStageName || 'Belum mulai'}</div>
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className={`text-[11px] px-2.5 py-1 rounded-lg font-medium ${STATUS_STYLES_DARK[order.status]}`}>
-                        {STATUS_LABELS[order.status]}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[11px] px-2.5 py-1 rounded-lg font-medium ${STATUS_STYLES_DARK[order.status]}`}>
+                          {STATUS_LABELS[order.status]}
+                        </span>
+                        {order.rawStatus === 'SELLING' && (
+                          <span
+                            title="Order dari CS Selling — lengkapi paket, deadline, dan DP Produksi."
+                            className="text-[10px] px-2 py-0.5 rounded-full font-medium border border-fuchsia-500/30 text-fuchsia-300 bg-fuchsia-500/10 whitespace-nowrap">
+                            Dari CS Selling
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-1.5">

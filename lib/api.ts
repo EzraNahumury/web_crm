@@ -289,6 +289,7 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
       dpProduksiAmount: Number(r.dp_produksi) || 0,
       hasAccProofing: !!r.tanggal_acc_proofing,
       status,
+      rawStatus: r.status || '',
       progress: { PROOFING: false, WAITINGLIST: false, PRINT: false, PRES: false, CUT_FABRIC: false, JAHIT: false, QC_JAHIT_STEAM: false, FINISHING: false, PENGIRIMAN: false },
       progressPercent,
       currentStageName,
