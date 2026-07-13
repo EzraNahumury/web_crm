@@ -178,6 +178,9 @@ export default function OrdersPage() {
 
   const filtered = useMemo(() => {
     return orders.filter(o => {
+      // SELLING rows still await CS Order handoff — they belong in the
+      // Pembayaran AYRES dropdown, not the completed orders table.
+      if (o.rawStatus === 'SELLING') return false;
       const matchSearch = !search || o.customer.toLowerCase().includes(search.toLowerCase()) ||
         o.noWorkOrder?.toLowerCase().includes(search.toLowerCase()) ||
         o.keterangan?.toLowerCase().includes(search.toLowerCase());

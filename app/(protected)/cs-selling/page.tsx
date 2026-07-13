@@ -517,17 +517,18 @@ export default function CsSellingPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // CS Selling scope: only orders that came in through this menu.
-  // `created_via='CS_SELLING'` is set on save (migration 023). Legacy
-  // rows default to 'CS_ORDER' and never appear here. During the brief
-  // window before migration 023 lands, we fall back to status='SELLING'
-  // so freshly created rows still surface.
+  // CS Selling scope: any order this menu owns.
+  //   • created_via='CS_SELLING' → definitely ours (post-migration 023).
+  //   • status='SELLING' → still ours pre-migration, because CS Order
+  //     never sets that status on its own.
+  // Union covers both cases so a fresh save shows up whether or not
+  // migration 023 has landed on this instance yet.
   const rows = useMemo(() => {
     return orders
       .filter((o: Row) => {
         const st = String(o.status || '').toUpperCase();
         const via = String(o.created_via || '').toUpperCase();
-        return via === 'CS_SELLING' || (!via && st === 'SELLING');
+        return via === 'CS_SELLING' || st === 'SELLING';
       })
       .sort((a: Row, b: Row) => Number(b.id) - Number(a.id));
   }, [orders]);

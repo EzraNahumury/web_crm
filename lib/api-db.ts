@@ -12,7 +12,9 @@ export async function dbGet<T = Record<string, unknown>>(
       if (v != null && v !== '') params.set(k, String(v));
     }
   }
-  const res = await fetch(`/api/db/${table}?${params}`);
+  // no-store so a fresh save is visible on the very next fetch —
+  // Chromium sometimes caches identical GET urls otherwise.
+  const res = await fetch(`/api/db/${table}?${params}`, { cache: 'no-store' });
   const json = await res.json();
   if (!json.success) throw new Error(json.error);
   return json.data;

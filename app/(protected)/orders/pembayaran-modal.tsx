@@ -211,9 +211,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setDpLines(rs => rs.map((r, i) => i === idx ? { ...r, [k]: v } : r));
   }
 
+  // Dropdown = handoff pool. Only orders still at SELLING (created by
+  // CS Selling, not yet completed by CS Order) show up here. Once CS
+  // Order saves, status flips to PENDING and the row leaves the pool
+  // and joins the CS Order table.
   const orderPickerOptions = useMemo(
     () => orders
-      .filter(o => ['SELLING', 'PENDING'].includes(String(o.status || '').toUpperCase()))
+      .filter(o => String(o.status || '').toUpperCase() === 'SELLING')
       .sort((a, b) => Number(b.id) - Number(a.id))
       .map(o => ({
         id: o.id,
@@ -229,7 +233,9 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     if (!invoiceRef.current) return;
     setDownloading(true);
     try {
-      const html2canvas = (await import('html2canvas')).default;
+      // html2canvas-pro is a drop-in fork that supports modern CSS color
+      // functions (oklch, lab, color-mix) which Tailwind 4 emits.
+      const html2canvas = (await import('html2canvas-pro')).default;
       const canvas = await html2canvas(invoiceRef.current, {
         backgroundColor: '#ffffff',
         scale: 2,
