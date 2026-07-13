@@ -109,7 +109,7 @@ function SearchableSelect({
 function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
   customers: Row[];
   leads: Row[];
 }) {
@@ -229,46 +229,41 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
       }, 0);
       const noOrder = `ORD${String(maxNum + 1).padStart(3, '0')}`;
       const todayIso = new Date().toISOString().split('T')[0];
+      // orders.estimasi_deadline is NOT NULL in the base schema — CS Order
+      // will overwrite it via Pembayaran, but on strict-mode DBs the insert
+      // silently fails without a value here, so give it a 7-day placeholder.
+      const weekLaterIso = (() => {
+        const d = new Date(); d.setDate(d.getDate() + 7);
+        return d.toISOString().split('T')[0];
+      })();
 
-      // Mark this record so CS Selling can distinguish its own rows
-      // from orders CS Order created directly. Fall back without the
-      // column if migration 023 hasn't landed on this instance yet.
+      // Base payload every branch shares. Optional columns (created_via)
+      // only sit in the branch that expects them.
+      const baseOrderPayload = {
+        no_order: noOrder,
+        customer_id: custId,
+        customer_nama: customer.trim(),
+        customer_phone: noHp || null,
+        customer_alamat: alamat || null,
+        customer_kecamatan: kecamatan || null,
+        customer_kabupaten: kabupaten || null,
+        customer_provinsi: provinsi || null,
+        lead_id: leadId ? Number(leadId) : null,
+        nama_tim: namaTim || null,
+        tanggal_order: todayIso,
+        estimasi_deadline: weekLaterIso,
+        status: 'SELLING',
+        dp_desain: dpAmount || 0,
+      };
+
       let orderId: number;
       try {
-        orderId = await dbCreate('orders', {
-          no_order: noOrder,
-          customer_id: custId,
-          customer_nama: customer.trim(),
-          customer_phone: noHp || null,
-          customer_alamat: alamat || null,
-          customer_kecamatan: kecamatan || null,
-          customer_kabupaten: kabupaten || null,
-          customer_provinsi: provinsi || null,
-          lead_id: leadId ? Number(leadId) : null,
-          nama_tim: namaTim || null,
-          tanggal_order: todayIso,
-          status: 'SELLING',
-          dp_desain: dpAmount || 0,
-          created_via: 'CS_SELLING',
-        });
+        orderId = await dbCreate('orders', { ...baseOrderPayload, created_via: 'CS_SELLING' });
       } catch (err) {
         console.warn('orders insert with created_via failed, retrying without:', err);
-        orderId = await dbCreate('orders', {
-          no_order: noOrder,
-          customer_id: custId,
-          customer_nama: customer.trim(),
-          customer_phone: noHp || null,
-          customer_alamat: alamat || null,
-          customer_kecamatan: kecamatan || null,
-          customer_kabupaten: kabupaten || null,
-          customer_provinsi: provinsi || null,
-          lead_id: leadId ? Number(leadId) : null,
-          nama_tim: namaTim || null,
-          tanggal_order: todayIso,
-          status: 'SELLING',
-          dp_desain: dpAmount || 0,
-        });
+        orderId = await dbCreate('orders', baseOrderPayload);
       }
+      console.log('[cs-selling] order created', { orderId, noOrder, status: 'SELLING' });
 
       if (dpAmount > 0 || buktiTf) {
         try {
@@ -293,7 +288,10 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
       invalidateCache('wp_orders', 'wp_dashboard');
       toast.success('Order CS Selling Tersimpan', `${noOrder} diteruskan ke CS Order untuk dilengkapi.`);
       reset();
-      onSaved();
+      // Wait for the parent to refetch so the new row is definitely on
+      // screen before the drawer disappears — closes the race where the
+      // user sees an empty table for a split second post-save.
+      await Promise.resolve(onSaved());
       onClose();
     } catch (e) {
       toast.error('Gagal Menyimpan', String(e));
@@ -506,6 +504,10 @@ export default function CsSellingPage() {
         dbGet('leads').catch(() => []),
         dbGet('customers').catch(() => []),
       ]);
+      // Peek at how many SELLING rows the DB actually returned — helpful
+      // when the count in the UI looks off after a save.
+      const sellingCount = (o as Row[]).filter(x => String(x.status || '').toUpperCase() === 'SELLING').length;
+      console.log('[cs-selling] fetched', { total: o.length, selling: sellingCount });
       setOrders(o);
       setPayments(p);
       setLeads(l);
@@ -564,11 +566,21 @@ export default function CsSellingPage() {
             Input order awal + DP Desain. Detail order (paket, deadline, DP Produksi) dilanjutkan di menu CS Order.
           </p>
         </div>
-        <button onClick={() => setDrawerOpen(true)}
-          className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-          Buat Order Baru
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={fetchAll} disabled={loading}
+            title="Refresh — muat ulang daftar order"
+            className="text-sm font-medium text-slate-300 border border-white/10 hover:bg-white/[0.04] px-3 py-2 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50">
+            <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            Refresh
+          </button>
+          <button onClick={() => setDrawerOpen(true)}
+            className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            Buat Order Baru
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:max-w-sm gap-3">
