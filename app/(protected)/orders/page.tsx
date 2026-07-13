@@ -181,14 +181,12 @@ export default function OrdersPage() {
       // SELLING rows still await CS Order handoff — they belong in the
       // Pembayaran AYRES dropdown, not the completed orders table.
       if (o.rawStatus === 'SELLING') return false;
-      // CS_SELLING orders that CS Order has now saved go back to
-      // Approval Finance for invoice review. Until Finance stamps
-      // finance_status='APPROVED', they don't belong here either —
-      // they should live in Approval Finance's Menunggu tab, not
-      // clutter the CS Order table.
-      const via = String(o.createdVia || '').toUpperCase();
-      const fs = String(o.financeStatus || '').toUpperCase();
-      if (via === 'CS_SELLING' && fs !== 'APPROVED') return false;
+      // Repeat orders + orders waiting Finance re-review still show
+      // here so CS Order can see both the legacy in-flight WO and the
+      // fresh one from the same customer side by side. The Finance
+      // status is surfaced as a chip in the AKSI column and the
+      // Produksi Waiting List gate still enforces the actual
+      // approval before production can proceed.
       const matchSearch = !search || o.customer.toLowerCase().includes(search.toLowerCase()) ||
         o.noWorkOrder?.toLowerCase().includes(search.toLowerCase()) ||
         o.keterangan?.toLowerCase().includes(search.toLowerCase());
@@ -449,21 +447,41 @@ export default function OrdersPage() {
                           className="text-white/15 hover:text-red-400 transition-colors p-1" title="Hapus">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                         </button>
-                        {/* Origin chip — helps the CS Order team spot which
-                            rows came from CS Selling handoff vs legacy
-                            direct entries. */}
+                        {/* Origin chip + Finance status hint. For CS_SELLING
+                            rows we also flag when Finance hasn't approved
+                            the invoice yet — the Produksi Waiting List
+                            gate enforces this, but showing it here saves
+                            a click. */}
                         {(() => {
                           const via = String(order.createdVia || '').toUpperCase();
-                          const label = via === 'CS_SELLING' ? 'dari CS Selling' : 'dari CS Order';
-                          const cls = via === 'CS_SELLING'
+                          const fs = String(order.financeStatus || '').toUpperCase();
+                          const originLabel = via === 'CS_SELLING' ? 'dari CS Selling' : 'dari CS Order';
+                          const originCls = via === 'CS_SELLING'
                             ? 'text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/30'
                             : 'text-slate-400 bg-slate-500/10 border-slate-500/30';
+                          const originTitle = via === 'CS_SELLING'
+                            ? 'Order awal dari CS Selling'
+                            : 'Order dibuat langsung di CS Order (legacy)';
                           return (
-                            <span
-                              title={via === 'CS_SELLING' ? 'Order awal dari CS Selling' : 'Order dibuat langsung di CS Order (legacy)'}
-                              className={`ml-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full border whitespace-nowrap ${cls}`}>
-                              {label}
-                            </span>
+                            <div className="ml-1 flex items-center gap-1 flex-wrap">
+                              <span title={originTitle}
+                                className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full border whitespace-nowrap ${originCls}`}>
+                                {originLabel}
+                              </span>
+                              {via === 'CS_SELLING' && fs !== 'APPROVED' && (
+                                <span
+                                  title={fs === 'REJECTED'
+                                    ? 'Finance menolak invoice — buka Approval Finance untuk detail'
+                                    : 'Menunggu Finance approve invoice — buka Approval Finance'}
+                                  className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
+                                    fs === 'REJECTED'
+                                      ? 'text-rose-300 bg-rose-500/10 border-rose-500/30'
+                                      : 'text-amber-300 bg-amber-500/10 border-amber-500/30'
+                                  }`}>
+                                  {fs === 'REJECTED' ? 'Finance Tolak' : 'Menunggu Finance'}
+                                </span>
+                              )}
+                            </div>
                           );
                         })()}
                       </div>
