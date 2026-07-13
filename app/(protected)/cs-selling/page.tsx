@@ -136,6 +136,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
 
   const [buktiTf, setBuktiTf] = useState<string | null>(null);
   const [buktiTfName, setBuktiTfName] = useState('');
+  const [keterangan, setKeterangan] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: provinces } = useWilayah('provinces');
@@ -172,6 +173,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
     setProvId(''); setProvinsi(''); setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
     setNoHp(''); setLeadId(''); setNamaTim('');
     setDpAmount(0); setDpBank(''); setDpMethod(''); setDpMethodOther('');
+    setKeterangan('');
     setBuktiTf(null); setBuktiTfName('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
@@ -275,6 +277,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
         estimasi_deadline: weekLaterIso,
         status: 'SELLING',
         dp_desain: dpAmount || 0,
+        keterangan: keterangan.trim() || null,
       };
 
       let orderId: number;
@@ -503,6 +506,16 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
                 <input type="text" value={dpMethodOther} onChange={e => setDpMethodOther(e.target.value)}
                   placeholder="Ketik metode pembayaran..." className={`${inputCls} text-xs`} />
               )}
+              <div className="pt-2">
+                <label className={`${labelCls} text-xs`}>Keterangan</label>
+                <textarea
+                  value={keterangan}
+                  onChange={e => setKeterangan(e.target.value)}
+                  rows={3}
+                  placeholder="Catatan tambahan untuk order/DP ini..."
+                  className={`${inputCls} resize-none`}
+                />
+              </div>
             </div>
           </section>
 

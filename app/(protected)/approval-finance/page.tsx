@@ -281,6 +281,9 @@ export default function ApprovalFinancePage() {
                     <InfoRow label="Leads" value={leadById[Number(detail.lead_id)] || '-'} />
                     <InfoRow label="Tgl Order" value={fmtDate(detail.tanggal_order)} />
                     <InfoRow label="Alamat" value={String(detail.customer_alamat || '-')} full />
+                    {detail.keterangan && (
+                      <InfoRow label="Keterangan" value={String(detail.keterangan)} full />
+                    )}
                   </div>
 
                   <div>
