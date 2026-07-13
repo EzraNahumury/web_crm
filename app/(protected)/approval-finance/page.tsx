@@ -295,16 +295,26 @@ export default function ApprovalFinancePage() {
                           </div>
                         </div>
                       </div>
-                      {dpDesain?.bukti_tf ? (
-                        String(dpDesain.bukti_tf).startsWith('data:image') ? (
+                      {dpDesain?.bukti_tf ? (() => {
+                        const buktiRef = String(dpDesain.bukti_tf);
+                        const buktiName = String(dpDesain.bukti_tf_name || '');
+                        const isImage =
+                          buktiRef.startsWith('data:image')
+                          || /\.(png|jpe?g|gif|webp)$/i.test(buktiName)
+                          || /\.(png|jpe?g|gif|webp)$/i.test(buktiRef);
+                        const isPdf =
+                          buktiRef.startsWith('data:application/pdf')
+                          || /\.pdf$/i.test(buktiName)
+                          || /\.pdf$/i.test(buktiRef);
+                        return isImage ? (
                           <div className="mt-3 space-y-2">
                             <div className="text-[11px] text-slate-500">
-                              Bukti TF ({dpDesain.bukti_tf_name || 'image'}) — klik untuk perbesar
+                              Bukti TF ({buktiName || 'image'}) — klik untuk perbesar
                             </div>
-                            <button type="button" onClick={() => setZoomedImg(String(dpDesain.bukti_tf))}
+                            <button type="button" onClick={() => setZoomedImg(buktiRef)}
                               className="block mx-auto group relative">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={dpDesain.bukti_tf} alt="Bukti TF"
+                              <img src={buktiRef} alt="Bukti TF"
                                 className="max-h-72 rounded border border-white/10 cursor-zoom-in" />
                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                                 <span className="bg-white/90 text-slate-800 text-xs font-medium px-3 py-1.5 rounded-full shadow-lg">
@@ -313,52 +323,52 @@ export default function ApprovalFinancePage() {
                               </div>
                             </button>
                             <div className="flex items-center justify-center gap-3 text-[11px]">
-                              <a href={dpDesain.bukti_tf} download={dpDesain.bukti_tf_name || 'bukti-tf.png'}
+                              <a href={buktiRef} download={buktiName || 'bukti-tf.png'}
                                 className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
                                 Download gambar
                               </a>
                               <span className="text-slate-700">·</span>
-                              <a href={dpDesain.bukti_tf} target="_blank" rel="noopener noreferrer"
+                              <a href={buktiRef} target="_blank" rel="noopener noreferrer"
                                 className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
                                 Buka di tab baru
                               </a>
                             </div>
                           </div>
-                        ) : String(dpDesain.bukti_tf).startsWith('data:application/pdf') ? (
+                        ) : isPdf ? (
                           <div className="mt-3 space-y-2">
                             <div className="text-[11px] text-slate-500">
-                              Bukti TF (PDF — {dpDesain.bukti_tf_name || 'file'})
+                              Bukti TF (PDF — {buktiName || 'file'})
                             </div>
-                            <object data={dpDesain.bukti_tf} type="application/pdf"
+                            <object data={buktiRef} type="application/pdf"
                               className="w-full h-96 border border-white/10 rounded">
                               <div className="p-4 text-xs text-slate-400">
                                 Browser tidak bisa menampilkan PDF inline.
-                                <a href={dpDesain.bukti_tf} target="_blank" rel="noopener noreferrer"
+                                <a href={buktiRef} target="_blank" rel="noopener noreferrer"
                                   className="ml-1 text-blue-400 hover:text-blue-300 underline">Buka di tab baru</a>.
                               </div>
                             </object>
                             <div className="flex items-center justify-center gap-3 text-[11px]">
-                              <a href={dpDesain.bukti_tf} download={dpDesain.bukti_tf_name || 'bukti-tf.pdf'}
+                              <a href={buktiRef} download={buktiName || 'bukti-tf.pdf'}
                                 className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
                                 Download PDF
                               </a>
                               <span className="text-slate-700">·</span>
-                              <a href={dpDesain.bukti_tf} target="_blank" rel="noopener noreferrer"
+                              <a href={buktiRef} target="_blank" rel="noopener noreferrer"
                                 className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
                                 Buka di tab baru
                               </a>
                             </div>
                           </div>
                         ) : (
-                          <a href={dpDesain.bukti_tf} target="_blank" rel="noopener noreferrer"
+                          <a href={buktiRef} target="_blank" rel="noopener noreferrer"
                             className="mt-2 inline-flex items-center gap-2 text-xs text-blue-400 hover:text-blue-300 underline">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                             </svg>
-                            Buka file bukti transfer ({dpDesain.bukti_tf_name || 'file'})
+                            Buka file bukti transfer ({buktiName || 'file'})
                           </a>
-                        )
-                      ) : (
+                        );
+                      })() : (
                         <div className="mt-3 border border-dashed border-white/10 rounded-lg p-4 text-center">
                           <svg className="w-8 h-8 text-slate-600 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />

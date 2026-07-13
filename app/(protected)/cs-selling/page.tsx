@@ -176,6 +176,8 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
+  const [uploading, setUploading] = useState(false);
+
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -183,12 +185,31 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
       toast.error('File Terlalu Besar', 'Ukuran maksimal 5 MB. Kompres foto TF-nya dulu.');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setBuktiTf(String(reader.result || ''));
-      setBuktiTfName(f.name);
-    };
-    reader.readAsDataURL(f);
+    // Upload to the persistent UPLOAD_DIR (survives redeploys) via the
+    // existing /api/upload route. On failure, fall back to base64 in the
+    // column so the flow still works locally without a filesystem.
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const j = await res.json();
+      if (res.ok && j?.url) {
+        setBuktiTf(String(j.url));
+        setBuktiTfName(String(j.originalName || f.name));
+      } else {
+        throw new Error(j?.error || 'Upload gagal');
+      }
+    } catch (err) {
+      console.warn('bukti TF filesystem upload failed, using base64 fallback:', err);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setBuktiTf(String(reader.result || ''));
+        setBuktiTfName(f.name);
+      };
+      reader.readAsDataURL(f);
+    }
+    setUploading(false);
   }
 
   async function handleSave() {
@@ -489,13 +510,25 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
             <h3 className="text-sm font-bold text-white mb-3">Upload DP Desain</h3>
             <label className={labelCls}>Bukti TF</label>
             {!buktiTf ? (
-              <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-white/10 rounded-lg py-6 cursor-pointer hover:border-blue-500/40 hover:bg-white/[0.02] transition-colors">
-                <svg className="w-7 h-7 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-                <span className="text-xs text-slate-400">Klik atau drop file untuk upload</span>
-                <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 5 MB</span>
-                <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChange} />
+              <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed border-white/10 rounded-lg py-6 cursor-pointer hover:border-blue-500/40 hover:bg-white/[0.02] transition-colors ${uploading ? 'opacity-60 cursor-wait' : ''}`}>
+                {uploading ? (
+                  <>
+                    <svg className="w-7 h-7 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <span className="text-xs text-slate-400">Mengupload...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-7 h-7 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                    </svg>
+                    <span className="text-xs text-slate-400">Klik atau drop file untuk upload</span>
+                    <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 5 MB</span>
+                  </>
+                )}
+                <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChange} disabled={uploading} />
               </label>
             ) : (
               <div className="border border-white/10 rounded-lg p-3 space-y-2">
@@ -509,7 +542,8 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
                   <button onClick={() => { setBuktiTf(null); setBuktiTfName(''); if (fileInputRef.current) fileInputRef.current.value = ''; }}
                     className="text-xs text-slate-500 hover:text-rose-400">Ganti</button>
                 </div>
-                {buktiTf.startsWith('data:image') && (
+                {(buktiTf.startsWith('data:image') || /\.(png|jpe?g|gif|webp)$/i.test(buktiTfName) || buktiTf.startsWith('/api/files/') || buktiTf.startsWith('/uploads/')) && (
+                  // Preview works for both base64 fallbacks and URL-based files.
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={buktiTf} alt="Bukti TF" className="max-h-48 rounded border border-white/10" />
                 )}
