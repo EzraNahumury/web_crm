@@ -410,6 +410,84 @@ const MIGRATIONS: Migration[] = [
     ],
   },
   {
+    // Recovery / safety net for order_payments. In one production
+    // environment the _migrations tracking table listed 015 as applied
+    // but the actual `order_payments` table had disappeared (most likely
+    // a partial DB restore that skipped that table). Because the runner
+    // trusts the tracking table it wouldn't re-run 015, so subsequent
+    // migrations (021 + 022) failed with "Table ... doesn't exist" and
+    // CS Selling / Pembayaran couldn't persist DP data.
+    //
+    // This CREATE TABLE IF NOT EXISTS is idempotent — no-op when the
+    // table exists, restores it when it doesn't. It bundles every
+    // column that 015 + 021 + 022 would have added so the schema is
+    // fully caught up in a single pass. 021 + 022 then re-run and
+    // ADD COLUMN throws Duplicate column, which is a benign error and
+    // still marks the migration applied.
+    name: '026_order_payments_recreate',
+    up: [
+      `CREATE TABLE IF NOT EXISTS \`order_payments\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`order_id\` INT UNSIGNED NOT NULL,
+        \`tipe\` VARCHAR(30) NOT NULL,
+        \`amount\` DECIMAL(15,2) NOT NULL DEFAULT 0,
+        \`bank_name\` VARCHAR(50) NULL,
+        \`method\` VARCHAR(20) NULL,
+        \`method_other\` VARCHAR(100) NULL,
+        \`urutan\` INT NOT NULL DEFAULT 1,
+        \`bukti_tf\` LONGTEXT NULL,
+        \`bukti_tf_name\` VARCHAR(255) NULL,
+        \`tanggal\` DATE NULL,
+        \`tunai\` DECIMAL(15,2) NULL,
+        \`trf\` DECIMAL(15,2) NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_op_order\` (\`order_id\`),
+        CONSTRAINT \`fk_op_order\` FOREIGN KEY (\`order_id\`) REFERENCES \`orders\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
+  {
+    // Same recovery pattern for stage_rejects + stage_reject_items —
+    // if 018/019 marked applied but the tables are gone, this brings
+    // them back with every column present.
+    name: '027_stage_rejects_recreate',
+    up: [
+      `CREATE TABLE IF NOT EXISTS \`stage_rejects\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`work_order_id\` INT UNSIGNED NOT NULL,
+        \`stage_id\` INT UNSIGNED NOT NULL,
+        \`tipe\` VARCHAR(30) NOT NULL,
+        \`keterangan\` TEXT NOT NULL,
+        \`bahan_request\` TEXT NULL,
+        \`status\` VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`resolved_at\` TIMESTAMP NULL,
+        \`gudang_approved_by\` VARCHAR(100) NULL,
+        \`gudang_approved_at\` TIMESTAMP NULL,
+        \`gudang_notes\` TEXT NULL,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_sr_wo\` (\`work_order_id\`),
+        KEY \`idx_sr_stage\` (\`stage_id\`),
+        CONSTRAINT \`fk_sr_wo\` FOREIGN KEY (\`work_order_id\`) REFERENCES \`work_orders\` (\`id\`) ON DELETE CASCADE,
+        CONSTRAINT \`fk_sr_stage\` FOREIGN KEY (\`stage_id\`) REFERENCES \`production_stages\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+      `CREATE TABLE IF NOT EXISTS \`stage_reject_items\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`reject_id\` INT UNSIGNED NOT NULL,
+        \`urutan\` INT NOT NULL DEFAULT 1,
+        \`item\` VARCHAR(120) NOT NULL,
+        \`bahan\` VARCHAR(200) NULL,
+        \`warna\` VARCHAR(100) NULL,
+        \`kuantitas\` VARCHAR(100) NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_sri_reject\` (\`reject_id\`),
+        CONSTRAINT \`fk_sri_reject\` FOREIGN KEY (\`reject_id\`) REFERENCES \`stage_rejects\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`,
+    ],
+  },
+  {
     // Finance approval gate between CS Selling and CS Order.
     //   NULL       → freshly saved by CS Selling, waiting Finance review.
     //   'APPROVED' → Finance verified the bukti TF; CS Order can now
@@ -438,39 +516,57 @@ async function runMigrations(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`
   );
 
-  const [appliedRows] = await pool.execute('SELECT `filename` FROM `_migrations`');
-  const applied = new Set<string>(
-    (appliedRows as { filename: string }[]).map(r => r.filename)
-  );
+  // Two-pass execution. Pass 1 runs every pending migration; some may
+  // fail because a recovery migration (e.g. 026 recreating a dropped
+  // table) sits later in the array. Pass 2 re-runs whatever failed on
+  // pass 1 — by then the recovery migrations have applied, so ALTERs
+  // that previously choked on "Table doesn't exist" succeed.
+  const MAX_PASSES = 2;
+  const collected: Record<string, MigrationReport> = {};
 
-  lastReport = [];
-  for (const mig of MIGRATIONS) {
-    if (applied.has(mig.name)) {
-      lastReport.push({ name: mig.name, status: 'skipped-applied', errors: [] });
-      continue;
-    }
-    let allOk = true;
-    const errors: string[] = [];
-    for (const stmt of mig.up) {
-      try {
-        await pool.query(stmt);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const benign = /Duplicate column|already exists|Duplicate key|check that (column|it) exists|Can't DROP.*check that/i.test(msg);
-        if (!benign) {
-          console.error(`[migrate] ${mig.name} stmt failed (continuing):`, msg);
-          errors.push(`${stmt.slice(0, 80)}… → ${msg}`);
-          allOk = false;
+  for (let pass = 1; pass <= MAX_PASSES; pass++) {
+    const [appliedRows] = await pool.execute('SELECT `filename` FROM `_migrations`');
+    const applied = new Set<string>(
+      (appliedRows as { filename: string }[]).map(r => r.filename)
+    );
+
+    for (const mig of MIGRATIONS) {
+      if (applied.has(mig.name)) {
+        // Keep the first report we generated (skipped-applied or applied).
+        if (!collected[mig.name]) {
+          collected[mig.name] = { name: mig.name, status: 'skipped-applied', errors: [] };
+        }
+        continue;
+      }
+      let allOk = true;
+      const errors: string[] = [];
+      for (const stmt of mig.up) {
+        try {
+          await pool.query(stmt);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const benign = /Duplicate column|already exists|Duplicate key|check that (column|it) exists|Can't DROP.*check that/i.test(msg);
+          if (!benign) {
+            console.error(`[migrate] pass ${pass} ${mig.name} stmt failed (continuing):`, msg);
+            errors.push(`${stmt.slice(0, 80)}… → ${msg}`);
+            allOk = false;
+          }
         }
       }
+      if (allOk) {
+        await pool.execute('INSERT IGNORE INTO `_migrations` (`filename`) VALUES (?)', [mig.name]);
+        console.log(`[migrate] pass ${pass} applied ${mig.name}`);
+        collected[mig.name] = { name: mig.name, status: 'applied', errors: [] };
+      } else {
+        console.warn(`[migrate] pass ${pass} ${mig.name} had errors, not marking applied`);
+        collected[mig.name] = { name: mig.name, status: 'failed', errors };
+      }
     }
-    if (allOk) {
-      await pool.execute('INSERT IGNORE INTO `_migrations` (`filename`) VALUES (?)', [mig.name]);
-      console.log(`[migrate] applied ${mig.name}`);
-      lastReport.push({ name: mig.name, status: 'applied', errors: [] });
-    } else {
-      console.warn(`[migrate] ${mig.name} had errors, not marking applied — will retry`);
-      lastReport.push({ name: mig.name, status: 'failed', errors });
-    }
+
+    // Early exit if nothing failed on this pass.
+    const anyFailed = Object.values(collected).some(r => r.status === 'failed');
+    if (!anyFailed) break;
   }
+
+  lastReport = MIGRATIONS.map(m => collected[m.name] || { name: m.name, status: 'skipped-applied', errors: [] });
 }
