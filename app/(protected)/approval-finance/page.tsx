@@ -54,14 +54,20 @@ export default function ApprovalFinancePage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Only orders sourced from CS Selling flow through Finance. A row
-  // qualifies once its status is 'SELLING'. Finance decisions leave
-  // status untouched but stamp finance_status APPROVED / REJECTED.
+  // Finance's scope covers three cases:
+  //   • status='SELLING'      — initial DP Desain approval.
+  //   • CS_SELLING originated — anything Finance owned at some point.
+  //   • has finance_status    — legacy rows Finance already touched
+  //                             (protects orders created before
+  //                             migration 023 stamped created_via).
+  // Anything DONE is excluded — no work left for Finance there.
   const scoped = useMemo(() => {
     return orders.filter(o => {
       const st = String(o.status || '').toUpperCase();
       const via = String(o.created_via || '').toUpperCase();
-      return st === 'SELLING' || (via === 'CS_SELLING' && st !== 'DONE');
+      const fs = String(o.finance_status || '').toUpperCase();
+      if (st === 'DONE') return false;
+      return st === 'SELLING' || via === 'CS_SELLING' || fs !== '';
     });
   }, [orders]);
 

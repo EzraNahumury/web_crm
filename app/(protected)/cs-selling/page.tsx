@@ -633,9 +633,17 @@ export default function CsSellingPage() {
   // Once CS Order saves the Pembayaran, status flips SELLING → PENDING
   // and the row leaves this menu completely — CS Selling doesn't track
   // completed orders, that's the CS Order table's job.
+  // Every order CS Selling originated, except those already in production
+  // (DONE). CS Selling stays visible after CS Order takes over so the
+  // team can watch their submission move through Finance → CS Order.
   const rows = useMemo(() => {
     return orders
-      .filter((o: Row) => String(o.status || '').toUpperCase() === 'SELLING')
+      .filter((o: Row) => {
+        const st = String(o.status || '').toUpperCase();
+        const via = String(o.created_via || '').toUpperCase();
+        if (st === 'DONE') return false;
+        return via === 'CS_SELLING' || st === 'SELLING';
+      })
       .sort((a: Row, b: Row) => Number(b.id) - Number(a.id));
   }, [orders]);
 
