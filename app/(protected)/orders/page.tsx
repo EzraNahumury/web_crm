@@ -181,6 +181,14 @@ export default function OrdersPage() {
       // SELLING rows still await CS Order handoff — they belong in the
       // Pembayaran AYRES dropdown, not the completed orders table.
       if (o.rawStatus === 'SELLING') return false;
+      // CS_SELLING orders that CS Order has now saved go back to
+      // Approval Finance for invoice review. Until Finance stamps
+      // finance_status='APPROVED', they don't belong here either —
+      // they should live in Approval Finance's Menunggu tab, not
+      // clutter the CS Order table.
+      const via = String(o.createdVia || '').toUpperCase();
+      const fs = String(o.financeStatus || '').toUpperCase();
+      if (via === 'CS_SELLING' && fs !== 'APPROVED') return false;
       const matchSearch = !search || o.customer.toLowerCase().includes(search.toLowerCase()) ||
         o.noWorkOrder?.toLowerCase().includes(search.toLowerCase()) ||
         o.keterangan?.toLowerCase().includes(search.toLowerCase());

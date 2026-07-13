@@ -237,10 +237,33 @@ export default function ApprovalFinancePage() {
                       <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap ${stCls}`}>{stLabel}</span>
                     </td>
                     <td className="px-4 py-3.5 text-right">
-                      <button onClick={() => openDetail(o)}
-                        className="text-xs font-medium text-blue-400 border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 rounded-lg hover:bg-blue-500/20 transition-colors">
-                        Review
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        {(() => {
+                          // Stage differentiator: SELLING = first approval
+                          // on the DP Desain from CS Selling; anything else
+                          // (typically PENDING) = re-approval on the full
+                          // invoice that CS Order just finished.
+                          const st = String(o.status || '').toUpperCase();
+                          const isCsOrder = st !== 'SELLING';
+                          const chipCls = isCsOrder
+                            ? 'text-blue-300 bg-blue-500/10 border-blue-500/30'
+                            : 'text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/30';
+                          const chipLabel = isCsOrder ? 'dari CS Order' : 'dari CS Selling';
+                          const chipTitle = isCsOrder
+                            ? 'Approval kedua — Finance review invoice lengkap dari CS Order'
+                            : 'Approval pertama — Finance verifikasi DP Desain dari CS Selling';
+                          return (
+                            <span title={chipTitle}
+                              className={`text-[10px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${chipCls}`}>
+                              {chipLabel}
+                            </span>
+                          );
+                        })()}
+                        <button onClick={() => openDetail(o)}
+                          className="text-xs font-medium text-blue-400 border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 rounded-lg hover:bg-blue-500/20 transition-colors">
+                          Review
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

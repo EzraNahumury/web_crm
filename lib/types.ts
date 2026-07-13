@@ -54,6 +54,10 @@ export interface Order {
   // 'CS_SELLING' | 'CS_ORDER' — origin badge on the CS Order table
   // so users can tell handoff rows from directly-entered legacy rows.
   createdVia?: string;
+  // Finance approval verdict on this order — used by the CS Order
+  // table filter to hide rows that are still waiting Finance re-review
+  // after CS Order finished the Pembayaran.
+  financeStatus?: string;
 }
 
 export interface DashboardStats {
