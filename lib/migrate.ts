@@ -6,6 +6,20 @@ import pool from './db';
 
 let migrationsPromise: Promise<void> | null = null;
 
+// Per-migration diagnostic capture. Populated on every migrate pass so
+// /api/admin/run-migrations can surface why a specific migration was
+// skipped without needing to tail server logs.
+export interface MigrationReport {
+  name: string;
+  status: 'applied' | 'skipped-applied' | 'failed';
+  errors: string[];
+}
+let lastReport: MigrationReport[] = [];
+
+export function getLastMigrationReport(): MigrationReport[] {
+  return lastReport;
+}
+
 export function runMigrationsOnce(): Promise<void> {
   if (!migrationsPromise) {
     migrationsPromise = runMigrations().catch(err => {
@@ -429,9 +443,14 @@ async function runMigrations(): Promise<void> {
     (appliedRows as { filename: string }[]).map(r => r.filename)
   );
 
+  lastReport = [];
   for (const mig of MIGRATIONS) {
-    if (applied.has(mig.name)) continue;
+    if (applied.has(mig.name)) {
+      lastReport.push({ name: mig.name, status: 'skipped-applied', errors: [] });
+      continue;
+    }
     let allOk = true;
+    const errors: string[] = [];
     for (const stmt of mig.up) {
       try {
         await pool.query(stmt);
@@ -439,14 +458,8 @@ async function runMigrations(): Promise<void> {
         const msg = err instanceof Error ? err.message : String(err);
         const benign = /Duplicate column|already exists|Duplicate key|check that (column|it) exists|Can't DROP.*check that/i.test(msg);
         if (!benign) {
-          // Log and keep going instead of throwing — one bad migration
-          // used to halt every subsequent one, which meant migration 024
-          // (the ENUM widening for orders.status) never ran when any
-          // earlier alter hiccuped. The DB stays in a consistent state
-          // because MySQL rolls back the failing statement, and we
-          // simply skip marking this migration as applied so it retries
-          // next time.
           console.error(`[migrate] ${mig.name} stmt failed (continuing):`, msg);
+          errors.push(`${stmt.slice(0, 80)}… → ${msg}`);
           allOk = false;
         }
       }
@@ -454,8 +467,10 @@ async function runMigrations(): Promise<void> {
     if (allOk) {
       await pool.execute('INSERT IGNORE INTO `_migrations` (`filename`) VALUES (?)', [mig.name]);
       console.log(`[migrate] applied ${mig.name}`);
+      lastReport.push({ name: mig.name, status: 'applied', errors: [] });
     } else {
       console.warn(`[migrate] ${mig.name} had errors, not marking applied — will retry`);
+      lastReport.push({ name: mig.name, status: 'failed', errors });
     }
   }
 }
