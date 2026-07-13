@@ -668,13 +668,14 @@ export default function CsSellingPage() {
                 <th className="text-right px-4 py-3">DP Desain</th>
                 <th className="text-center px-4 py-3">Bukti TF</th>
                 <th className="text-left px-4 py-3">Tgl Order</th>
+                <th className="text-left px-4 py-3">Finance</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">Memuat...</td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">Memuat...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
                   Belum ada order menunggu. Klik <strong className="text-white">Buat Order Baru</strong> untuk mulai.
                 </td></tr>
               ) : filtered.map((o: Row, i: number) => {
@@ -682,6 +683,13 @@ export default function CsSellingPage() {
                 const dpDesain = p.find((x: Row) => String(x.tipe) === 'dp_desain');
                 const dpAmt = Number(dpDesain?.amount || o.dp_desain || 0);
                 const hasBukti = !!dpDesain?.bukti_tf;
+                const fs = String(o.finance_status || '').toUpperCase();
+                const financeChip =
+                  fs === 'APPROVED'
+                    ? { label: 'Approved', cls: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30', dot: 'bg-emerald-400' }
+                    : fs === 'REJECTED'
+                      ? { label: 'Ditolak', cls: 'text-rose-300 bg-rose-500/10 border-rose-500/30', dot: 'bg-rose-400' }
+                      : { label: 'Menunggu', cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30', dot: 'bg-amber-400' };
                 return (
                   <tr key={o.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                     <td className="px-4 py-3.5 text-sm text-slate-500 tabular-nums">{i + 1}</td>
@@ -703,6 +711,14 @@ export default function CsSellingPage() {
                       )}
                     </td>
                     <td className="px-4 py-3.5 text-sm text-slate-400">{fmtDate(o.tanggal_order)}</td>
+                    <td className="px-4 py-3.5">
+                      <span
+                        title={o.finance_notes ? `Catatan Finance: ${o.finance_notes}` : undefined}
+                        className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${financeChip.cls}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${financeChip.dot}`} />
+                        {financeChip.label}
+                      </span>
+                    </td>
                   </tr>
                 );
               })}

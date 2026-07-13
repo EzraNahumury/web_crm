@@ -211,13 +211,17 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setDpLines(rs => rs.map((r, i) => i === idx ? { ...r, [k]: v } : r));
   }
 
-  // Dropdown = handoff pool. Only orders still at SELLING (created by
-  // CS Selling, not yet completed by CS Order) show up here. Once CS
-  // Order saves, status flips to PENDING and the row leaves the pool
-  // and joins the CS Order table.
+  // Dropdown = handoff pool for CS Order. Only orders that
+  //   • are still at status='SELLING' (haven't been promoted yet), and
+  //   • have finance_status='APPROVED' (Finance verified the bukti TF)
+  // show up here. That means CS Selling → Finance → CS Order is a
+  // linear pipeline: no bypass.
   const orderPickerOptions = useMemo(
     () => orders
-      .filter(o => String(o.status || '').toUpperCase() === 'SELLING')
+      .filter(o =>
+        String(o.status || '').toUpperCase() === 'SELLING'
+        && String(o.finance_status || '').toUpperCase() === 'APPROVED'
+      )
       .sort((a, b) => Number(b.id) - Number(a.id))
       .map(o => ({
         id: o.id,

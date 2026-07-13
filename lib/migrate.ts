@@ -395,6 +395,23 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` MODIFY COLUMN `status` VARCHAR(30) NOT NULL DEFAULT 'PENDING'",
     ],
   },
+  {
+    // Finance approval gate between CS Selling and CS Order.
+    //   NULL       → freshly saved by CS Selling, waiting Finance review.
+    //   'APPROVED' → Finance verified the bukti TF; CS Order can now
+    //                pick the order up in the Pembayaran dropdown.
+    //   'REJECTED' → Finance flagged a problem; CS Selling sees the
+    //                notes and can fix + resubmit.
+    // The audit trail (who / when / notes) mirrors the gudang approval
+    // columns on stage_rejects.
+    name: '025_orders_finance_approval',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `finance_status` VARCHAR(20) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `finance_approved_by` VARCHAR(100) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `finance_approved_at` TIMESTAMP NULL",
+      "ALTER TABLE `orders` ADD COLUMN `finance_notes` TEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
