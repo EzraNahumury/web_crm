@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { dbGet, dbCreate } from '@/lib/api-db';
+import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
 
@@ -265,6 +265,38 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
       }
       console.log('[cs-selling] order created', { orderId, noOrder, status: 'SELLING' });
 
+      // Verify the DB actually stored 'SELLING' — legacy schema had
+      // orders.status as ENUM without 'SELLING', which silently coerces
+      // to the default 'PENDING' on non-strict MySQL. If we see that,
+      // force-run migrations, then try to UPDATE the status back.
+      try {
+        const check = await dbGet('orders', undefined, { id: orderId });
+        const storedStatus = String((check[0] as Row)?.status || '').toUpperCase();
+        if (storedStatus !== 'SELLING') {
+          console.warn('[cs-selling] status coerced to', storedStatus, '- forcing migrations + repair');
+          try {
+            await fetch('/api/admin/run-migrations').then(r => r.json());
+            await dbUpdate('orders', orderId, { status: 'SELLING' });
+            const recheck = await dbGet('orders', undefined, { id: orderId });
+            const nowStatus = String((recheck[0] as Row)?.status || '').toUpperCase();
+            if (nowStatus !== 'SELLING') {
+              toast.error(
+                'Migrasi Belum Aktif',
+                'Kolom status masih ENUM lama. Jalankan /api/admin/run-migrations manual lalu redeploy.'
+              );
+            }
+          } catch (repairErr) {
+            console.error('[cs-selling] status repair failed:', repairErr);
+            toast.error(
+              'Status Order Tidak Konsisten',
+              'Order tersimpan tapi status bukan SELLING. Hubungi admin untuk repair schema.'
+            );
+          }
+        }
+      } catch (verifyErr) {
+        console.warn('[cs-selling] status verify failed:', verifyErr);
+      }
+
       if (dpAmount > 0 || buktiTf) {
         try {
           await dbCreate('order_payments', {
@@ -517,6 +549,21 @@ export default function CsSellingPage() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // One-shot migration bootstrap. In production, new schema migrations
+  // (like widening orders.status from ENUM to VARCHAR so 'SELLING' can
+  // be stored) may not have applied yet if the auto-migration hook
+  // didn't fire. Silently hit the admin endpoint the first time this
+  // page mounts so subsequent CS Selling saves land correctly.
+  const bootstrappedRef = useRef(false);
+  useEffect(() => {
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
+    fetch('/api/admin/run-migrations')
+      .then(r => r.json())
+      .then(j => console.log('[cs-selling] migration bootstrap:', j))
+      .catch(err => console.warn('[cs-selling] migration bootstrap failed:', err));
+  }, []);
 
   // CS Selling scope: only rows still waiting for CS Order to pick up.
   // Once CS Order saves the Pembayaran, status flips SELLING → PENDING

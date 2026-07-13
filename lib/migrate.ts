@@ -16,6 +16,15 @@ export function runMigrationsOnce(): Promise<void> {
   return migrationsPromise;
 }
 
+// Force a fresh migration pass even if the singleton has already
+// resolved. Necessary when new migrations were added to the code but
+// the Node server hasn't restarted yet — /api/admin/run-migrations
+// calls this so hitting the endpoint always picks up pending SQL.
+export async function runMigrationsForce(): Promise<void> {
+  migrationsPromise = null;
+  return runMigrationsOnce();
+}
+
 type Migration = { name: string; up: string[] };
 
 // New migrations: append at the bottom. Each entry's `up` is an array of

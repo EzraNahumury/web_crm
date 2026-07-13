@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { runMigrationsOnce } from '@/lib/migrate';
+import { runMigrationsForce } from '@/lib/migrate';
 
 // GET /api/admin/run-migrations
 // Force-run any pending migrations. Useful when the auto-migration on
@@ -9,11 +9,10 @@ import { runMigrationsOnce } from '@/lib/migrate';
 // applied once thanks to the _migrations tracking table.
 export async function GET() {
   try {
-    // Reset the module-level promise so runMigrationsOnce actually re-runs.
-    // We can't touch its private state directly, so just call it — the
-    // singleton short-circuits if already done, and its idempotent-safe
-    // SQL means re-running does nothing harmful in the worst case.
-    await runMigrationsOnce();
+    // Force-reset the singleton so any migrations added since the last
+    // server start actually run. The DB-side _migrations table still
+    // guards each entry so applied ones are skipped inside runMigrations.
+    await runMigrationsForce();
     return NextResponse.json({ success: true, message: 'Migrations run (or already applied).' });
   } catch (err) {
     console.error('/api/admin/run-migrations error:', err);
