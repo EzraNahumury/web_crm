@@ -264,10 +264,16 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
   }
 
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function handleFile(f: File) {
+    // Drag-drop from WhatsApp Desktop can carry a text/plain payload
+    // for the chat metadata — reject anything that isn't a real image
+    // or PDF so we don't upload noise.
+    if (!(f.type.startsWith('image/') || f.type === 'application/pdf')) {
+      toast.error('Tipe File Tidak Didukung', 'Hanya gambar (PNG/JPG) atau PDF yang bisa diupload sebagai bukti TF.');
+      return;
+    }
     if (f.size > 5 * 1024 * 1024) {
       toast.error('File Terlalu Besar', 'Ukuran maksimal 5 MB. Kompres foto TF-nya dulu.');
       return;
@@ -297,6 +303,11 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
       reader.readAsDataURL(f);
     }
     setUploading(false);
+  }
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) handleFile(f);
   }
 
   async function handleSave() {
@@ -698,7 +709,27 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
             <h3 className="text-sm font-bold text-white mb-3">Upload DP Desain</h3>
             <label className={labelCls}>Bukti TF</label>
             {!buktiTf ? (
-              <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed border-white/10 rounded-lg py-6 cursor-pointer hover:border-blue-500/40 hover:bg-white/[0.02] transition-colors ${uploading ? 'opacity-60 cursor-wait' : ''}`}>
+              <label
+                onDragEnter={(e) => { e.preventDefault(); if (!uploading) setDragOver(true); }}
+                onDragOver={(e) => { e.preventDefault(); if (!uploading) setDragOver(true); }}
+                onDragLeave={(e) => {
+                  if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                  setDragOver(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  const f = e.dataTransfer.files?.[0];
+                  if (f && !uploading) handleFile(f);
+                }}
+                className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg py-6 cursor-pointer transition-colors ${
+                  uploading
+                    ? 'border-white/10 opacity-60 cursor-wait'
+                    : dragOver
+                      ? 'border-blue-500/60 bg-blue-500/10'
+                      : 'border-white/10 hover:border-blue-500/40 hover:bg-white/[0.02]'
+                }`}
+              >
                 {uploading ? (
                   <>
                     <svg className="w-7 h-7 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -709,11 +740,13 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
                   </>
                 ) : (
                   <>
-                    <svg className="w-7 h-7 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                    <svg className={`w-7 h-7 ${dragOver ? 'text-blue-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                     </svg>
-                    <span className="text-xs text-slate-400">Klik atau drop file untuk upload</span>
-                    <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 5 MB</span>
+                    <span className={`text-xs ${dragOver ? 'text-blue-300' : 'text-slate-400'}`}>
+                      {dragOver ? 'Lepaskan file di sini' : 'Klik atau drop file untuk upload'}
+                    </span>
+                    <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 5 MB · drag dari WhatsApp / folder OK</span>
                   </>
                 )}
                 <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChange} disabled={uploading} />

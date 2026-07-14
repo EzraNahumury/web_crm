@@ -17,6 +17,10 @@ function fmtDate(v: string | Date | null | undefined): string {
 
 interface DpUpload {
   paymentId: number;
+  // Display label for the row — "DP Desain / DP I" for repeat orders
+  // (where the CS Selling didn't upload a design fee bukti) or
+  // "DP Produksi #II/#III/#IV" for the standard case.
+  label: string;
   urutan: number;
   amount: number;
   tanggal: string;
@@ -36,6 +40,7 @@ export default function BuktiPembayaranPage() {
   const [payments, setPayments] = useState<Row[]>([]);
   const [pickedOrderId, setPickedOrderId] = useState<string>('');
   const [rows, setRows] = useState<DpUpload[]>([]);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
   const inputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const fetchAll = useCallback(async () => {
@@ -75,23 +80,56 @@ export default function BuktiPembayaranPage() {
     [orders, pickedOrderId]
   );
 
-  // Sync rows whenever the picker changes: one row per DP Produksi that
-  // was written into order_payments with a non-zero amount. DP Desain
-  // is skipped (already uploaded during CS Selling), nominal_order too.
+  // Sync rows whenever the picker changes. Rules:
+  //   • dp_produksi rows with a non-zero amount → always shown.
+  //   • dp_desain (row I) is normally skipped — CS Selling already
+  //     uploaded the design bukti. BUT for repeat orders CS Selling
+  //     didn't collect a design fee again, so row I lives as
+  //     dp_desain here without a bukti attached. In that case we
+  //     surface it so CS Order can still upload one bukti.
+  //   • Empty scheduled slots (no amount at all) are skipped.
   useEffect(() => {
     if (!pickedOrderId) { setRows([]); return; }
     const oid = Number(pickedOrderId);
-    const dpProduksi = payments
-      .filter(p => Number(p.order_id) === oid && String(p.tipe) === 'dp_produksi')
-      .sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+    const orderPays = payments
+      .filter(p => Number(p.order_id) === oid);
+
+    const relevant = orderPays.filter(p => {
+      const tipe = String(p.tipe);
+      const amt = Number(p.amount) || (Number(p.tunai) || 0) + (Number(p.trf) || 0);
+      if (amt <= 0) return false;
+      if (tipe === 'dp_produksi') return true;
+      // Repeat-order safety net: include DP Desain row if CS Selling
+      // never uploaded a bukti for it. Skip when bukti_tf already set.
+      if (tipe === 'dp_desain' && !p.bukti_tf) return true;
+      return false;
+    });
+
+    // Sort: dp_desain first (represents row I in the schedule), then
+    // dp_produksi ascending by urutan.
+    relevant.sort((a, b) => {
+      const at = String(a.tipe); const bt = String(b.tipe);
+      if (at === 'dp_desain' && bt !== 'dp_desain') return -1;
+      if (bt === 'dp_desain' && at !== 'dp_desain') return 1;
+      return (Number(a.urutan) || 0) - (Number(b.urutan) || 0);
+    });
+
+    // Compute human-friendly labels. dp_desain gets its own label so
+    // the operator knows it's the repeat-order first payment. Roman
+    // numeral for dp_produksi rows shifts by one because row I in the
+    // schedule is dp_desain.
+    const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
     setRows(
-      dpProduksi
-        // Only rows with actual money attached need a bukti — a blank
-        // scheduled slot the CS entered but never paid can skip.
-        .filter(p => Number(p.amount) > 0 || Number(p.tunai) > 0 || Number(p.trf) > 0)
-        .map(p => ({
+      relevant.map(p => {
+        const tipe = String(p.tipe);
+        const idxProduksi = Number(p.urutan) || 0;
+        const label = tipe === 'dp_desain'
+          ? 'DP I (dari repeat order)'
+          : `DP Produksi #${roman[idxProduksi + 1] || String(idxProduksi + 2)}`;
+        return {
           paymentId: Number(p.id),
-          urutan: Number(p.urutan) || 0,
+          label,
+          urutan: idxProduksi,
           amount: Number(p.amount) || (Number(p.tunai) || 0) + (Number(p.trf) || 0),
           tanggal: String(p.tanggal || '').slice(0, 10),
           existingBuktiTf: p.bukti_tf ? String(p.bukti_tf) : null,
@@ -99,7 +137,8 @@ export default function BuktiPembayaranPage() {
           file: null,
           buktiTf: null,
           buktiTfName: '',
-        }))
+        };
+      })
     );
   }, [pickedOrderId, payments]);
 
@@ -107,9 +146,14 @@ export default function BuktiPembayaranPage() {
     setRows(rs => rs.map(r => r.paymentId === paymentId ? { ...r, ...patch } : r));
   }
 
-  async function onFileChange(paymentId: number, e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function handleFile(paymentId: number, f: File) {
+    // Reject anything that isn't a real payment proof (image / PDF).
+    // Drag-drop from WhatsApp Desktop sometimes drops the message
+    // metadata as text/plain — this guard keeps that out.
+    if (!(f.type.startsWith('image/') || f.type === 'application/pdf')) {
+      toast.error('Tipe File Tidak Didukung', 'Hanya gambar (PNG/JPG) atau PDF yang bisa diupload sebagai bukti TF.');
+      return;
+    }
     if (f.size > 5 * 1024 * 1024) {
       toast.error('File Terlalu Besar', 'Ukuran maksimal 5 MB. Kompres foto TF-nya dulu.');
       return;
@@ -135,6 +179,11 @@ export default function BuktiPembayaranPage() {
       };
       reader.readAsDataURL(f);
     }
+  }
+
+  function onFileChange(paymentId: number, e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) handleFile(paymentId, f);
   }
 
   function clearFile(paymentId: number) {
@@ -265,15 +314,15 @@ export default function BuktiPembayaranPage() {
 
           <div className="space-y-3">
             {rows.map((r) => {
-              const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'][r.urutan] || String(r.urutan + 1);
               const activeBukti = r.buktiTf || r.existingBuktiTf;
               const activeName = r.buktiTfName || r.existingBuktiTfName || 'bukti.tf';
+              const isDragging = dragOverId === r.paymentId;
               return (
                 <div key={r.paymentId} className="border border-white/10 rounded-lg p-4 bg-[#0d1117]">
                   <div className="flex items-start justify-between gap-4 mb-3">
                     <div>
                       <div className="text-sm font-semibold text-white">
-                        DP Produksi #{roman}
+                        {r.label}
                         {r.existingBuktiTf && !r.buktiTf && (
                           <span className="ml-2 text-[10px] font-medium px-2 py-0.5 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">
                             Bukti sudah ada
@@ -300,12 +349,34 @@ export default function BuktiPembayaranPage() {
                   </div>
 
                   {!activeBukti ? (
-                    <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-white/10 rounded-lg py-6 cursor-pointer hover:border-blue-500/40 hover:bg-white/[0.02] transition-colors">
-                      <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                    <label
+                      onDragEnter={(e) => { e.preventDefault(); setDragOverId(r.paymentId); }}
+                      onDragOver={(e) => { e.preventDefault(); setDragOverId(r.paymentId); }}
+                      onDragLeave={(e) => {
+                        // Only clear when the pointer actually leaves the label,
+                        // not when it hops between child nodes.
+                        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                        setDragOverId(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverId(null);
+                        const f = e.dataTransfer.files?.[0];
+                        if (f) handleFile(r.paymentId, f);
+                      }}
+                      className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg py-6 cursor-pointer transition-colors ${
+                        isDragging
+                          ? 'border-blue-500/60 bg-blue-500/10'
+                          : 'border-white/10 hover:border-blue-500/40 hover:bg-white/[0.02]'
+                      }`}
+                    >
+                      <svg className={`w-6 h-6 ${isDragging ? 'text-blue-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                       </svg>
-                      <span className="text-xs text-slate-400">Klik atau drop file untuk upload</span>
-                      <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 5 MB</span>
+                      <span className={`text-xs ${isDragging ? 'text-blue-300' : 'text-slate-400'}`}>
+                        {isDragging ? 'Lepaskan file di sini' : 'Klik atau drop file untuk upload'}
+                      </span>
+                      <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 5 MB · drag dari WhatsApp / folder OK</span>
                       <input
                         ref={el => { inputRefs.current[r.paymentId] = el; }}
                         type="file"
