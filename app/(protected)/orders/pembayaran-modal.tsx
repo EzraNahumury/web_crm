@@ -62,6 +62,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const invoiceRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // Bootstrap data
   const [orders, setOrders] = useState<Row[]>([]);
@@ -265,70 +266,70 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
   const leadName = leads.find(l => String(l.id) === leadId)?.nama || '';
 
+  // Rasterize the on-screen invoice to a canvas. html2canvas-pro
+  // (a drop-in fork) is used because it understands the modern CSS
+  // color functions (oklch, lab, color-mix) Tailwind 4 emits, which
+  // vanilla html2canvas can't parse. The onclone hook swaps every
+  // form control in the cloned tree for a static text node so
+  // input/textarea/select values actually show up in the export.
+  async function rasterizeInvoice(): Promise<HTMLCanvasElement | null> {
+    if (!invoiceRef.current) return null;
+    const html2canvas = (await import('html2canvas-pro')).default;
+    return html2canvas(invoiceRef.current, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      logging: false,
+      onclone: (clonedDoc) => {
+        const controls = clonedDoc.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select');
+        controls.forEach(el => {
+          let text = '';
+          if (el.tagName === 'SELECT') {
+            const sel = el as HTMLSelectElement;
+            text = sel.options[sel.selectedIndex]?.text || '';
+          } else if (el.tagName === 'TEXTAREA') {
+            text = (el as HTMLTextAreaElement).value;
+          } else {
+            const inp = el as HTMLInputElement;
+            if (inp.type === 'radio' || inp.type === 'checkbox') {
+              const mark = clonedDoc.createElement('span');
+              mark.textContent = inp.checked ? '●' : '○';
+              mark.setAttribute('style', 'display:inline-block; width:12px; text-align:center; color:#111;');
+              el.replaceWith(mark);
+              return;
+            }
+            text = inp.value;
+          }
+          const replacement = clonedDoc.createElement(el.tagName === 'TEXTAREA' ? 'div' : 'span');
+          replacement.textContent = text;
+          const cs = clonedDoc.defaultView?.getComputedStyle(el);
+          replacement.setAttribute(
+            'style',
+            [
+              `display:${el.tagName === 'TEXTAREA' ? 'block' : 'inline-block'}`,
+              'padding:0 4px',
+              'min-height:1.25rem',
+              'width:' + (cs?.width || 'auto'),
+              'text-align:' + (cs?.textAlign || 'left'),
+              'font-family:' + (cs?.fontFamily || 'inherit'),
+              'font-size:' + (cs?.fontSize || 'inherit'),
+              'font-weight:' + (cs?.fontWeight || 'inherit'),
+              'color:' + (cs?.color || '#111'),
+              'white-space:pre-wrap',
+              'vertical-align:middle',
+              'box-sizing:border-box',
+            ].join(';')
+          );
+          el.replaceWith(replacement);
+        });
+      },
+    });
+  }
+
   async function handleDownload() {
-    if (!invoiceRef.current) return;
     setDownloading(true);
     try {
-      // html2canvas-pro is a drop-in fork that supports modern CSS color
-      // functions (oklch, lab, color-mix) which Tailwind 4 emits.
-      const html2canvas = (await import('html2canvas-pro')).default;
-      const canvas = await html2canvas(invoiceRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        logging: false,
-        onclone: (clonedDoc) => {
-          // html2canvas renders <input>/<textarea>/<select> as an empty
-          // frame — the value never makes it into the PNG. Swap each
-          // form control in the cloned tree for a static <span>/<div>
-          // that displays the same value with roughly the same spacing.
-          const controls = clonedDoc.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select');
-          controls.forEach(el => {
-            let text = '';
-            if (el.tagName === 'SELECT') {
-              const sel = el as HTMLSelectElement;
-              text = sel.options[sel.selectedIndex]?.text || '';
-            } else if (el.tagName === 'TEXTAREA') {
-              text = (el as HTMLTextAreaElement).value;
-            } else {
-              const inp = el as HTMLInputElement;
-              if (inp.type === 'radio' || inp.type === 'checkbox') {
-                // Keep the checkbox but freeze it as a small mark so
-                // it renders as ●/○ instead of interactive input.
-                const mark = clonedDoc.createElement('span');
-                mark.textContent = inp.checked ? '●' : '○';
-                mark.setAttribute('style', 'display:inline-block; width:12px; text-align:center; color:#111;');
-                el.replaceWith(mark);
-                return;
-              }
-              text = inp.value;
-            }
-            const replacement = clonedDoc.createElement(el.tagName === 'TEXTAREA' ? 'div' : 'span');
-            replacement.textContent = text;
-            // Carry over enough of the input styling that the row height
-            // and alignment don't visibly shift compared to the on-screen
-            // preview.
-            const cs = clonedDoc.defaultView?.getComputedStyle(el);
-            replacement.setAttribute(
-              'style',
-              [
-                `display:${el.tagName === 'TEXTAREA' ? 'block' : 'inline-block'}`,
-                'padding:0 4px',
-                'min-height:1.25rem',
-                'width:' + (cs?.width || 'auto'),
-                'text-align:' + (cs?.textAlign || 'left'),
-                'font-family:' + (cs?.fontFamily || 'inherit'),
-                'font-size:' + (cs?.fontSize || 'inherit'),
-                'font-weight:' + (cs?.fontWeight || 'inherit'),
-                'color:' + (cs?.color || '#111'),
-                'white-space:pre-wrap',
-                'vertical-align:middle',
-                'box-sizing:border-box',
-              ].join(';')
-            );
-            el.replaceWith(replacement);
-          });
-        },
-      });
+      const canvas = await rasterizeInvoice();
+      if (!canvas) return;
       const link = document.createElement('a');
       link.download = `pembayaran-${nama.replace(/\s+/g, '-') || 'ayres'}.png`;
       link.href = canvas.toDataURL('image/png');
@@ -337,6 +338,57 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       toast.error('Gagal Download', String(e));
     }
     setDownloading(false);
+  }
+
+  // Render the same rasterized invoice into a single A4-portrait PDF.
+  // If the invoice is taller than one page, the image is split across
+  // as many pages as needed so nothing gets cropped.
+  async function handleDownloadPdf() {
+    setDownloadingPdf(true);
+    try {
+      const canvas = await rasterizeInvoice();
+      if (!canvas) return;
+      const { default: jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 8;
+      const usableW = pageW - margin * 2;
+      const imgH = (canvas.height * usableW) / canvas.width;
+
+      if (imgH <= pageH - margin * 2) {
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, usableW, imgH);
+      } else {
+        // Slice the canvas into per-page chunks so long invoices don't
+        // get squashed to fit a single page. Each slice is drawn at
+        // full width; height is whatever fits in the page's usable area.
+        const usableH = pageH - margin * 2;
+        // Convert usable page height (mm) back into canvas px height per slice.
+        const sliceHpx = Math.floor((canvas.width * usableH) / usableW);
+        let yOffset = 0;
+        let page = 0;
+        while (yOffset < canvas.height) {
+          const hpx = Math.min(sliceHpx, canvas.height - yOffset);
+          const chunk = document.createElement('canvas');
+          chunk.width = canvas.width;
+          chunk.height = hpx;
+          const ctx = chunk.getContext('2d');
+          if (!ctx) break;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, chunk.width, chunk.height);
+          ctx.drawImage(canvas, 0, yOffset, canvas.width, hpx, 0, 0, canvas.width, hpx);
+          if (page > 0) pdf.addPage();
+          const drawH = (hpx * usableW) / canvas.width;
+          pdf.addImage(chunk.toDataURL('image/png'), 'PNG', margin, margin, usableW, drawH);
+          yOffset += hpx;
+          page++;
+        }
+      }
+      pdf.save(`pembayaran-${nama.replace(/\s+/g, '-') || 'ayres'}.pdf`);
+    } catch (e) {
+      toast.error('Gagal Download PDF', String(e));
+    }
+    setDownloadingPdf(false);
   }
 
   async function handleSave() {
@@ -595,9 +647,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
               )}
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={handleDownload} disabled={downloading || !nama}
+              <button onClick={handleDownload} disabled={downloading || downloadingPdf || !nama}
                 className="text-xs font-medium text-slate-700 border border-slate-300 hover:bg-slate-100 px-3 py-1.5 rounded transition-colors disabled:opacity-40">
                 {downloading ? 'Menyiapkan...' : 'Download PNG'}
+              </button>
+              <button onClick={handleDownloadPdf} disabled={downloading || downloadingPdf || !nama}
+                className="text-xs font-medium text-slate-700 border border-slate-300 hover:bg-slate-100 px-3 py-1.5 rounded transition-colors disabled:opacity-40">
+                {downloadingPdf ? 'Menyiapkan...' : 'Download PDF'}
               </button>
               {!readOnly && (
                 <button onClick={handleSave} disabled={saving || !pickedOrderId}
