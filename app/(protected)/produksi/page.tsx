@@ -25,9 +25,9 @@ const PROD_STAGES = [
   'Shipment',
 ];
 
-// Stages that offer the Reject flow. QC Panel Process → Sewing and
-// Sewing → QC Jersey both branch on a pass/fail decision.
-const REJECT_STAGES = new Set(['QC Panel Process', 'Sewing']);
+// Stages that offer the Reject flow. QC Panel Process, Sewing, and
+// QC Final dan Packing semua branch pada pass/fail decision.
+const REJECT_STAGES = new Set(['QC Panel Process', 'Sewing', 'QC Final dan Packing']);
 
 export default function ProduksiPage() {
   const { user } = useAuth();
@@ -344,10 +344,12 @@ export default function ProduksiPage() {
   }
 
   // Pelunasan gate: sudah submit bukti dan menunggu Finance approve.
-  // Selama PENDING, tombol Selesai & Lanjut di QC Final terkunci
-  // dengan label 'Menunggu Finance'.
+  // Selama PENDING, tombol Submit Pelunasan di Shipment terkunci
+  // dengan label 'Menunggu Finance'. Pelunasan sekarang di stage
+  // Shipment — waktu Finance approve, WO ditandai selesai (bukan
+  // pindah stage lagi karena Shipment adalah stage terakhir).
   function isPelunasanPending(item: Row): boolean {
-    if (activeStage !== 'QC Final dan Packing') return false;
+    if (activeStage !== 'Shipment') return false;
     const ord = ordersById[Number(item.wo?.order_id)];
     if (!ord) return false;
     return String(ord.pelunasan_status || '').toUpperCase() === 'PENDING';
@@ -452,12 +454,12 @@ export default function ProduksiPage() {
       return;
     }
 
-    // Special-case QC Final dan Packing: sebelum mark SELESAI, minta
-    // operator upload bukti pelunasan dan tunggu Finance approve. WO
-    // tetap di stage ini sampai Finance klik Approve — di sana barulah
-    // wo_progress QC Final di-set SELESAI dan Shipment TERSEDIA.
+    // Special-case Shipment: stage terakhir. Sebelum mark SELESAI,
+    // minta operator upload bukti pelunasan dan tunggu Finance approve.
+    // Finance approve → WO ditandai SELESAI (bukan advance karena
+    // Shipment stage terakhir).
     const currentStage = stages.find((s: Row) => s.id === progressRow.stage_id);
-    if (currentStage?.nama === 'QC Final dan Packing') {
+    if (currentStage?.nama === 'Shipment') {
       if (isPelunasanPending(progressRow)) {
         toast.error('Menunggu Approval Finance', 'Bukti pelunasan sudah dikirim, tunggu Finance review di menu Approval Finance.');
         return;
@@ -747,10 +749,10 @@ export default function ProduksiPage() {
               // needs to act.
               const waitingOrd = gatedWaiting ? ordersById[Number(item.wo?.order_id)] : null;
               const buktiPending = waitingOrd && Number(waitingOrd.bukti_uploaded) !== 1;
-              // At QC Final, when nothing has been submitted yet, keep
-              // the button labeled 'Submit Pelunasan' so operator knows
-              // clicking it opens the upload modal (not straight-advance).
-              const isQcFinalStage = activeStage === 'QC Final dan Packing';
+              // At Shipment (stage terakhir), tombol utamanya label
+              // 'Submit Pelunasan' — buka upload modal, bukan straight
+              // advance. Setelah Finance approve, WO ditandai SELESAI.
+              const isShipmentStage = activeStage === 'Shipment';
               const gateLabel = gatedPelunasan
                 ? 'Menunggu Finance'
                 : gatedWaiting
@@ -759,7 +761,7 @@ export default function ProduksiPage() {
                     ? 'Menunggu WO'
                     : gatedReject
                       ? 'Menunggu Gudang'
-                      : isQcFinalStage
+                      : isShipmentStage
                         ? 'Submit Pelunasan'
                         : 'Selesai & Lanjut';
               const gateTitle = gatedPelunasan
@@ -772,8 +774,8 @@ export default function ProduksiPage() {
                     ? 'Buat/konfirmasi WO di Menu Work Orders dulu'
                     : gatedReject
                       ? 'Permintaan bahan reject masih menunggu approval gudang'
-                      : isQcFinalStage
-                        ? 'Upload bukti pelunasan → dikirim ke Finance untuk review'
+                      : isShipmentStage
+                        ? 'Upload bukti pelunasan → dikirim ke Finance untuk review; setelah approve WO selesai'
                         : undefined;
               return (
               <WoCard key={item.id} item={item} actions={
@@ -991,7 +993,7 @@ export default function ProduksiPage() {
 
               <div className="px-6 py-5 space-y-4 overflow-y-auto">
                 <div className="text-[11px] text-slate-500 border border-white/[0.06] bg-white/[0.02] rounded-lg p-3 leading-relaxed">
-                  Upload bukti transfer pelunasan customer. Setelah submit, order dikirim ke <strong className="text-white">Approval Finance</strong> untuk review. WO tetap di stage QC Final dan Packing dengan status <em>menunggu review Finance</em>. Setelah Finance approve, WO otomatis pindah ke stage <strong className="text-white">Shipment</strong>.
+                  Upload bukti transfer pelunasan customer. Setelah submit, order dikirim ke <strong className="text-white">Approval Finance</strong> untuk review. WO tetap di stage Shipment dengan status <em>menunggu review Finance</em>. Setelah Finance approve, order otomatis dinyatakan <strong className="text-white">SELESAI</strong>.
                 </div>
 
                 {!pelunasanBukti ? (

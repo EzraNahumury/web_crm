@@ -172,9 +172,11 @@ export default function ApprovalFinancePage() {
         });
 
         if (fs === 'APPROVED') {
-          // Advance WO progress: mark QC Final dan Packing SELESAI +
-          // set next stage (Shipment) to TERSEDIA. Legacy stage flag
-          // 'active' guard mirrors produksi page's own filter.
+          // Pelunasan sekarang di stage Shipment (stage terakhir).
+          // Approve → WO ditandai SELESAI:
+          //   • wo_progress Shipment → SELESAI (started_at + completed_at)
+          //   • work_orders.status → SELESAI
+          //   • orders.status → DONE
           try {
             const [wos, stagesRaw, wp] = await Promise.all([
               dbGet('work_orders').catch(() => []),
@@ -185,57 +187,52 @@ export default function ApprovalFinancePage() {
             const sortedStages = (stagesRaw as Row[])
               .filter(s => s.active === undefined || s.active === 1 || s.active === true)
               .sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
-            const qcFinal = sortedStages.find(s => String(s.nama) === 'QC Final dan Packing');
-            const qcIdx = qcFinal ? sortedStages.findIndex(s => Number(s.id) === Number(qcFinal.id)) : -1;
-            const nextStage = qcIdx >= 0 ? sortedStages[qcIdx + 1] : undefined;
+            const shipment = sortedStages.find(s => String(s.nama) === 'Shipment');
             for (const wo of orderWos) {
               const woId = Number(wo.id);
-              if (qcFinal) {
-                const qcProgress = (wp as Row[]).find(
-                  p => Number(p.work_order_id) === woId && Number(p.stage_id) === Number(qcFinal.id)
+              if (shipment) {
+                const shipmentProgress = (wp as Row[]).find(
+                  p => Number(p.work_order_id) === woId && Number(p.stage_id) === Number(shipment.id)
                 );
-                if (qcProgress) {
+                if (shipmentProgress) {
                   try {
-                    await dbUpdate('wo_progress', Number(qcProgress.id), {
+                    await dbUpdate('wo_progress', Number(shipmentProgress.id), {
                       status: 'SELESAI',
-                      started_at: qcProgress.started_at || now,
+                      started_at: shipmentProgress.started_at || now,
                       completed_at: now,
                     });
-                  } catch (err) { console.warn('advance qc final progress failed:', err); }
-                }
-              }
-              if (nextStage) {
-                const nextProgress = (wp as Row[]).find(
-                  p => Number(p.work_order_id) === woId && Number(p.stage_id) === Number(nextStage.id)
-                );
-                if (nextProgress) {
-                  try {
-                    await dbUpdate('wo_progress', Number(nextProgress.id), { status: 'TERSEDIA' });
-                  } catch (err) { console.warn('open shipment progress failed:', err); }
+                  } catch (err) { console.warn('finalize shipment progress failed:', err); }
                 } else {
-                  // Row belum ada — buat baru langsung TERSEDIA.
                   try {
                     await dbCreate('wo_progress', {
                       work_order_id: woId,
-                      stage_id: nextStage.id,
-                      status: 'TERSEDIA',
+                      stage_id: shipment.id,
+                      status: 'SELESAI',
+                      started_at: now,
+                      completed_at: now,
                     });
                   } catch (err) { console.warn('create shipment wo_progress failed:', err); }
                 }
-                try {
-                  await dbUpdate('work_orders', woId, { current_stage_id: nextStage.id });
-                } catch (err) { console.warn('advance current_stage_id failed:', err); }
               }
+              try {
+                await dbUpdate('work_orders', woId, {
+                  status: 'SELESAI',
+                  current_stage_id: shipment ? shipment.id : wo.current_stage_id,
+                });
+              } catch (err) { console.warn('set wo status SELESAI failed:', err); }
             }
+            try {
+              await dbUpdate('orders', Number(detail.id), { status: 'DONE' });
+            } catch (err) { console.warn('set order status DONE failed:', err); }
           } catch (err) {
-            console.warn('pelunasan approve: advance WO to Shipment failed:', err);
+            console.warn('pelunasan approve: finalize WO failed:', err);
           }
         }
 
         toast.success(
           fs === 'APPROVED' ? 'Pelunasan Di-approve' : 'Pelunasan Ditolak',
           fs === 'APPROVED'
-            ? 'WO otomatis pindah ke stage Shipment.'
+            ? 'Order otomatis ditandai selesai — Shipment SELESAI.'
             : 'Produksi menerima catatan penolakan. Bukti bisa di-upload ulang.'
         );
       } else {
@@ -382,7 +379,7 @@ export default function ApprovalFinancePage() {
                             ? 'Pelunasan'
                             : isCsOrder ? 'dari CS Order' : 'dari CS Selling';
                           const chipTitle = isPelunasan
-                            ? 'Review pelunasan dari Produksi — approve untuk membuka stage Shipment'
+                            ? 'Review pelunasan dari Produksi (Shipment) — approve untuk mark order selesai'
                             : isCsOrder
                               ? 'Approval invoice lengkap — Finance review Rincian Order + semua bukti DP Produksi'
                               : 'Approval pertama — Finance verifikasi DP Desain dari CS Selling';
@@ -499,7 +496,7 @@ export default function ApprovalFinancePage() {
                         <div className="text-xs text-slate-500 mb-1.5">Bukti Pelunasan (dari Produksi)</div>
                         <div className="border border-white/10 rounded-lg p-3 bg-[#0d1117] space-y-2">
                           <div className="text-[11px] text-slate-500">
-                            Approve untuk menandai pelunasan lunas. WO otomatis lanjut ke stage <strong className="text-white">Shipment</strong>.
+                            Approve untuk menandai pelunasan lunas. Order otomatis dinyatakan <strong className="text-white">SELESAI</strong>.
                           </div>
                           {!buktiRef ? (
                             <div className="text-xs text-slate-500 italic border border-dashed border-white/10 rounded px-2 py-4 text-center">
