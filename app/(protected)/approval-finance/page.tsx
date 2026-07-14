@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { dbGet, dbUpdate } from '@/lib/api-db';
+import { dbGet, dbUpdate, dbCreate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { useAuth } from '@/lib/auth-context';
 
@@ -212,6 +212,15 @@ export default function ApprovalFinancePage() {
                   try {
                     await dbUpdate('wo_progress', Number(nextProgress.id), { status: 'TERSEDIA' });
                   } catch (err) { console.warn('open shipment progress failed:', err); }
+                } else {
+                  // Row belum ada — buat baru langsung TERSEDIA.
+                  try {
+                    await dbCreate('wo_progress', {
+                      work_order_id: woId,
+                      stage_id: nextStage.id,
+                      status: 'TERSEDIA',
+                    });
+                  } catch (err) { console.warn('create shipment wo_progress failed:', err); }
                 }
                 try {
                   await dbUpdate('work_orders', woId, { current_stage_id: nextStage.id });

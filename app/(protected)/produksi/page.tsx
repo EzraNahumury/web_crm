@@ -202,24 +202,49 @@ export default function ProduksiPage() {
         .sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0));
       let updatedProgress: Row[] = p;
 
-      // Auto-create missing wo_progress for existing WOs
+      // Auto-create missing wo_progress rows for active WOs. This has
+      // to run for EVERY stage on EVERY active WO (not just when a WO
+      // has zero rows) because new stages introduced later (e.g.
+      // Approval WO, QC Final dan Packing di migration 016) tidak
+      // otomatis nempel ke WO yang sudah lebih tua — sehingga saat
+      // stage sebelumnya klik Selesai & Lanjut, tidak ada row target
+      // untuk di-set TERSEDIA dan WO seolah hilang dari tab
+      // berikutnya. Backfill di sini menutup gap itu.
       const activeWos = w.filter((wo: Row) => wo.status === 'PROSES_PRODUKSI');
+      let didBackfill = false;
       for (const wo of activeWos) {
-        const woProgressIds = p.filter((pr: Row) => pr.work_order_id === wo.id).map((pr: Row) => pr.stage_id);
-        if (woProgressIds.length === 0 && sortedStages.length > 0) {
-          for (const stage of sortedStages) {
+        const woProgressStages = new Set(
+          p.filter((pr: Row) => pr.work_order_id === wo.id).map((pr: Row) => Number(pr.stage_id))
+        );
+        const missing = sortedStages.filter(s => !woProgressStages.has(Number(s.id)));
+        if (missing.length === 0) continue;
+
+        const startingStage = sortedStages[0];
+        const woHasAnyProgress = woProgressStages.size > 0;
+
+        for (const stage of missing) {
+          // Fresh WO (no rows at all yet) → first stage starts TERSEDIA.
+          // Existing WO getting a backfill of a newly-added stage →
+          // default status BELUM; transition code will bump to TERSEDIA
+          // when the previous stage's Selesai runs.
+          const isFresh = !woHasAnyProgress && Number(stage.id) === Number(startingStage.id);
+          try {
             await dbCreate('wo_progress', {
               work_order_id: wo.id,
               stage_id: stage.id,
-              status: stage.id === sortedStages[0].id ? 'TERSEDIA' : 'BELUM',
+              status: isFresh ? 'TERSEDIA' : 'BELUM',
             });
-          }
-          if (!wo.current_stage_id) {
-            await dbUpdate('work_orders', Number(wo.id), { current_stage_id: sortedStages[0].id });
-          }
-          updatedProgress = await dbGet('wo_progress');
+            didBackfill = true;
+          } catch (err) { console.warn('wo_progress backfill failed:', err); }
+        }
+
+        if (!wo.current_stage_id && startingStage) {
+          try {
+            await dbUpdate('work_orders', Number(wo.id), { current_stage_id: startingStage.id });
+          } catch {}
         }
       }
+      if (didBackfill) updatedProgress = await dbGet('wo_progress');
 
       setStages(sortedStages);
       setProgress(updatedProgress);
@@ -480,6 +505,18 @@ export default function ProduksiPage() {
         const nextProgress = progress.find((p: Row) => p.work_order_id === progressRow.work_order_id && p.stage_id === nextStage.id);
         if (nextProgress) {
           await dbUpdate('wo_progress', nextProgress.id, { status: 'TERSEDIA' });
+        } else {
+          // Row belum ada (kasus WO lama yang lahir sebelum stage
+          // berikutnya di-tambah lewat migrasi). Bikin langsung di
+          // status TERSEDIA supaya tab stage berikutnya langsung
+          // menerima WO ini.
+          try {
+            await dbCreate('wo_progress', {
+              work_order_id: progressRow.work_order_id,
+              stage_id: nextStage.id,
+              status: 'TERSEDIA',
+            });
+          } catch (err) { console.warn('advance: create next wo_progress failed:', err); }
         }
         await dbUpdate('work_orders', progressRow.work_order_id, { current_stage_id: nextStage.id });
         toast.success('Selesai', `Dipindahkan ke ${nextStage.nama}.`);
