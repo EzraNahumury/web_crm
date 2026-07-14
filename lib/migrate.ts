@@ -587,6 +587,30 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `bukti_uploaded` TINYINT(1) NOT NULL DEFAULT 0",
     ],
   },
+  {
+    // Pelunasan (final settlement) approval gate at the QC Final dan
+    // Packing stage.
+    //
+    // Flow:
+    //   • Produksi klik Selesai & Lanjut di QC Final → modal upload
+    //     bukti pelunasan → submit → pelunasan_status='PENDING',
+    //     WO tetap di QC Final dengan chip "Menunggu Finance".
+    //   • Finance approve di Approval Finance → pelunasan_status =
+    //     'APPROVED' + audit trail; server-side advance WO progress
+    //     dari QC Final ke Shipment (mark QC Final SELESAI, buka
+    //     Shipment TERSEDIA).
+    //   • Finance reject → pelunasan_status='REJECTED', produksi
+    //     bisa re-submit bukti dengan file baru.
+    name: '031_orders_pelunasan',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `pelunasan_bukti_tf` LONGTEXT NULL",
+      "ALTER TABLE `orders` ADD COLUMN `pelunasan_bukti_tf_name` VARCHAR(255) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `pelunasan_status` VARCHAR(20) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `pelunasan_notes` TEXT NULL",
+      "ALTER TABLE `orders` ADD COLUMN `pelunasan_approved_by` VARCHAR(100) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `pelunasan_approved_at` TIMESTAMP NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

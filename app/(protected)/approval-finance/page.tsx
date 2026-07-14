@@ -57,12 +57,15 @@ export default function ApprovalFinancePage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Finance's scope covers two review moments:
+  // Finance's scope covers three review moments:
   //   • DP Desain review — order still at status='SELLING' (initial
   //     handoff from CS Selling).
   //   • Invoice review — CS Order finished both Rincian and Bukti
   //     Pembayaran, so bukti_uploaded=1. Until Bukti step is done,
   //     the order sits with CS Order and is NOT queued for Finance.
+  //   • Pelunasan review — produksi klik Submit di stage QC Final
+  //     dan Packing, pelunasan_status='PENDING'. Approve di sini
+  //     akan advance WO ke Shipment.
   //   • Anything Finance already stamped (APPROVED/REJECTED) also
   //     shows in the "Semua" tab as history — plus rejects go into
   //     the Ditolak tab so CS Selling can see the note.
@@ -72,8 +75,13 @@ export default function ApprovalFinancePage() {
       const st = String(o.status || '').toUpperCase();
       const via = String(o.created_via || '').toUpperCase();
       const fs = String(o.finance_status || '').toUpperCase();
+      const ps = String(o.pelunasan_status || '').toUpperCase();
       const buktiDone = Number(o.bukti_uploaded) === 1;
       if (st === 'DONE') return false;
+      // Pelunasan review flow overrides — any pelunasan_status keeps
+      // the row here (PENDING for review, APPROVED/REJECTED for
+      // history).
+      if (ps !== '') return true;
       if (via !== 'CS_SELLING' && fs === '') return false;
       // Menunggu Bukti belum masuk Finance.
       const rincianDone = st !== 'SELLING';
@@ -82,12 +90,21 @@ export default function ApprovalFinancePage() {
     });
   }, [orders]);
 
+  // Effective review status per row: pelunasan review takes priority
+  // when a pelunasan_status is set, otherwise fall back to
+  // finance_status (DP Desain / Invoice review flows).
+  function reviewStatus(o: Row): string {
+    const ps = String(o.pelunasan_status || '').toUpperCase();
+    if (ps) return ps;
+    return String(o.finance_status || '').toUpperCase();
+  }
+
   const filtered = useMemo(() => {
     return scoped.filter(o => {
-      const fs = String(o.finance_status || '').toUpperCase();
-      if (filter === 'PENDING') return fs === '' || fs === 'PENDING';
-      if (filter === 'APPROVED') return fs === 'APPROVED';
-      if (filter === 'REJECTED') return fs === 'REJECTED';
+      const rs = reviewStatus(o);
+      if (filter === 'PENDING') return rs === '' || rs === 'PENDING';
+      if (filter === 'APPROVED') return rs === 'APPROVED';
+      if (filter === 'REJECTED') return rs === 'REJECTED';
       return true;
     }).sort((a: Row, b: Row) => Number(b.id) - Number(a.id));
   }, [scoped, filter]);
@@ -95,11 +112,11 @@ export default function ApprovalFinancePage() {
   const counts = useMemo(() => {
     return {
       PENDING: scoped.filter(o => {
-        const fs = String(o.finance_status || '').toUpperCase();
-        return fs === '' || fs === 'PENDING';
+        const rs = reviewStatus(o);
+        return rs === '' || rs === 'PENDING';
       }).length,
-      APPROVED: scoped.filter(o => String(o.finance_status || '').toUpperCase() === 'APPROVED').length,
-      REJECTED: scoped.filter(o => String(o.finance_status || '').toUpperCase() === 'REJECTED').length,
+      APPROVED: scoped.filter(o => reviewStatus(o) === 'APPROVED').length,
+      REJECTED: scoped.filter(o => reviewStatus(o) === 'REJECTED').length,
       ALL: scoped.length,
     };
   }, [scoped]);
@@ -122,7 +139,10 @@ export default function ApprovalFinancePage() {
 
   function openDetail(o: Row) {
     setDetail(o);
-    setNotes(String(o.finance_notes || ''));
+    // Pre-fill notes from the right column depending on which review
+    // this order is at right now.
+    const isPelunasan = String(o.pelunasan_status || '') !== '';
+    setNotes(String(isPelunasan ? (o.pelunasan_notes || '') : (o.finance_notes || '')));
   }
   function closeDetail() {
     setDetail(null);
@@ -138,18 +158,93 @@ export default function ApprovalFinancePage() {
     }
     setSaving(true);
     try {
-      await dbUpdate('orders', Number(detail.id), {
-        finance_status: fs,
-        finance_approved_by: user?.nama || user?.username || 'finance',
-        finance_approved_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
-        finance_notes: notes.trim() || null,
-      });
-      toast.success(
-        fs === 'APPROVED' ? 'Order Di-approve' : 'Order Ditolak',
-        fs === 'APPROVED'
-          ? 'CS Order sudah bisa lanjut isi Pembayaran AYRES.'
-          : 'CS Selling menerima catatan penolakan.'
-      );
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const decidedBy = user?.nama || user?.username || 'finance';
+      const isPelunasanReview = String(detail.pelunasan_status || '') !== '';
+
+      if (isPelunasanReview) {
+        // Update pelunasan_* columns instead of finance_status.
+        await dbUpdate('orders', Number(detail.id), {
+          pelunasan_status: fs,
+          pelunasan_approved_by: decidedBy,
+          pelunasan_approved_at: now,
+          pelunasan_notes: notes.trim() || null,
+        });
+
+        if (fs === 'APPROVED') {
+          // Advance WO progress: mark QC Final dan Packing SELESAI +
+          // set next stage (Shipment) to TERSEDIA. Legacy stage flag
+          // 'active' guard mirrors produksi page's own filter.
+          try {
+            const [wos, stagesRaw, wp] = await Promise.all([
+              dbGet('work_orders').catch(() => []),
+              dbGet('production_stages').catch(() => []),
+              dbGet('wo_progress').catch(() => []),
+            ]);
+            const orderWos = (wos as Row[]).filter(w => Number(w.order_id) === Number(detail.id));
+            const sortedStages = (stagesRaw as Row[])
+              .filter(s => s.active === undefined || s.active === 1 || s.active === true)
+              .sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+            const qcFinal = sortedStages.find(s => String(s.nama) === 'QC Final dan Packing');
+            const qcIdx = qcFinal ? sortedStages.findIndex(s => Number(s.id) === Number(qcFinal.id)) : -1;
+            const nextStage = qcIdx >= 0 ? sortedStages[qcIdx + 1] : undefined;
+            for (const wo of orderWos) {
+              const woId = Number(wo.id);
+              if (qcFinal) {
+                const qcProgress = (wp as Row[]).find(
+                  p => Number(p.work_order_id) === woId && Number(p.stage_id) === Number(qcFinal.id)
+                );
+                if (qcProgress) {
+                  try {
+                    await dbUpdate('wo_progress', Number(qcProgress.id), {
+                      status: 'SELESAI',
+                      started_at: qcProgress.started_at || now,
+                      completed_at: now,
+                    });
+                  } catch (err) { console.warn('advance qc final progress failed:', err); }
+                }
+              }
+              if (nextStage) {
+                const nextProgress = (wp as Row[]).find(
+                  p => Number(p.work_order_id) === woId && Number(p.stage_id) === Number(nextStage.id)
+                );
+                if (nextProgress) {
+                  try {
+                    await dbUpdate('wo_progress', Number(nextProgress.id), { status: 'TERSEDIA' });
+                  } catch (err) { console.warn('open shipment progress failed:', err); }
+                }
+                try {
+                  await dbUpdate('work_orders', woId, { current_stage_id: nextStage.id });
+                } catch (err) { console.warn('advance current_stage_id failed:', err); }
+              }
+            }
+          } catch (err) {
+            console.warn('pelunasan approve: advance WO to Shipment failed:', err);
+          }
+        }
+
+        toast.success(
+          fs === 'APPROVED' ? 'Pelunasan Di-approve' : 'Pelunasan Ditolak',
+          fs === 'APPROVED'
+            ? 'WO otomatis pindah ke stage Shipment.'
+            : 'Produksi menerima catatan penolakan. Bukti bisa di-upload ulang.'
+        );
+      } else {
+        // Existing DP / Invoice review flow.
+        await dbUpdate('orders', Number(detail.id), {
+          finance_status: fs,
+          finance_approved_by: decidedBy,
+          finance_approved_at: now,
+          finance_notes: notes.trim() || null,
+        });
+        toast.success(
+          fs === 'APPROVED' ? 'Order Di-approve' : 'Order Ditolak',
+          fs === 'APPROVED'
+            ? 'CS Order sudah bisa lanjut isi Rincian Order.'
+            : 'CS Selling menerima catatan penolakan.'
+        );
+      }
+
       closeDetail();
       await fetchAll();
     } catch (e) {
@@ -221,14 +316,14 @@ export default function ApprovalFinancePage() {
                 const dpDesain = p.find((x: Row) => String(x.tipe) === 'dp_desain');
                 const dpAmt = Number(dpDesain?.amount || o.dp_desain || 0);
                 const hasBukti = !!dpDesain?.bukti_tf;
-                const fs = String(o.finance_status || '').toUpperCase();
+                const rs = reviewStatus(o);
                 const stCls =
-                  fs === 'APPROVED' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-                  : fs === 'REJECTED' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+                  rs === 'APPROVED' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                  : rs === 'REJECTED' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20'
                   : 'text-amber-400 bg-amber-500/10 border-amber-500/20';
                 const stLabel =
-                  fs === 'APPROVED' ? 'Disetujui'
-                  : fs === 'REJECTED' ? 'Ditolak'
+                  rs === 'APPROVED' ? 'Disetujui'
+                  : rs === 'REJECTED' ? 'Ditolak'
                   : 'Menunggu';
                 return (
                   <tr key={o.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
@@ -257,21 +352,31 @@ export default function ApprovalFinancePage() {
                       <div className="inline-flex items-center gap-2">
                         {(() => {
                           // Stage differentiator:
+                          //   pelunasan_status set → review pelunasan
+                          //     dari Produksi (stage QC Final).
                           //   SELLING → approval pertama: DP Desain
                           //     dari CS Selling.
                           //   bukti_uploaded=1 → approval kedua:
                           //     full invoice + semua bukti DP Produksi
                           //     dari CS Order.
                           const st = String(o.status || '').toUpperCase();
+                          const ps = String(o.pelunasan_status || '').toUpperCase();
                           const buktiDone = Number(o.bukti_uploaded) === 1;
-                          const isCsOrder = st !== 'SELLING' && buktiDone;
-                          const chipCls = isCsOrder
-                            ? 'text-blue-300 bg-blue-500/10 border-blue-500/30'
-                            : 'text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/30';
-                          const chipLabel = isCsOrder ? 'dari CS Order' : 'dari CS Selling';
-                          const chipTitle = isCsOrder
-                            ? 'Approval invoice lengkap — Finance review Rincian Order + semua bukti DP Produksi'
-                            : 'Approval pertama — Finance verifikasi DP Desain dari CS Selling';
+                          const isPelunasan = ps !== '';
+                          const isCsOrder = !isPelunasan && st !== 'SELLING' && buktiDone;
+                          const chipCls = isPelunasan
+                            ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30'
+                            : isCsOrder
+                              ? 'text-blue-300 bg-blue-500/10 border-blue-500/30'
+                              : 'text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/30';
+                          const chipLabel = isPelunasan
+                            ? 'Pelunasan'
+                            : isCsOrder ? 'dari CS Order' : 'dari CS Selling';
+                          const chipTitle = isPelunasan
+                            ? 'Review pelunasan dari Produksi — approve untuk membuka stage Shipment'
+                            : isCsOrder
+                              ? 'Approval invoice lengkap — Finance review Rincian Order + semua bukti DP Produksi'
+                              : 'Approval pertama — Finance verifikasi DP Desain dari CS Selling';
                           return (
                             <span title={chipTitle}
                               className={`text-[10px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${chipCls}`}>
@@ -300,7 +405,9 @@ export default function ApprovalFinancePage() {
           .filter((x: Row) => String(x.tipe) === 'dp_produksi')
           .sort((a: Row, b: Row) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
         const dpAmt = Number(dpDesain?.amount || detail.dp_desain || 0);
-        const fs = String(detail.finance_status || '').toUpperCase();
+        const ps = String(detail.pelunasan_status || '').toUpperCase();
+        const isPelunasanReview = ps !== '';
+        const fs = isPelunasanReview ? ps : String(detail.finance_status || '').toUpperCase();
         const isPending = fs === '' || fs === 'PENDING';
         const isDone = fs === 'APPROVED' || fs === 'REJECTED';
         // Stage-aware detail: post-Bukti orders show a full Rincian
@@ -308,7 +415,13 @@ export default function ApprovalFinancePage() {
         // can approve the whole invoice, not just the initial DP.
         const st = String(detail.status || '').toUpperCase();
         const buktiDone = Number(detail.bukti_uploaded) === 1;
-        const isInvoiceStage = st !== 'SELLING' && buktiDone;
+        const isInvoiceStage = !isPelunasanReview && st !== 'SELLING' && buktiDone;
+        const decidedBy = isPelunasanReview
+          ? String(detail.pelunasan_approved_by || 'finance')
+          : String(detail.finance_approved_by || 'finance');
+        const decidedAt = isPelunasanReview
+          ? detail.pelunasan_approved_at
+          : detail.finance_approved_at;
         const detailItems = items
           .filter((it: Row) => Number(it.order_id) === Number(detail.id))
           .sort((a: Row, b: Row) => Number(a.id) - Number(b.id));
@@ -324,7 +437,9 @@ export default function ApprovalFinancePage() {
                 <div className="px-6 py-4 border-b border-white/[0.06] flex items-start justify-between shrink-0">
                   <div>
                     <h3 className="text-base font-semibold text-white">
-                      {isInvoiceStage ? 'Review Invoice' : 'Review DP Desain'} — {detail.no_order}
+                      {isPelunasanReview
+                        ? 'Review Pelunasan'
+                        : isInvoiceStage ? 'Review Invoice' : 'Review DP Desain'} — {detail.no_order}
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
                       {detail.customer_nama} · {detail.customer_phone || '-'}
@@ -346,6 +461,70 @@ export default function ApprovalFinancePage() {
                       <InfoRow label="Keterangan" value={String(detail.keterangan)} full />
                     )}
                   </div>
+
+                  {isPelunasanReview && (() => {
+                    const buktiRef = String(detail.pelunasan_bukti_tf || '');
+                    const buktiName = String(detail.pelunasan_bukti_tf_name || '');
+                    const isImage = buktiRef && (
+                      buktiRef.startsWith('data:image')
+                      || /\.(png|jpe?g|gif|webp)$/i.test(buktiName)
+                      || /\.(png|jpe?g|gif|webp)$/i.test(buktiRef)
+                    );
+                    const isPdf = buktiRef && (
+                      buktiRef.startsWith('data:application/pdf')
+                      || /\.pdf$/i.test(buktiName)
+                      || /\.pdf$/i.test(buktiRef)
+                    );
+                    return (
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1.5">Bukti Pelunasan (dari Produksi)</div>
+                        <div className="border border-white/10 rounded-lg p-3 bg-[#0d1117] space-y-2">
+                          <div className="text-[11px] text-slate-500">
+                            Approve untuk menandai pelunasan lunas. WO otomatis lanjut ke stage <strong className="text-white">Shipment</strong>.
+                          </div>
+                          {!buktiRef ? (
+                            <div className="text-xs text-slate-500 italic border border-dashed border-white/10 rounded px-2 py-4 text-center">
+                              Belum ada bukti pelunasan yang di-upload.
+                            </div>
+                          ) : isImage ? (
+                            <button type="button" onClick={() => setZoomedImg(buktiRef)}
+                              className="block mx-auto group relative">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={buktiRef} alt="Bukti Pelunasan"
+                                className="max-h-72 rounded border border-white/10 cursor-zoom-in" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                <span className="bg-white/90 text-slate-800 text-xs font-medium px-3 py-1.5 rounded-full shadow-lg">
+                                  Klik untuk perbesar
+                                </span>
+                              </div>
+                            </button>
+                          ) : isPdf ? (
+                            <object data={buktiRef} type="application/pdf" className="w-full h-96 border border-white/10 rounded">
+                              <div className="p-4 text-xs text-slate-400">
+                                Browser tidak bisa menampilkan PDF inline.
+                                <a href={buktiRef} target="_blank" rel="noopener noreferrer"
+                                  className="ml-1 text-blue-400 hover:text-blue-300 underline">Buka di tab baru</a>.
+                              </div>
+                            </object>
+                          ) : (
+                            <a href={buktiRef} target="_blank" rel="noopener noreferrer"
+                              className="text-xs text-blue-400 hover:text-blue-300 underline">
+                              Buka file bukti pelunasan ({buktiName || 'bukti'})
+                            </a>
+                          )}
+                          {buktiRef && (
+                            <div className="flex items-center justify-center gap-3 text-[11px]">
+                              <a href={buktiRef} download={buktiName || 'bukti-pelunasan'}
+                                className="text-blue-400 hover:text-blue-300 underline underline-offset-2">Download</a>
+                              <span className="text-slate-700">·</span>
+                              <a href={buktiRef} target="_blank" rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 underline underline-offset-2">Buka di tab baru</a>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {isInvoiceStage && (
                     <>
@@ -414,6 +593,7 @@ export default function ApprovalFinancePage() {
                     </>
                   )}
 
+                  {!isPelunasanReview && (
                   <div>
                     <div className="text-xs text-slate-500 mb-1.5">DP Desain</div>
                     <div className="border border-white/10 rounded-lg p-3 bg-[#0d1117]">
@@ -512,6 +692,7 @@ export default function ApprovalFinancePage() {
                       )}
                     </div>
                   </div>
+                  )}
 
                   {isInvoiceStage && dpProduksi.length > 0 && (
                     <div>
@@ -587,7 +768,7 @@ export default function ApprovalFinancePage() {
 
                   {isDone && (
                     <div className="text-[11px] text-slate-500 border border-white/10 rounded-lg px-3 py-2 bg-white/[0.02]">
-                      {fs === 'APPROVED' ? 'Disetujui' : 'Ditolak'} oleh <strong className="text-slate-300">{detail.finance_approved_by || 'finance'}</strong> pada {fmtDateTime(detail.finance_approved_at)}
+                      {fs === 'APPROVED' ? 'Disetujui' : 'Ditolak'} oleh <strong className="text-slate-300">{decidedBy}</strong> pada {fmtDateTime(decidedAt)}
                     </div>
                   )}
                 </div>

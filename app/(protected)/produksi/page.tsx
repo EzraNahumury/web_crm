@@ -54,6 +54,16 @@ export default function ProduksiPage() {
   const [rejectSaving, setRejectSaving] = useState(false);
   const [rejects, setRejects] = useState<Row[]>([]);
 
+  // Pelunasan flow state — pop-up modal saat operator klik Selesai
+  // & Lanjut di stage QC Final dan Packing.
+  const [pelunasanItem, setPelunasanItem] = useState<Row | null>(null);
+  const [pelunasanFile, setPelunasanFile] = useState<File | null>(null);
+  const [pelunasanBukti, setPelunasanBukti] = useState<string | null>(null);
+  const [pelunasanBuktiName, setPelunasanBuktiName] = useState('');
+  const [pelunasanUploading, setPelunasanUploading] = useState(false);
+  const [pelunasanSaving, setPelunasanSaving] = useState(false);
+  const [pelunasanDragOver, setPelunasanDragOver] = useState(false);
+
   function makeInitialRejectRows(): RejectRow[] {
     return GUDANG_FORM_ITEMS.map(it => ({
       item: it.item, bahan: '', warna: '', kuantitas: '', isSize: it.isSize, color: it.color,
@@ -308,6 +318,92 @@ export default function ProduksiPage() {
     return String(active.tipe) === 'WITH_BAHAN' && String(active.status).toUpperCase() === 'PENDING';
   }
 
+  // Pelunasan gate: sudah submit bukti dan menunggu Finance approve.
+  // Selama PENDING, tombol Selesai & Lanjut di QC Final terkunci
+  // dengan label 'Menunggu Finance'.
+  function isPelunasanPending(item: Row): boolean {
+    if (activeStage !== 'QC Final dan Packing') return false;
+    const ord = ordersById[Number(item.wo?.order_id)];
+    if (!ord) return false;
+    return String(ord.pelunasan_status || '').toUpperCase() === 'PENDING';
+  }
+
+  function openPelunasanModal(item: Row) {
+    setPelunasanItem(item);
+    setPelunasanFile(null);
+    setPelunasanBukti(null);
+    setPelunasanBuktiName('');
+    setPelunasanDragOver(false);
+  }
+  function closePelunasanModal() {
+    setPelunasanItem(null);
+    setPelunasanFile(null);
+    setPelunasanBukti(null);
+    setPelunasanBuktiName('');
+    setPelunasanUploading(false);
+    setPelunasanSaving(false);
+    setPelunasanDragOver(false);
+  }
+
+  async function handlePelunasanFile(f: File) {
+    if (!(f.type.startsWith('image/') || f.type === 'application/pdf')) {
+      toast.error('Tipe File Tidak Didukung', 'Hanya gambar (PNG/JPG) atau PDF yang bisa diupload sebagai bukti pelunasan.');
+      return;
+    }
+    if (f.size > 5 * 1024 * 1024) {
+      toast.error('File Terlalu Besar', 'Ukuran maksimal 5 MB. Kompres foto TF-nya dulu.');
+      return;
+    }
+    setPelunasanUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const j = await res.json();
+      if (res.ok && j?.url) {
+        setPelunasanFile(f);
+        setPelunasanBukti(String(j.url));
+        setPelunasanBuktiName(String(j.originalName || f.name));
+      } else {
+        throw new Error(j?.error || 'Upload gagal');
+      }
+    } catch (err) {
+      console.warn('pelunasan upload failed, using base64:', err);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPelunasanFile(f);
+        setPelunasanBukti(String(reader.result || ''));
+        setPelunasanBuktiName(f.name);
+      };
+      reader.readAsDataURL(f);
+    }
+    setPelunasanUploading(false);
+  }
+
+  async function submitPelunasan() {
+    if (!pelunasanItem) return;
+    if (!pelunasanBukti) {
+      toast.error('Bukti Belum Diupload', 'Upload bukti pelunasan dulu sebelum submit.');
+      return;
+    }
+    setPelunasanSaving(true);
+    try {
+      const orderId = Number(pelunasanItem.wo?.order_id);
+      await dbUpdate('orders', orderId, {
+        pelunasan_bukti_tf: pelunasanBukti,
+        pelunasan_bukti_tf_name: pelunasanBuktiName || null,
+        pelunasan_status: 'PENDING',
+        pelunasan_notes: null,
+      });
+      toast.success('Bukti Pelunasan Terkirim', 'Order dikirim ke Approval Finance untuk review pelunasan.');
+      closePelunasanModal();
+      await fetchData();
+    } catch (e) {
+      toast.error('Gagal Submit', String(e));
+    }
+    setPelunasanSaving(false);
+  }
+
   // Single-click handler: marks the current stage SELESAI (with both started_at
   // and completed_at) and advances the next stage to TERSEDIA in one shot.
   async function handleSelesai(progressRow: Row) {
@@ -330,6 +426,21 @@ export default function ProduksiPage() {
       toast.error('Menunggu Approval Gudang', 'Permintaan bahan reject masih menunggu approval gudang.');
       return;
     }
+
+    // Special-case QC Final dan Packing: sebelum mark SELESAI, minta
+    // operator upload bukti pelunasan dan tunggu Finance approve. WO
+    // tetap di stage ini sampai Finance klik Approve — di sana barulah
+    // wo_progress QC Final di-set SELESAI dan Shipment TERSEDIA.
+    const currentStage = stages.find((s: Row) => s.id === progressRow.stage_id);
+    if (currentStage?.nama === 'QC Final dan Packing') {
+      if (isPelunasanPending(progressRow)) {
+        toast.error('Menunggu Approval Finance', 'Bukti pelunasan sudah dikirim, tunggu Finance review di menu Approval Finance.');
+        return;
+      }
+      openPelunasanModal(progressRow);
+      return;
+    }
+
     try {
       const now = new Date().toISOString();
       const startedAt = progressRow.started_at || now;
@@ -419,6 +530,7 @@ export default function ProduksiPage() {
     const activeReject = getActiveReject(item.work_order_id, item.stage_id);
     const rejectPending = activeReject && String(activeReject.status).toUpperCase() === 'PENDING';
     const rejectReturned = activeReject && String(activeReject.status).toUpperCase() === 'RETURNED';
+    const pelunasanPending = isPelunasanPending(item);
     return (
       <div className="flex flex-col gap-2 px-6 py-4 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors">
         <div className="flex items-start justify-between gap-4">
@@ -442,6 +554,15 @@ export default function ProduksiPage() {
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                   Reject: Perbaiki di Tempat
+                </span>
+              )}
+              {pelunasanPending && (
+                <span
+                  title="Bukti pelunasan sudah dikirim, menunggu Finance approve"
+                  className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-fuchsia-500/40 text-fuchsia-300 bg-fuchsia-500/15 whitespace-nowrap"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400" />
+                  Menunggu Review Finance
                 </span>
               )}
             </div>
@@ -582,24 +703,41 @@ export default function ProduksiPage() {
               const gatedWaiting = isWaitingListGated(item);
               const gatedProof = isProofingGated(item);
               const gatedReject = isRejectGated(item);
-              const gated = gatedWaiting || gatedProof || gatedReject;
+              const gatedPelunasan = isPelunasanPending(item);
+              const gated = gatedWaiting || gatedProof || gatedReject || gatedPelunasan;
               // Differentiate whether the block is at the Bukti step or
               // the Finance approve step so the operator knows who
               // needs to act.
               const waitingOrd = gatedWaiting ? ordersById[Number(item.wo?.order_id)] : null;
               const buktiPending = waitingOrd && Number(waitingOrd.bukti_uploaded) !== 1;
-              const gateLabel = gatedWaiting
-                ? (buktiPending ? 'Menunggu Bukti' : 'Menunggu Finance')
-                : gatedProof ? 'Menunggu WO' : gatedReject ? 'Menunggu Gudang' : 'Selesai & Lanjut';
-              const gateTitle = gatedWaiting
-                ? (buktiPending
-                    ? 'CS Order belum upload bukti pembayaran DP Produksi'
-                    : 'Finance belum approve invoice — buka menu Approval Finance')
-                : gatedProof
-                  ? 'Buat/konfirmasi WO di Menu Work Orders dulu'
-                  : gatedReject
-                    ? 'Permintaan bahan reject masih menunggu approval gudang'
-                    : undefined;
+              // At QC Final, when nothing has been submitted yet, keep
+              // the button labeled 'Submit Pelunasan' so operator knows
+              // clicking it opens the upload modal (not straight-advance).
+              const isQcFinalStage = activeStage === 'QC Final dan Packing';
+              const gateLabel = gatedPelunasan
+                ? 'Menunggu Finance'
+                : gatedWaiting
+                  ? (buktiPending ? 'Menunggu Bukti' : 'Menunggu Finance')
+                  : gatedProof
+                    ? 'Menunggu WO'
+                    : gatedReject
+                      ? 'Menunggu Gudang'
+                      : isQcFinalStage
+                        ? 'Submit Pelunasan'
+                        : 'Selesai & Lanjut';
+              const gateTitle = gatedPelunasan
+                ? 'Bukti pelunasan sudah dikirim, tunggu Finance review'
+                : gatedWaiting
+                  ? (buktiPending
+                      ? 'CS Order belum upload bukti pembayaran DP Produksi'
+                      : 'Finance belum approve invoice — buka menu Approval Finance')
+                  : gatedProof
+                    ? 'Buat/konfirmasi WO di Menu Work Orders dulu'
+                    : gatedReject
+                      ? 'Permintaan bahan reject masih menunggu approval gudang'
+                      : isQcFinalStage
+                        ? 'Upload bukti pelunasan → dikirim ke Finance untuk review'
+                        : undefined;
               return (
               <WoCard key={item.id} item={item} actions={
                 activeStageCanManage || isFullAccess ? (
@@ -789,6 +927,122 @@ export default function ProduksiPage() {
                 <button onClick={submitReject} disabled={rejectSaving}
                   className="text-sm font-medium text-white bg-rose-600 hover:bg-rose-500 px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
                   {rejectSaving ? 'Menyimpan...' : 'Simpan Reject'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {pelunasanItem && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={pelunasanSaving ? undefined : closePelunasanModal} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-lg bg-[#111827] border border-white/[0.06] rounded-xl shadow-2xl shadow-black/50 flex flex-col max-h-[92vh]">
+              <div className="px-6 py-4 border-b border-white/[0.06] flex items-start justify-between shrink-0">
+                <div>
+                  <h3 className="text-base font-semibold text-white">Upload Bukti Pelunasan</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    WO {pelunasanItem.wo?.no_wo} · {pelunasanItem.wo?.customer_nama}
+                  </p>
+                </div>
+                <button onClick={closePelunasanModal} disabled={pelunasanSaving}
+                  className="text-slate-500 hover:text-white p-1 disabled:opacity-50">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+
+              <div className="px-6 py-5 space-y-4 overflow-y-auto">
+                <div className="text-[11px] text-slate-500 border border-white/[0.06] bg-white/[0.02] rounded-lg p-3 leading-relaxed">
+                  Upload bukti transfer pelunasan customer. Setelah submit, order dikirim ke <strong className="text-white">Approval Finance</strong> untuk review. WO tetap di stage QC Final dan Packing dengan status <em>menunggu review Finance</em>. Setelah Finance approve, WO otomatis pindah ke stage <strong className="text-white">Shipment</strong>.
+                </div>
+
+                {!pelunasanBukti ? (
+                  <label
+                    onDragEnter={(e) => { e.preventDefault(); if (!pelunasanUploading) setPelunasanDragOver(true); }}
+                    onDragOver={(e) => { e.preventDefault(); if (!pelunasanUploading) setPelunasanDragOver(true); }}
+                    onDragLeave={(e) => {
+                      if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                      setPelunasanDragOver(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setPelunasanDragOver(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f && !pelunasanUploading) handlePelunasanFile(f);
+                    }}
+                    className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg py-8 cursor-pointer transition-colors ${
+                      pelunasanUploading
+                        ? 'border-white/10 opacity-60 cursor-wait'
+                        : pelunasanDragOver
+                          ? 'border-blue-500/60 bg-blue-500/10'
+                          : 'border-white/10 hover:border-blue-500/40 hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    {pelunasanUploading ? (
+                      <>
+                        <svg className="w-8 h-8 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        <span className="text-sm text-slate-300">Mengupload...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className={`w-8 h-8 ${pelunasanDragOver ? 'text-blue-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                        </svg>
+                        <span className={`text-sm ${pelunasanDragOver ? 'text-blue-300' : 'text-slate-300'}`}>
+                          {pelunasanDragOver ? 'Lepaskan file di sini' : 'Klik atau drop file untuk upload'}
+                        </span>
+                        <span className="text-[11px] text-slate-500">PNG, JPG, PDF · max 5 MB · drag dari WhatsApp / folder OK</span>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handlePelunasanFile(f);
+                      }}
+                      disabled={pelunasanUploading}
+                    />
+                  </label>
+                ) : (
+                  <div className="border border-white/10 rounded-lg p-3 space-y-2 bg-[#0d1117]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-xs text-slate-300 truncate">{pelunasanBuktiName || pelunasanFile?.name || 'bukti.tf'}</span>
+                      </div>
+                      <button
+                        onClick={() => { setPelunasanFile(null); setPelunasanBukti(null); setPelunasanBuktiName(''); }}
+                        className="text-xs text-slate-500 hover:text-rose-400 shrink-0"
+                      >
+                        Ganti
+                      </button>
+                    </div>
+                    {(pelunasanBukti.startsWith('data:image')
+                      || /\.(png|jpe?g|gif|webp)$/i.test(pelunasanBuktiName)
+                      || pelunasanBukti.startsWith('/api/files/')) && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={pelunasanBukti} alt="Bukti Pelunasan" className="max-h-64 rounded border border-white/10 mx-auto" />
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-white/[0.06] flex items-center justify-end gap-2 shrink-0">
+                <button onClick={closePelunasanModal} disabled={pelunasanSaving}
+                  className="text-sm font-medium text-slate-400 hover:text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+                  Batal
+                </button>
+                <button onClick={submitPelunasan} disabled={pelunasanSaving || pelunasanUploading || !pelunasanBukti}
+                  className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 px-5 py-2 rounded-lg transition-colors disabled:opacity-40">
+                  {pelunasanSaving ? 'Menyimpan...' : 'Submit ke Finance'}
                 </button>
               </div>
             </div>
