@@ -226,6 +226,32 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
     }
   }, [open, editOrder, editPayments]);
 
+  // Wilayah dropdowns key on internal IDs (from the wilayah API), but the
+  // saved order only carries the display names. On edit-mode open, derive
+  // each ID from the loaded list by matching the stored name so the
+  // SearchableSelect renders the current selection (and the child levels
+  // can cascade). Runs whenever the API list finishes loading.
+  useEffect(() => {
+    if (!editOrder || !provinces.length || provId) return;
+    if (!provinsi) return;
+    const p = provinces.find(x => x.name === provinsi);
+    if (p) setProvId(p.id);
+  }, [editOrder, provinces, provinsi, provId]);
+
+  useEffect(() => {
+    if (!editOrder || !regencies.length || kabId) return;
+    if (!kabupaten) return;
+    const r = regencies.find(x => x.name === kabupaten);
+    if (r) setKabId(r.id);
+  }, [editOrder, regencies, kabupaten, kabId]);
+
+  useEffect(() => {
+    if (!editOrder || !districts.length || kecId) return;
+    if (!kecamatan) return;
+    const d = districts.find(x => x.name === kecamatan);
+    if (d) setKecId(d.id);
+  }, [editOrder, districts, kecamatan, kecId]);
+
   function reset() {
     setCustomer(''); setCustomerId(''); setAlamat('');
     setProvId(''); setProvinsi(''); setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
