@@ -576,7 +576,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
             keterangan: nb,
             status: 'PROSES_PRODUKSI',
             current_stage_id: firstStageId,
-            wo_confirmed: 1,
+            // wo_confirmed=0 sengaja. Rincian Order dari CS Order
+            // cuma placeholder — admin produksi masih perlu buka
+            // menu Work Orders dan detail-kan WO (spesifikasi paket,
+            // bahan, dsb) sebelum flow produksi bisa lanjut lewat
+            // gate di stage Proofing. Save Work Orders → wo_confirmed
+            // otomatis flip ke 1 dan Selesai & Lanjut membuka.
+            wo_confirmed: 0,
           });
 
           for (const stage of sortedStages) {
