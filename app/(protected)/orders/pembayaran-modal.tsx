@@ -553,6 +553,16 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
           const paketNames = itemLines.map(l => l.nama).filter(Boolean).join(', ') || '-';
           const totalQty = itemLines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+          // work_orders.deadline is NOT NULL in the base schema. Prefer
+          // the last DP schedule date the CS Order typed in — that's the
+          // latest touch-point on the invoice — else fall back to a
+          // 7-day placeholder so the INSERT still lands. Production will
+          // overwrite it once wo.deadline is edited from Work Orders.
+          const lastDpTanggal = [...dpLines].reverse().find(d => d.tanggal)?.tanggal || '';
+          const woDeadline = lastDpTanggal || (() => {
+            const d = new Date(); d.setDate(d.getDate() + 7);
+            return d.toISOString().split('T')[0];
+          })();
 
           const woId = await dbCreate('work_orders', {
             no_wo: noWo,
@@ -562,7 +572,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
             paket: paketNames,
             bahan: '-',
             jumlah: totalQty,
-            deadline: null,
+            deadline: woDeadline,
             keterangan: nb,
             status: 'PROSES_PRODUKSI',
             current_stage_id: firstStageId,
