@@ -349,7 +349,6 @@ export default function OrdersPage() {
                 {/* Paket + Qty hidden per CS Order requirement — data still fetched */}
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Tgl ACC Proofing</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">DP Produksi</th>
-                <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">DL Customer</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Tgl Selesai</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Progress</th>
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-white/20 uppercase tracking-wider">Status</th>
@@ -383,15 +382,20 @@ export default function OrdersPage() {
                         qtyByDate={qtyByAccDate}
                         thisOrderQty={order.qty || 0}
                         onSaved={(newVal) => {
+                          // Optimistic local update so the picker
+                          // closes immediately with the new date, then
+                          // refetch so Tgl Selesai (server-computed
+                          // via computeDeadlineLock) reflects the new
+                          // ACC proofing date without a page reload.
                           setOrders(prev => prev.map(o =>
                             o.rowIndex === order.rowIndex ? { ...o, tglAccProofing: newVal } : o
                           ));
                           invalidateCache('wp_orders', 'wp_dashboard');
+                          fetchOrders();
                         }}
                       />
                     </td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.dpProduksi)}</td>
-                    <td className="px-4 py-3.5 text-white/35">{formatDate(order.dlCust)}</td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.tglSelesai)}</td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2 min-w-[100px]">
