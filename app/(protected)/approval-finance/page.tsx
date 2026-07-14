@@ -438,6 +438,16 @@ export default function ApprovalFinancePage() {
           (s, it) => s + (Number(it.qty) || 0) * (Number(it.harga) || 0),
           0
         );
+        const grandTotal = totalItems + (Number(detail.ekspedisi_biaya) || 0);
+        const diskonPct = Number(detail.diskon_pct) || 0;
+        const diskonAmount = Math.round((grandTotal * diskonPct) / 100);
+        // DP Design + DP Produksi ambil dari order_payments (yg baru
+        // di-write oleh Rincian Order Save).
+        const dpDesainFromPay = p.find((x: Row) => String(x.tipe) === 'dp_desain');
+        const dpProduksiFromPay = p.find((x: Row) => String(x.tipe) === 'dp_produksi');
+        const dpDesainAmt = Number(dpDesainFromPay?.amount) || Number(detail.dp_desain) || 0;
+        const dpProduksiAmt = Number(dpProduksiFromPay?.amount) || Number(detail.dp_produksi) || 0;
+        const sisaTagihanRow = grandTotal - diskonAmount - dpDesainAmt - dpProduksiAmt;
         return (
           <>
             <div className="fixed inset-0 bg-black/50 z-40" onClick={closeDetail} />
@@ -569,23 +579,41 @@ export default function ApprovalFinancePage() {
                                 <td className="px-3 py-2 text-right font-bold text-white tabular-nums">Rp {fmtRp(totalItems)}</td>
                               </tr>
                               {(detail.ekspedisi_nama || Number(detail.ekspedisi_biaya)) && (
-                                <>
-                                  <tr>
-                                    <td className="px-3 py-2 text-slate-300">
-                                      Ekspedisi: {detail.ekspedisi_nama || '-'}
-                                      {detail.ekspedisi_kg ? ` · ${detail.ekspedisi_kg} kg` : ''}
-                                    </td>
-                                    <td colSpan={2} className="px-3 py-2 text-right text-slate-300 tabular-nums" />
-                                    <td className="px-3 py-2 text-right text-slate-100 tabular-nums">Rp {fmtRp(Number(detail.ekspedisi_biaya) || 0)}</td>
-                                  </tr>
-                                  <tr className="bg-white/[0.05] border-t border-white/[0.08]">
-                                    <td colSpan={3} className="px-3 py-2 text-right font-semibold text-slate-200">TOTAL</td>
-                                    <td className="px-3 py-2 text-right font-bold text-white tabular-nums">
-                                      Rp {fmtRp(totalItems + (Number(detail.ekspedisi_biaya) || 0))}
-                                    </td>
-                                  </tr>
-                                </>
+                                <tr>
+                                  <td className="px-3 py-2 text-slate-300">
+                                    Ekspedisi: {detail.ekspedisi_nama || '-'}
+                                    {detail.ekspedisi_kg ? ` · ${detail.ekspedisi_kg} kg` : ''}
+                                  </td>
+                                  <td colSpan={2} className="px-3 py-2 text-right text-slate-300 tabular-nums" />
+                                  <td className="px-3 py-2 text-right text-slate-100 tabular-nums">Rp {fmtRp(Number(detail.ekspedisi_biaya) || 0)}</td>
+                                </tr>
                               )}
+                              <tr className="bg-white/[0.05] border-t border-white/[0.08]">
+                                <td colSpan={3} className="px-3 py-2 text-right font-semibold text-slate-200">GRAND TOTAL</td>
+                                <td className="px-3 py-2 text-right font-bold text-white tabular-nums">Rp {fmtRp(grandTotal)}</td>
+                              </tr>
+                              {diskonPct > 0 && (
+                                <tr>
+                                  <td colSpan={3} className="px-3 py-2 text-right text-slate-300">Diskon ({diskonPct}%)</td>
+                                  <td className="px-3 py-2 text-right text-slate-100 tabular-nums">− Rp {fmtRp(diskonAmount)}</td>
+                                </tr>
+                              )}
+                              {dpDesainAmt > 0 && (
+                                <tr>
+                                  <td colSpan={3} className="px-3 py-2 text-right text-slate-300">DP Design (dari CS Selling)</td>
+                                  <td className="px-3 py-2 text-right text-slate-100 tabular-nums">− Rp {fmtRp(dpDesainAmt)}</td>
+                                </tr>
+                              )}
+                              {dpProduksiAmt > 0 && (
+                                <tr>
+                                  <td colSpan={3} className="px-3 py-2 text-right text-slate-300">DP Produksi</td>
+                                  <td className="px-3 py-2 text-right text-blue-300 tabular-nums font-medium">− Rp {fmtRp(dpProduksiAmt)}</td>
+                                </tr>
+                              )}
+                              <tr className="bg-white/[0.05] border-t border-white/[0.08]">
+                                <td colSpan={3} className="px-3 py-2 text-right font-semibold text-slate-200">SISA TAGIHAN</td>
+                                <td className="px-3 py-2 text-right font-bold text-white tabular-nums">Rp {fmtRp(sisaTagihanRow)}</td>
+                              </tr>
                             </tbody>
                           </table>
                         </div>

@@ -611,6 +611,15 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `pelunasan_approved_at` TIMESTAMP NULL",
     ],
   },
+  {
+    // orders.diskon_pct: persen diskon yang CS Order pilih di Rincian
+    // Order (0-100). Nilai Rupiah-nya dihitung on-the-fly: diskon_pct
+    // × Grand Total ÷ 100.
+    name: '032_orders_diskon',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `diskon_pct` INT NOT NULL DEFAULT 0",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

@@ -18,31 +18,8 @@ function fmtRpPlain(n: number) {
 function parseRp(s: string): number {
   return parseInt(s.replace(/\D/g, ''), 10) || 0;
 }
-function fmtDateID(iso: string): string {
-  if (!iso) return '';
-  const m = iso.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return iso;
-  const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-  return `${parseInt(m[3], 10)} ${BULAN[parseInt(m[2], 10) - 1]} ${m[1]}`;
-}
-
-// Normalise anything MySQL2 hands back for a DATE column (string 'YYYY-MM-DD',
-// Date object, or ISO-8601 string) to the 'YYYY-MM-DD' form that
-// <input type="date"> understands. Without this a Date object stringifies
-// to "Sun Jul 13 2026 …" which the date input treats as empty.
-function isoDateOnly(v: unknown): string {
-  if (!v) return '';
-  if (v instanceof Date) {
-    if (isNaN(v.getTime())) return '';
-    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
-  }
-  const s = String(v);
-  const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
-}
 
 interface ItemLine { id: number; nama: string; qty: number; harga: number }
-interface DpLine { tanggal: string; tunai: number; trf: number; existingId?: number; tipe?: string; urutan?: number }
 
 interface Props {
   open: boolean;
@@ -86,17 +63,16 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const [ekspKg, setEkspKg] = useState<string>('');
   const [ekspBiaya, setEkspBiaya] = useState(0);
 
-  // DP schedule (4 slots)
-  const [dpLines, setDpLines] = useState<DpLine[]>([
-    { tanggal: '', tunai: 0, trf: 0 },
-    { tanggal: '', tunai: 0, trf: 0 },
-    { tanggal: '', tunai: 0, trf: 0 },
-    { tanggal: '', tunai: 0, trf: 0 },
-  ]);
+  // DP Design (dari CS Selling, read-only di modal ini). Kalau ada
+  // pre-fill dari order_payments dp_desain, jumlahnya masuk sini.
+  const [dpDesainAmount, setDpDesainAmount] = useState(0);
+  const [dpDesainPaymentId, setDpDesainPaymentId] = useState<number | null>(null);
 
   // NB
   const [nb, setNb] = useState('');
-  // DP Produksi percentage override (default 70)
+  // Diskon percentage (0-100, default 0).
+  const [diskonPct, setDiskonPct] = useState(0);
+  // DP Produksi percentage (0-100, default 70).
   const [dpProdPct, setDpProdPct] = useState(70);
   // Tracking link surfaced at the bottom in read-only mode.
   const [trackingLink, setTrackingLink] = useState('');
@@ -132,13 +108,9 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       // Clear so a fresh open (no seed) shows an empty invoice.
       setNama(''); setAlamat(''); setLeadId(''); setEkspNama(''); setEkspKg(''); setEkspBiaya(0);
       setNb(''); setTrackingLink(''); setNoOrder('');
+      setDpDesainAmount(0); setDpDesainPaymentId(null);
+      setDiskonPct(0); setDpProdPct(70);
       setItemLines([{ id: 1, nama: '', qty: 0, harga: 0 }]);
-      setDpLines([
-        { tanggal: '', tunai: 0, trf: 0 },
-        { tanggal: '', tunai: 0, trf: 0 },
-        { tanggal: '', tunai: 0, trf: 0 },
-        { tanggal: '', tunai: 0, trf: 0 },
-      ]);
       return;
     }
     const o = orders.find(x => String(x.id) === pickedOrderId);
@@ -154,6 +126,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setNb(String(o.keterangan || ''));
     setTrackingLink(String(o.tracking_link || ''));
     setNoOrder(String(o.no_order || ''));
+    // Diskon% dari order (kolom baru). Kalau tidak ada, default 0.
+    setDiskonPct(Number(o.diskon_pct) || 0);
 
     // Load item lines
     const orderItems = items.filter(it => Number(it.order_id) === Number(o.id));
@@ -168,36 +142,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       setItemLines([{ id: 1, nama: '', qty: 0, harga: 0 }]);
     }
 
-    // Load DP schedule from order_payments
-    const orderPays = payments
-      .filter(pp => Number(pp.order_id) === Number(o.id))
-      .sort((a, b) => {
-        const rank = (t: string) => t === 'dp_desain' ? 0 : t === 'dp_produksi' ? 1 : 2;
-        const ra = rank(String(a.tipe)); const rb = rank(String(b.tipe));
-        if (ra !== rb) return ra - rb;
-        return (Number(a.urutan) || 0) - (Number(b.urutan) || 0);
-      });
-
-    const dpArr: DpLine[] = [
-      { tanggal: '', tunai: 0, trf: 0 },
-      { tanggal: '', tunai: 0, trf: 0 },
-      { tanggal: '', tunai: 0, trf: 0 },
-      { tanggal: '', tunai: 0, trf: 0 },
-    ];
-    orderPays.slice(0, 4).forEach((pp, idx) => {
-      dpArr[idx] = {
-        tanggal: isoDateOnly(pp.tanggal),
-        tunai: Number(pp.tunai) || 0,
-        // If migration 022 already ran we have a proper trf column. If
-        // not, we saved the total under `amount` — display that as TRF so
-        // the row isn't blank on reload.
-        trf: Number(pp.trf) || (pp.tunai == null ? Number(pp.amount) || 0 : 0),
-        existingId: Number(pp.id),
-        tipe: String(pp.tipe),
-        urutan: Number(pp.urutan) || 1,
-      };
-    });
-    setDpLines(dpArr);
+    // Load DP Design dari CS Selling (order_payments.tipe='dp_desain').
+    // Fallback ke orders.dp_desain scalar kalau row tidak ada.
+    const dpDesainPay = payments.find(pp =>
+      Number(pp.order_id) === Number(o.id) && String(pp.tipe) === 'dp_desain'
+    );
+    setDpDesainAmount(Number(dpDesainPay?.amount) || Number(o.dp_desain) || 0);
+    setDpDesainPaymentId(dpDesainPay ? Number(dpDesainPay.id) : null);
   }, [pickedOrderId, orders, items, payments]);
 
   // One-shot migration bootstrap on modal open — makes sure migration
@@ -218,17 +169,18 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     () => itemLines.reduce((s, r) => s + (Number(r.qty) || 0) * (Number(r.harga) || 0), 0),
     [itemLines]
   );
-  const totalWithEksp = totalPembelian + (Number(ekspBiaya) || 0);
-  const dpTotal = useMemo(
-    () => dpLines.reduce((s, r) => s + (Number(r.tunai) || 0) + (Number(r.trf) || 0), 0),
-    [dpLines]
-  );
-  const dpTunai = useMemo(
-    () => dpLines.reduce((s, r) => s + (Number(r.tunai) || 0), 0),
-    [dpLines]
-  );
-  const sisaTagihan = totalWithEksp - dpTotal;
-  const dpProduksi = Math.round((sisaTagihan * dpProdPct) / 100);
+  // Grand Total = Total Pembelian + Ekspedisi (auto).
+  const grandTotal = totalPembelian + (Number(ekspBiaya) || 0);
+  // Diskon amount = grandTotal × diskonPct / 100.
+  const diskonAmount = Math.round((grandTotal * diskonPct) / 100);
+  // Sisa setelah dikurangi diskon + DP Design (dari CS Selling).
+  // DP Produksi dihitung persen dari sisa ini.
+  const totalSetelahDiskon = grandTotal - diskonAmount;
+  const sisaSetelahDpDesain = totalSetelahDiskon - (Number(dpDesainAmount) || 0);
+  const dpProduksi = Math.round((sisaSetelahDpDesain * dpProdPct) / 100);
+  // Sisa Tagihan = apa yang belum dibayar sama sekali oleh customer
+  // setelah dikurangi diskon + DP Design + DP Produksi.
+  const sisaTagihan = sisaSetelahDpDesain - dpProduksi;
 
   // ─── Helpers ───
   function addItemLine() {
@@ -239,9 +191,6 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   }
   function updateItemLine(idx: number, k: keyof ItemLine, v: string | number) {
     setItemLines(rs => rs.map((r, i) => i === idx ? { ...r, [k]: v } : r));
-  }
-  function updateDpLine(idx: number, k: keyof DpLine, v: string | number) {
-    setDpLines(rs => rs.map((r, i) => i === idx ? { ...r, [k]: v } : r));
   }
 
   // Dropdown = handoff pool for CS Order. Only orders that
@@ -403,31 +352,36 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setSaving(true);
     try {
       const orderId = Number(pickedOrderId);
-      // Update the order shell with header fields + ekspedisi + note.
-      // Ekspedisi columns may not exist yet on legacy DBs → try/catch.
+      // Update the order shell with header fields + ekspedisi + note +
+      // diskon% + scalar totals. Ekspedisi/diskon columns may not exist
+      // yet on legacy DBs → try/catch layered fallback.
+      const baseUpdate = {
+        customer_nama: nama.trim(),
+        customer_alamat: alamat,
+        lead_id: leadId ? Number(leadId) : null,
+        keterangan: nb,
+        nominal_order: grandTotal,
+        dp_produksi: dpProduksi,
+        kekurangan: sisaTagihan,
+        status: 'PENDING', // promoted from SELLING
+      } as Row;
       try {
         await dbUpdate('orders', orderId, {
-          customer_nama: nama.trim(),
-          customer_alamat: alamat,
-          lead_id: leadId ? Number(leadId) : null,
-          keterangan: nb,
+          ...baseUpdate,
           ekspedisi_nama: ekspNama || null,
           ekspedisi_kg: ekspKg ? Number(ekspKg) : null,
           ekspedisi_biaya: ekspBiaya || null,
-          nominal_order: totalWithEksp,
-          status: 'PENDING', // promoted from SELLING
+          diskon_pct: diskonPct,
         });
       } catch (err) {
-        // Fallback without new columns
-        console.warn('order update with ekspedisi failed, retrying without:', err);
-        await dbUpdate('orders', orderId, {
-          customer_nama: nama.trim(),
-          customer_alamat: alamat,
-          lead_id: leadId ? Number(leadId) : null,
-          keterangan: nb,
-          nominal_order: totalWithEksp,
-          status: 'PENDING',
-        });
+        // Fallback: drop columns yang mungkin belum ada.
+        console.warn('order update with ekspedisi/diskon failed, retrying without:', err);
+        try {
+          await dbUpdate('orders', orderId, { ...baseUpdate, diskon_pct: diskonPct });
+        } catch (err2) {
+          console.warn('order update with diskon_pct failed, retrying without:', err2);
+          await dbUpdate('orders', orderId, baseUpdate);
+        }
       }
 
       // Sync order_items: delete all existing then insert current lines
@@ -457,74 +411,57 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
         }
       }
 
-      // Sync DP schedule. Row 0 = dp_desain, rows 1..3 = dp_produksi
-      // urutan 1..3. Wipe every existing payment for this order first
-      // so the DP shape matches exactly what's on screen — otherwise a
-      // half-written row from CS Selling could stay and confuse the
-      // pre-fill on the next open. Then insert every filled row back in.
+      // Sync order_payments untuk Rincian Order versi baru:
+      //   • dp_desain (dari CS Selling) di-preserve — cuma update amount
+      //     kalau CS Order override. Bukti TF + bank + method tetap.
+      //   • dp_produksi: hapus semua row dp_produksi lama, buat SATU row
+      //     baru dengan amount = dpProduksi (hasil kalkulasi %).
+      // Row lain (tipe custom) tidak disentuh.
       const existingPayments = payments.filter(pp => Number(pp.order_id) === orderId);
-      for (const pp of existingPayments) {
+      const prevDpDesain = existingPayments.find(pp => String(pp.tipe) === 'dp_desain');
+      const oldDpProduksi = existingPayments.filter(pp => String(pp.tipe) === 'dp_produksi');
+      for (const pp of oldDpProduksi) {
         try { await dbDelete('order_payments', Number(pp.id)); } catch {}
       }
-      // Preserve bank_name / method / method_other / bukti_tf from the
-      // original CS Selling dp_desain row so re-inserting doesn't drop
-      // the transfer proof and payment method labels.
-      const prevDpDesain = existingPayments.find(pp => String(pp.tipe) === 'dp_desain');
 
-      let dpDesainSaved = 0;
-      for (let i = 0; i < dpLines.length; i++) {
-        const d = dpLines[i];
-        const rowAmount = (Number(d.tunai) || 0) + (Number(d.trf) || 0);
-        if (rowAmount === 0 && !d.tanggal) continue;
-
-        const tipe = i === 0 ? 'dp_desain' : 'dp_produksi';
-        const urutan = i === 0 ? 1 : i;
-        const carry = i === 0 && prevDpDesain ? {
-          bank_name: prevDpDesain.bank_name || null,
-          method: prevDpDesain.method || null,
-          method_other: prevDpDesain.method_other || null,
-          bukti_tf: prevDpDesain.bukti_tf || null,
-          bukti_tf_name: prevDpDesain.bukti_tf_name || null,
-        } : {};
-        const payload: Row = {
+      // Update / insert DP Desain row supaya amount konsisten dengan
+      // apa yang tampil di summary. Kalau CS Selling belum bikin, kita
+      // buat sekarang (repeat-order case) — Bukti Pembayaran page tetap
+      // bisa handle bukti untuk row ini nanti.
+      if (dpDesainAmount > 0 || prevDpDesain) {
+        const dpDesainPayload: Row = {
           order_id: orderId,
-          amount: rowAmount,
-          tanggal: d.tanggal || null,
-          tunai: d.tunai || null,
-          trf: d.trf || null,
-          tipe,
-          urutan,
-          ...carry,
+          tipe: 'dp_desain',
+          amount: dpDesainAmount || Number(prevDpDesain?.amount) || 0,
+          urutan: 1,
         };
-
         try {
-          await dbCreate('order_payments', payload);
-          dpDesainSaved++;
-        } catch (err) {
-          console.warn('payment create failed, retrying minimal:', err);
-          // Fallback drops migration-022-only columns (tanggal/tunai/trf)
-          // and any legacy columns the schema doesn't have.
-          const minimal: Row = { order_id: orderId, tipe, urutan, amount: rowAmount };
-          if (i === 0 && prevDpDesain?.bank_name) minimal.bank_name = prevDpDesain.bank_name;
-          if (i === 0 && prevDpDesain?.method) minimal.method = prevDpDesain.method;
-          try {
-            await dbCreate('order_payments', minimal);
-            dpDesainSaved++;
-          } catch (err2) {
-            console.error('payment fallback create also failed:', err2);
+          if (prevDpDesain) {
+            await dbUpdate('order_payments', Number(prevDpDesain.id), {
+              amount: dpDesainPayload.amount,
+            });
+          } else {
+            await dbCreate('order_payments', dpDesainPayload);
           }
+        } catch (err) {
+          console.warn('dp_desain sync failed:', err);
         }
       }
-      console.log('[pembayaran] dp rows persisted:', dpDesainSaved);
 
-      // Refresh scalar dp_produksi total on orders for the stat cards
-      const totalDpProduksi = dpLines.slice(1).reduce((s, r) => s + (r.tunai || 0) + (r.trf || 0), 0);
-      try {
-        await dbUpdate('orders', orderId, {
-          dp_produksi: totalDpProduksi,
-          kekurangan: sisaTagihan,
-        });
-      } catch {}
+      // Insert single DP Produksi row (amount = calc). Bukti TF-nya
+      // diisi belakangan oleh CS Order via Bukti Pembayaran menu.
+      if (dpProduksi > 0) {
+        try {
+          await dbCreate('order_payments', {
+            order_id: orderId,
+            tipe: 'dp_produksi',
+            amount: dpProduksi,
+            urutan: 1,
+          });
+        } catch (err) {
+          console.warn('dp_produksi create failed:', err);
+        }
+      }
 
       // Auto-create a WO for this order so it lands in Produksi Waiting List.
       // Reset finance_status so Finance re-approves the completed invoice
@@ -554,12 +491,10 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
           const paketNames = itemLines.map(l => l.nama).filter(Boolean).join(', ') || '-';
           const totalQty = itemLines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
           // work_orders.deadline is NOT NULL in the base schema. Prefer
-          // the last DP schedule date the CS Order typed in — that's the
-          // latest touch-point on the invoice — else fall back to a
-          // 7-day placeholder so the INSERT still lands. Production will
-          // overwrite it once wo.deadline is edited from Work Orders.
-          const lastDpTanggal = [...dpLines].reverse().find(d => d.tanggal)?.tanggal || '';
-          const woDeadline = lastDpTanggal || (() => {
+          // work_orders.deadline is NOT NULL, jadi kita kasih placeholder
+          // 7 hari ke depan. Production akan overwrite kolom ini via
+          // menu Work Orders sesuai jadwal produksi sebenarnya.
+          const woDeadline = (() => {
             const d = new Date(); d.setDate(d.getDate() + 7);
             return d.toISOString().split('T')[0];
           })();
@@ -858,67 +793,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                   <tr>
                     <td colSpan={3} className={`${cellCls} bg-slate-100 font-bold text-right`}>TOTAL</td>
                     <td className={`${cellCls} bg-slate-100 font-bold text-right tabular-nums`}>
-                      Rp {fmtRp(totalWithEksp)}
+                      Rp {fmtRp(grandTotal)}
                     </td>
                   </tr>
                 </tbody>
               </table>
 
-              {/* DP Schedule */}
-              <table className="w-full border-collapse mb-3 text-sm">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-800">
-                    <th colSpan={5} className="border border-slate-700 px-2 py-1.5 font-bold text-left">PEMBAYARAN DP</th>
-                  </tr>
-                  <tr className="bg-slate-100">
-                    <th className="border border-slate-700 px-2 py-1.5 w-36">TANGGAL</th>
-                    <th className="border border-slate-700 px-2 py-1.5 w-16">DP KE</th>
-                    <th className="border border-slate-700 px-2 py-1.5">TUNAI</th>
-                    <th className="border border-slate-700 px-2 py-1.5">TRF</th>
-                    <th className="border border-slate-700 px-2 py-1.5">TOTAL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dpLines.map((line, idx) => {
-                    const label = ['I', 'II', 'III', 'IV'][idx];
-                    const rowTotal = (line.tunai || 0) + (line.trf || 0);
-                    return (
-                      <tr key={idx}>
-                        <td className={cellCls}>
-                          <input type="date" value={line.tanggal}
-                            onChange={e => updateDpLine(idx, 'tanggal', e.target.value)}
-                            className={inputCls} readOnly={readOnly} disabled={readOnly} />
-                          {line.tanggal && (
-                            <div className="text-[10px] text-slate-500 mt-0.5">{fmtDateID(line.tanggal)}</div>
-                          )}
-                        </td>
-                        <td className={`${cellCls} text-center font-semibold`}>{label}</td>
-                        <td className={cellCls}>
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-slate-500">Rp</span>
-                            <input type="text" value={line.tunai ? fmtRpPlain(line.tunai) : ''}
-                              onChange={e => updateDpLine(idx, 'tunai', parseRp(e.target.value))}
-                              className={smInputCls} readOnly={readOnly} />
-                          </div>
-                        </td>
-                        <td className={cellCls}>
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-slate-500">Rp</span>
-                            <input type="text" value={line.trf ? fmtRpPlain(line.trf) : ''}
-                              onChange={e => updateDpLine(idx, 'trf', parseRp(e.target.value))}
-                              className={smInputCls} readOnly={readOnly} />
-                          </div>
-                        </td>
-                        <td className={`${cellCls} bg-slate-50 text-right tabular-nums`}>
-                          Rp {fmtRp(rowTotal)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {/* NB + Summary */}
+              {/* NB + Summary panel (Grand Total → Sisa Tagihan) */}
               <div className="grid grid-cols-2 gap-3 mb-2">
                 <div>
                   <div className="text-sm font-bold mb-1">NB:</div>
@@ -930,16 +811,28 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                 <table className="w-full border-collapse text-sm h-fit">
                   <tbody>
                     <tr>
-                      <td className={`${cellCls} bg-slate-100 font-bold w-24`}>Tunai</td>
-                      <td className={`${cellCls} text-right tabular-nums`}>Rp {fmtRp(dpTunai)}</td>
+                      <td className={`${cellCls} bg-slate-100 font-bold w-32`}>GRAND TOTAL</td>
+                      <td className={`${cellCls} text-right tabular-nums font-bold`}>Rp {fmtRp(grandTotal)}</td>
                     </tr>
                     <tr>
-                      <td className={`${cellCls} bg-slate-100 font-bold`}>DP</td>
-                      <td className={`${cellCls} text-right tabular-nums`}>Rp {fmtRp(dpTotal)}</td>
+                      <td className={`${cellCls} bg-slate-100 font-bold`}>
+                        DISKON
+                        <input type="number" min={0} max={100} value={diskonPct}
+                          onChange={e => setDiskonPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                          readOnly={readOnly}
+                          className="w-12 mx-1 border border-slate-300 rounded text-center text-xs" />%
+                      </td>
+                      <td className={`${cellCls} text-right tabular-nums`}>
+                        {diskonAmount > 0 ? `− Rp ${fmtRp(diskonAmount)}` : 'Rp -'}
+                      </td>
                     </tr>
                     <tr>
-                      <td className={`${cellCls} bg-slate-100 font-bold`}>SISA TAGIHAN</td>
-                      <td className={`${cellCls} text-right tabular-nums font-bold`}>Rp {fmtRp(sisaTagihan)}</td>
+                      <td className={`${cellCls} bg-slate-100 font-bold`}>DP DESIGN</td>
+                      <td className={`${cellCls} text-right tabular-nums`}>
+                        {dpDesainAmount > 0
+                          ? <>− Rp {fmtRp(dpDesainAmount)} <span className="text-[10px] text-slate-500 ml-1">(CS Selling)</span></>
+                          : <span className="text-slate-500 text-xs italic">tidak ada</span>}
+                      </td>
                     </tr>
                     <tr>
                       <td className={`${cellCls} bg-slate-100 font-bold`}>
@@ -949,7 +842,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                           readOnly={readOnly}
                           className="w-12 mx-1 border border-slate-300 rounded text-center text-xs" />%
                       </td>
-                      <td className={`${cellCls} text-right tabular-nums font-bold text-blue-700`}>Rp {fmtRp(dpProduksi)}</td>
+                      <td className={`${cellCls} text-right tabular-nums font-bold text-blue-700`}>
+                        − Rp {fmtRp(dpProduksi)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className={`${cellCls} bg-slate-100 font-bold`}>SISA TAGIHAN</td>
+                      <td className={`${cellCls} text-right tabular-nums font-bold`}>Rp {fmtRp(sisaTagihan)}</td>
                     </tr>
                   </tbody>
                 </table>
