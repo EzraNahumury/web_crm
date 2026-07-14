@@ -173,14 +173,12 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const grandTotal = totalPembelian + (Number(ekspBiaya) || 0);
   // Diskon amount = grandTotal × diskonPct / 100.
   const diskonAmount = Math.round((grandTotal * diskonPct) / 100);
-  // Sisa setelah dikurangi diskon + DP Design (dari CS Selling).
-  // DP Produksi dihitung persen dari sisa ini.
-  const totalSetelahDiskon = grandTotal - diskonAmount;
-  const sisaSetelahDpDesain = totalSetelahDiskon - (Number(dpDesainAmount) || 0);
-  const dpProduksi = Math.round((sisaSetelahDpDesain * dpProdPct) / 100);
+  // DP Produksi = grandTotal × dpProdPct / 100 (persen langsung dari
+  // Grand Total, bukan dari sisa setelah dikurangi diskon / DP Design).
+  const dpProduksi = Math.round((grandTotal * dpProdPct) / 100);
   // Sisa Tagihan = apa yang belum dibayar sama sekali oleh customer
   // setelah dikurangi diskon + DP Design + DP Produksi.
-  const sisaTagihan = sisaSetelahDpDesain - dpProduksi;
+  const sisaTagihan = grandTotal - diskonAmount - (Number(dpDesainAmount) || 0) - dpProduksi;
 
   // ─── Helpers ───
   function addItemLine() {
