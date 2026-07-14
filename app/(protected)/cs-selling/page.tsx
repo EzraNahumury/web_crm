@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
+import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
 
@@ -106,12 +106,16 @@ function SearchableSelect({
 
 // ─────────────────────────── DRAWER ───────────────────────────
 
-function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
+function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, editPayments }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
   customers: Row[];
   leads: Row[];
+  // When present, drawer runs in edit mode — pre-fills fields and
+  // saves via UPDATE instead of INSERT.
+  editOrder?: Row | null;
+  editPayments?: Row[];
 }) {
   const toast = useToast();
   const [saving, setSaving] = useState(false);
@@ -137,6 +141,13 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
   const [buktiTf, setBuktiTf] = useState<string | null>(null);
   const [buktiTfName, setBuktiTfName] = useState('');
   const [keterangan, setKeterangan] = useState('');
+  // Pilihan Layanan — mirrors the legacy create drawer:
+  //   Reguler  → no extra field
+  //   Express  → wajib pilih Durasi Express
+  //   Prioritas → wajib pilih Deadline Lock (tanggal)
+  const [pilihanLayanan, setPilihanLayanan] = useState('');
+  const [expressDurasi, setExpressDurasi] = useState('');
+  const [deadlineLock, setDeadlineLock] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: provinces } = useWilayah('provinces');
@@ -168,12 +179,60 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
     }
   }
 
+  // Prefill on open when editing an existing order. Runs on every
+  // (open + editOrder id) change so switching between edits reloads
+  // the form. We rely on the caller passing latest editPayments too.
+  // When switching from an edit back to a fresh create, reset state
+  // so we don't leak the previous edit's values.
+  useEffect(() => {
+    if (!open) return;
+    if (!editOrder) { reset(); return; }
+    const o = editOrder;
+    setCustomer(String(o.customer_nama || ''));
+    setCustomerId(o.customer_id ? String(o.customer_id) : '');
+    setAlamat(String(o.customer_alamat || ''));
+    setProvinsi(String(o.customer_provinsi || ''));
+    setKabupaten(String(o.customer_kabupaten || ''));
+    setKecamatan(String(o.customer_kecamatan || ''));
+    setNoHp(String(o.customer_phone || ''));
+    setLeadId(o.lead_id ? String(o.lead_id) : '');
+    setNamaTim(String(o.nama_tim || ''));
+    setKeterangan(String(o.keterangan || ''));
+    // Decode pilihan_paket. Reguler/Prioritas are stored plain;
+    // Express is "Express - <durasi>".
+    const raw = String(o.pilihan_paket || '');
+    if (raw.startsWith('Express')) {
+      setPilihanLayanan('Express');
+      const parts = raw.split(' - ');
+      setExpressDurasi(parts[1] || '');
+    } else if (raw === 'Prioritas') {
+      setPilihanLayanan('Prioritas');
+      setDeadlineLock(String(o.deadline_lock || '').slice(0, 10));
+    } else if (raw === 'Reguler') {
+      setPilihanLayanan('Reguler');
+    } else {
+      setPilihanLayanan('');
+    }
+    const dpDesain = (editPayments || []).find(p => String(p.tipe) === 'dp_desain');
+    if (dpDesain) {
+      setDpAmount(Number(dpDesain.amount) || 0);
+      setDpBank(String(dpDesain.bank_name || ''));
+      setDpMethod(String(dpDesain.method || ''));
+      setDpMethodOther(String(dpDesain.method_other || ''));
+      setBuktiTf(dpDesain.bukti_tf ? String(dpDesain.bukti_tf) : null);
+      setBuktiTfName(String(dpDesain.bukti_tf_name || ''));
+    } else {
+      setDpAmount(Number(o.dp_desain) || 0);
+    }
+  }, [open, editOrder, editPayments]);
+
   function reset() {
     setCustomer(''); setCustomerId(''); setAlamat('');
     setProvId(''); setProvinsi(''); setKabId(''); setKabupaten(''); setKecId(''); setKecamatan('');
     setNoHp(''); setLeadId(''); setNamaTim('');
     setDpAmount(0); setDpBank(''); setDpMethod(''); setDpMethodOther('');
     setKeterangan('');
+    setPilihanLayanan(''); setExpressDurasi(''); setDeadlineLock('');
     setBuktiTf(null); setBuktiTfName('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
@@ -220,6 +279,9 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
     if (!alamat.trim()) missing.push('Alamat');
     if (!noHp.trim()) missing.push('No HP');
     if (!leadId) missing.push('Leads');
+    if (!pilihanLayanan) missing.push('Pilihan Layanan');
+    if (pilihanLayanan === 'Express' && !expressDurasi) missing.push('Durasi Express');
+    if (pilihanLayanan === 'Prioritas' && !deadlineLock) missing.push('Deadline Lock');
     if (missing.length > 0) {
       toast.warning('Wajib Diisi', missing.join(', '));
       return;
@@ -245,12 +307,6 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
         }
       }
 
-      const allOrders = await dbGet('orders');
-      const maxNum = allOrders.reduce((max: number, o: { no_order?: string }) => {
-        const m = o.no_order?.match(/^ORD(\d+)$/);
-        return m ? Math.max(max, parseInt(m[1], 10)) : max;
-      }, 0);
-      const noOrder = `ORD${String(maxNum + 1).padStart(3, '0')}`;
       const todayIso = new Date().toISOString().split('T')[0];
       // orders.estimasi_deadline is NOT NULL in the base schema — CS Order
       // will overwrite it via Pembayaran, but on strict-mode DBs the insert
@@ -260,10 +316,15 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
         return d.toISOString().split('T')[0];
       })();
 
-      // Base payload every branch shares. Optional columns (created_via)
-      // only sit in the branch that expects them.
-      const baseOrderPayload = {
-        no_order: noOrder,
+      // Reproduce the legacy create drawer's encoding:
+      //   Express with a durasi becomes "Express - 3 hari"
+      //   Prioritas stores its picked date in deadline_lock
+      const pilihanPaketValue = pilihanLayanan
+        ? (pilihanLayanan === 'Express' && expressDurasi ? `Express - ${expressDurasi}` : pilihanLayanan)
+        : null;
+
+      // Shared payload minus keys that only apply to insert vs update.
+      const sharedPayload = {
         customer_id: custId,
         customer_nama: customer.trim(),
         customer_phone: noHp || null,
@@ -273,27 +334,60 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
         customer_provinsi: provinsi || null,
         lead_id: leadId ? Number(leadId) : null,
         nama_tim: namaTim || null,
-        tanggal_order: todayIso,
-        estimasi_deadline: weekLaterIso,
-        status: 'SELLING',
         dp_desain: dpAmount || 0,
         keterangan: keterangan.trim() || null,
+        pilihan_paket: pilihanPaketValue,
+        deadline_lock: pilihanLayanan === 'Prioritas' && deadlineLock ? deadlineLock : null,
       };
 
       let orderId: number;
-      try {
-        orderId = await dbCreate('orders', { ...baseOrderPayload, created_via: 'CS_SELLING' });
-      } catch (err) {
-        console.warn('orders insert with created_via failed, retrying without:', err);
-        orderId = await dbCreate('orders', baseOrderPayload);
+      let noOrder = '';
+
+      if (editOrder) {
+        // Edit mode — update in place, keep no_order / status / dates.
+        orderId = Number(editOrder.id);
+        noOrder = String(editOrder.no_order || `#${orderId}`);
+        try {
+          await dbUpdate('orders', orderId, sharedPayload);
+        } catch (err) {
+          console.error('[cs-selling] update order failed:', err);
+          toast.error('Gagal Update', String(err));
+          setSaving(false);
+          return;
+        }
+      } else {
+        const allOrders = await dbGet('orders');
+        const maxNum = allOrders.reduce((max: number, o: { no_order?: string }) => {
+          const m = o.no_order?.match(/^ORD(\d+)$/);
+          return m ? Math.max(max, parseInt(m[1], 10)) : max;
+        }, 0);
+        noOrder = `ORD${String(maxNum + 1).padStart(3, '0')}`;
+
+        const baseOrderPayload = {
+          ...sharedPayload,
+          no_order: noOrder,
+          tanggal_order: todayIso,
+          estimasi_deadline: weekLaterIso,
+          status: 'SELLING',
+        };
+
+        try {
+          orderId = await dbCreate('orders', { ...baseOrderPayload, created_via: 'CS_SELLING' });
+        } catch (err) {
+          console.warn('orders insert with created_via failed, retrying without:', err);
+          orderId = await dbCreate('orders', baseOrderPayload);
+        }
+        console.log('[cs-selling] order created', { orderId, noOrder, status: 'SELLING' });
       }
-      console.log('[cs-selling] order created', { orderId, noOrder, status: 'SELLING' });
 
       // Verify the DB actually stored 'SELLING' — legacy schema had
       // orders.status as ENUM without 'SELLING', which silently coerces
       // to the default 'PENDING' on non-strict MySQL. If we see that,
       // force-run migrations, then try to UPDATE the status back.
-      try {
+      // Skip when editing — the row's status was already set correctly
+      // at create time and we don't want to bump it out of a downstream
+      // state (e.g. PENDING → SELLING).
+      if (!editOrder) try {
         const check = await dbGet('orders', undefined, { id: orderId });
         const storedStatus = String((check[0] as Row)?.status || '').toUpperCase();
         if (storedStatus !== 'SELLING') {
@@ -324,9 +418,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
       if (dpAmount > 0 || buktiTf) {
         // Try the full insert first (needs migration 021 for bukti_tf).
         // If the column doesn't exist yet, retry without it so at least
-        // the amount + bank + method land in order_payments. Finance
-        // sees "Belum ada bukti TF" and CS Selling can re-upload once
-        // migrations catch up.
+        // the amount + bank + method land in order_payments.
         const basePayment = {
           order_id: orderId,
           tipe: 'dp_desain',
@@ -336,22 +428,31 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
           method_other: dpMethod === 'DLL' ? (dpMethodOther || null) : null,
           urutan: 1,
         };
+        const fullPayment = { ...basePayment, bukti_tf: buktiTf || null, bukti_tf_name: buktiTfName || null };
+
+        // When editing, reuse the existing dp_desain row if there is one
+        // so we don't stack duplicates. Otherwise insert fresh.
+        const existingDp = editOrder ? (editPayments || []).find(p => String(p.tipe) === 'dp_desain') : null;
         try {
-          await dbCreate('order_payments', {
-            ...basePayment,
-            bukti_tf: buktiTf || null,
-            bukti_tf_name: buktiTfName || null,
-          });
+          if (existingDp) {
+            await dbUpdate('order_payments', Number(existingDp.id), fullPayment);
+          } else {
+            await dbCreate('order_payments', fullPayment);
+          }
         } catch (err) {
-          console.warn('order_payments insert with bukti_tf failed, retrying without:', err);
+          console.warn('order_payments write with bukti_tf failed, retrying without:', err);
           try {
-            await dbCreate('order_payments', basePayment);
+            if (existingDp) {
+              await dbUpdate('order_payments', Number(existingDp.id), basePayment);
+            } else {
+              await dbCreate('order_payments', basePayment);
+            }
             if (buktiTf) {
               toast.warning('Bukti TF Belum Tersimpan',
                 'Order + nominal tersimpan tapi bukti TF gagal upload. Jalankan /api/admin/run-migrations lalu upload ulang.');
             }
           } catch (err2) {
-            console.warn('order_payments fallback insert also failed:', err2);
+            console.warn('order_payments fallback write also failed:', err2);
             toast.warning('Detail DP Belum Tersimpan',
               'Order tersimpan tapi detail bank/bukti TF belum. Jalankan /api/admin/run-migrations.');
           }
@@ -359,7 +460,11 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
       }
 
       invalidateCache('wp_orders', 'wp_dashboard');
-      toast.success('Order CS Selling Tersimpan', `${noOrder} diteruskan ke CS Order untuk dilengkapi.`);
+      if (editOrder) {
+        toast.success('Order CS Selling Diperbarui', `${noOrder} berhasil diperbarui.`);
+      } else {
+        toast.success('Order CS Selling Tersimpan', `${noOrder} diteruskan ke CS Order untuk dilengkapi.`);
+      }
       reset();
       // Wait for the parent to refetch so the new row is definitely on
       // screen before the drawer disappears — closes the race where the
@@ -382,7 +487,9 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
       <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[440px] bg-[#0c1120] border-l border-white/[0.06] shadow-2xl shadow-black/50 flex flex-col animate-slide-in-right">
         <div className="px-6 py-5 border-b border-white/[0.06] flex items-center justify-between shrink-0">
-          <h2 className="text-lg font-bold text-white">Buat Order Baru</h2>
+          <h2 className="text-lg font-bold text-white">
+            {editOrder ? `Update Order ${editOrder.no_order || ''}` : 'Buat Order Baru'}
+          </h2>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -473,10 +580,52 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
 
           <section>
             <h3 className="text-sm font-bold text-white mb-3">Data Order</h3>
-            <div>
-              <label className={labelCls}>Nama Tim</label>
-              <input type="text" value={namaTim} onChange={e => setNamaTim(e.target.value)}
-                placeholder="Nama tim" className={inputCls} />
+            <div className="space-y-3">
+              <div>
+                <label className={labelCls}>Nama Tim</label>
+                <input type="text" value={namaTim} onChange={e => setNamaTim(e.target.value)}
+                  placeholder="Nama tim" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Pilihan Layanan <span className="text-rose-400">*</span></label>
+                <select
+                  value={pilihanLayanan}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setPilihanLayanan(v);
+                    if (v !== 'Express') setExpressDurasi('');
+                    if (v !== 'Prioritas') setDeadlineLock('');
+                  }}
+                  className={`${inputCls} appearance-none cursor-pointer`}
+                >
+                  <option value="">Pilih layanan...</option>
+                  <option value="Reguler">Reguler</option>
+                  <option value="Express">Express</option>
+                  <option value="Prioritas">Prioritas</option>
+                </select>
+              </div>
+              {pilihanLayanan === 'Express' && (
+                <div>
+                  <label className={labelCls}>Durasi Express <span className="text-rose-400">*</span></label>
+                  <select value={expressDurasi} onChange={e => setExpressDurasi(e.target.value)}
+                    className={`${inputCls} appearance-none cursor-pointer`}>
+                    <option value="">Pilih durasi...</option>
+                    <option value="1 hari">1 hari</option>
+                    <option value="3 hari">3 hari</option>
+                    <option value="5 hari">5 hari</option>
+                    <option value="7 hari">7 hari</option>
+                    <option value="10 - 12 hari">10 - 12 hari</option>
+                  </select>
+                </div>
+              )}
+              {pilihanLayanan === 'Prioritas' && (
+                <div>
+                  <label className={labelCls}>Deadline Lock <span className="text-rose-400">*</span></label>
+                  <input type="date" value={deadlineLock} onChange={e => setDeadlineLock(e.target.value)}
+                    className={inputCls} />
+                  <p className="text-[11px] text-slate-500 mt-1">CS input tanggal deadline khusus untuk pesanan Prioritas.</p>
+                </div>
+              )}
             </div>
           </section>
 
@@ -572,7 +721,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads }: {
           </button>
           <button onClick={handleSave} disabled={saving}
             className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 px-5 py-2 rounded-lg transition-colors disabled:opacity-50">
-            {saving ? 'Menyimpan...' : 'Simpan'}
+            {saving ? 'Menyimpan...' : (editOrder ? 'Update' : 'Simpan')}
           </button>
         </div>
       </div>
@@ -590,6 +739,11 @@ export default function CsSellingPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // When editOrder is set, the drawer opens in edit mode with the row's
+  // data pre-filled. Closing the drawer clears it, so opening "Buat
+  // Order Baru" always lands in create mode.
+  const [editOrder, setEditOrder] = useState<Row | null>(null);
+  const toast = useToast();
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -613,6 +767,43 @@ export default function CsSellingPage() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Payments belonging to the currently-editing order, passed into the
+  // drawer so it can pre-fill DP Desain amount + bukti TF.
+  const editPayments = useMemo(() => {
+    if (!editOrder) return [];
+    return payments.filter(p => Number(p.order_id) === Number(editOrder.id));
+  }, [payments, editOrder]);
+
+  function openEdit(o: Row) {
+    setEditOrder(o);
+    setDrawerOpen(true);
+  }
+
+  async function handleDelete(o: Row) {
+    const yes = await toast.confirm({
+      title: 'Hapus Order?',
+      message: `Order ${o.no_order || `#${o.id}`} akan dihapus permanen. Pembayaran + bukti TF-nya juga terhapus.`,
+      type: 'danger',
+      confirmText: 'Ya, Hapus',
+    });
+    if (!yes) return;
+    const orderId = Number(o.id);
+    try {
+      // Best-effort delete each related order_payments row. If the FK is
+      // set to ON DELETE CASCADE these become redundant but harmless.
+      const rowPayments = payments.filter(p => Number(p.order_id) === orderId);
+      for (const p of rowPayments) {
+        try { await dbDelete('order_payments', Number(p.id)); } catch {}
+      }
+      await dbDelete('orders', orderId);
+      invalidateCache('wp_orders', 'wp_dashboard');
+      toast.deleted('Order Dihapus', `${o.no_order || `#${orderId}`} berhasil dihapus.`);
+      await fetchAll();
+    } catch (e) {
+      toast.error('Gagal Hapus', String(e));
+    }
+  }
 
   // One-shot migration bootstrap. In production, new schema migrations
   // (like widening orders.status from ENUM to VARCHAR so 'SELLING' can
@@ -694,7 +885,7 @@ export default function CsSellingPage() {
             </svg>
             Refresh
           </button>
-          <button onClick={() => setDrawerOpen(true)}
+          <button onClick={() => { setEditOrder(null); setDrawerOpen(true); }}
             className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
             Buat Order Baru
@@ -741,13 +932,14 @@ export default function CsSellingPage() {
                 <th className="text-center px-4 py-3">Bukti TF</th>
                 <th className="text-left px-4 py-3">Tgl Order</th>
                 <th className="text-left px-4 py-3">Finance</th>
+                <th className="text-right px-4 py-3">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">Memuat...</td></tr>
+                <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-slate-500">Memuat...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
+                <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-slate-500">
                   Belum ada order menunggu. Klik <strong className="text-white">Buat Order Baru</strong> untuk mulai.
                 </td></tr>
               ) : filtered.map((o: Row, i: number) => {
@@ -791,6 +983,28 @@ export default function CsSellingPage() {
                         {financeChip.label}
                       </span>
                     </td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => openEdit(o)}
+                          title="Edit order"
+                          className="text-slate-500 hover:text-amber-400 transition-colors p-1"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDelete(o)}
+                          title="Hapus order"
+                          className="text-slate-500 hover:text-rose-400 transition-colors p-1"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -801,10 +1015,12 @@ export default function CsSellingPage() {
 
       <CsSellingDrawer
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        onClose={() => { setDrawerOpen(false); setEditOrder(null); }}
         onSaved={fetchAll}
         customers={customers}
         leads={leads}
+        editOrder={editOrder}
+        editPayments={editPayments}
       />
     </div>
   );
