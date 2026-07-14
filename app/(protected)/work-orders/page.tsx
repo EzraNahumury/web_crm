@@ -115,7 +115,24 @@ export default function WorkOrdersPage() {
       const allOrders = await dbGet('orders');
       const wos = await dbGet('work_orders');
       const usedOrderIds = new Set(wos.map((w: Row) => w.order_id));
-      setPendingOrders(allOrders.filter((o: Row) => !usedOrderIds.has(o.id)));
+      // Filter:
+      //   • order yang sudah punya WO → hide
+      //   • status=SELLING → belum siap (CS Order belum isi Rincian
+      //     Order); WO akan auto-terbuat waktu CS Order Simpan
+      //     Pembayaran. Jangan tampilkan di sini supaya operator
+      //     tidak duplicate.
+      //   • status=DONE → sudah selesai, tidak perlu WO baru.
+      // Sisanya (PENDING legacy, atau PENDING dari CS Selling yang
+      // auto-WO-nya gagal karena schema issue) tetap muncul supaya
+      // admin bisa buat manual.
+      setPendingOrders(
+        allOrders.filter((o: Row) => {
+          if (usedOrderIds.has(o.id)) return false;
+          const st = String(o.status || '').toUpperCase();
+          if (st === 'SELLING' || st === 'DONE') return false;
+          return true;
+        })
+      );
     } catch { setPendingOrders([]); }
   }
 
