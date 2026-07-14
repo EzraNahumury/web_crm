@@ -601,12 +601,11 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
           'Order tersimpan tapi WO otomatis belum terbentuk. Buat WO manual dari Menu Work Orders.');
       }
 
-      // Reset finance_status so Finance re-reviews the full invoice
-      // (with items, ekspedisi, and DP schedule) before production
-      // is allowed to leave Waiting List.
-      try {
-        await dbUpdate('orders', orderId, { finance_status: null, finance_notes: null });
-      } catch {}
+      // Do NOT touch finance_status here. In the new two-step CS Order
+      // flow, Finance re-review is triggered only after CS Order finishes
+      // the Bukti Pembayaran submenu (which flips bukti_uploaded=1 and
+      // resets finance_status). Rincian Order save alone shouldn't
+      // requeue the order at Finance — it's not ready yet.
 
       invalidateCache('wp_orders', 'wp_dashboard');
       // Refetch the modal's own payments/items list so the pre-fill
@@ -684,7 +683,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
               <div className="flex items-center justify-between mb-4">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/logo/new logo.png" alt="AYRES" className="h-10 opacity-90" />
-                <h1 className="text-2xl font-bold tracking-wide text-slate-900">PEMBAYARAN AYRES</h1>
+                <h1 className="text-2xl font-bold tracking-wide text-slate-900">RINCIAN ORDER</h1>
                 <div className="w-24 text-right text-[10px] text-slate-500">Invoice</div>
               </div>
 

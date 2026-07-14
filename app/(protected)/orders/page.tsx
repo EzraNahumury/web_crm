@@ -309,7 +309,7 @@ export default function OrdersPage() {
           <button onClick={() => { setPembayaranOrderId(null); setPembayaranReadOnly(false); setPembayaranOpen(true); }}
             className="flex items-center gap-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white px-4 py-2 rounded-xl text-[13px] font-medium transition-colors shadow-lg shadow-fuchsia-600/20">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            Pembayaran AYRES
+            Rincian Order
           </button>
           {/* "Order Baru" / "Input Order" removed — CS Order only edits orders
               seeded by CS Selling and never creates from scratch. */}
@@ -420,7 +420,7 @@ export default function OrdersPage() {
                               setPembayaranReadOnly(false);
                               setPembayaranOpen(true);
                             }}
-                            title="Buka form PEMBAYARAN AYRES pre-filled dari CS Selling"
+                            title="Buka form RINCIAN ORDER pre-filled dari CS Selling"
                             className="text-[10px] px-2 py-0.5 rounded-full font-medium border border-fuchsia-500/30 text-fuchsia-300 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 whitespace-nowrap transition-colors">
                             Dari CS Selling → Isi Pembayaran
                           </button>
@@ -444,7 +444,7 @@ export default function OrdersPage() {
                             setPembayaranReadOnly(false);
                             setPembayaranOpen(true);
                           }}
-                          className="text-white/15 hover:text-amber-400 transition-colors p-1" title="Edit Pembayaran AYRES">
+                          className="text-white/15 hover:text-amber-400 transition-colors p-1" title="Edit Rincian Order">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                         </button>
                         <button onClick={async e => { e.stopPropagation(); const yes = await toast.confirm({ title: 'Hapus Order?', message: 'Order ini akan dihapus permanen.', type: 'danger', confirmText: 'Ya, Hapus' }); if(!yes) return; try { const { dbDelete: del } = await import('@/lib/api-db'); await del('orders', order.rowIndex); invalidateCache('wp_orders','wp_dashboard'); toast.deleted('Order Dihapus'); fetchOrders(); } catch {} }}

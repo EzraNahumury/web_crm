@@ -571,6 +571,22 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `finance_notes` TEXT NULL",
     ],
   },
+  {
+    // Two-step CS Order handoff to Finance:
+    //   1. CS Order fills Rincian Order (Pembayaran modal) → nothing
+    //      goes to Finance yet, WO auto-created in Waiting List (locked).
+    //   2. CS Order goes to Bukti Pembayaran submenu and uploads a
+    //      transfer proof for each filled DP Produksi row. When done,
+    //      bukti_uploaded flips to 1, finance_status resets to NULL,
+    //      and the order shows in Approval Finance for full-invoice
+    //      review.
+    // Legacy orders that predate this two-step flow keep bukti_uploaded=0
+    // and are gated only by finance_status (see Waiting List check).
+    name: '030_orders_bukti_uploaded',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `bukti_uploaded` TINYINT(1) NOT NULL DEFAULT 0",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

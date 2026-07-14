@@ -263,19 +263,24 @@ export default function ProduksiPage() {
     return !(conf === 1 || conf === true || conf === undefined);
   }
 
-  // Gate for Waiting List → Approval Design: Finance must have approved
-  // the completed invoice from CS Order first. Legacy orders without a
-  // finance_status column are treated as approved so they aren't stuck.
+  // Gate for Waiting List → Approval Design. Two-step CS Order flow:
+  //   1. CS Order fills Rincian Order → WO auto-created here, but
+  //      bukti_uploaded is still 0 (user hasn't uploaded proofs yet).
+  //   2. CS Order fills Bukti Pembayaran → bukti_uploaded=1 and
+  //      finance_status resets to NULL so Finance can review the
+  //      full invoice.
+  //   3. Finance approves → finance_status='APPROVED'. Only now is
+  //      the Waiting List row cleared to move on.
+  // Legacy CS_ORDER rows never touched this flow, so they aren't gated.
   function isWaitingListGated(item: Row): boolean {
     if (activeStage !== 'Waiting List') return false;
     const ord = ordersById[Number(item.wo?.order_id)];
     if (!ord) return false;
-    // Only gate CS_SELLING-originated orders. Legacy CS_ORDER rows
-    // don't have finance approval in this flow.
     const via = String(ord.created_via || '').toUpperCase();
     if (via !== 'CS_SELLING') return false;
     const fs = String(ord.finance_status || '').toUpperCase();
-    return fs !== 'APPROVED';
+    const buktiDone = Number(ord.bukti_uploaded) === 1;
+    return !(fs === 'APPROVED' && buktiDone);
   }
 
   // Return the most recent non-terminal reject for a given WO at the
@@ -307,7 +312,14 @@ export default function ProduksiPage() {
   // and completed_at) and advances the next stage to TERSEDIA in one shot.
   async function handleSelesai(progressRow: Row) {
     if (isWaitingListGated(progressRow)) {
-      toast.error('Menunggu Approval Finance', 'Finance belum menyetujui invoice. Buka menu Approval Finance untuk review.');
+      const ord = ordersById[Number(progressRow.wo?.order_id)];
+      const buktiPending = ord && Number(ord.bukti_uploaded) !== 1;
+      toast.error(
+        buktiPending ? 'Bukti Pembayaran Belum Lengkap' : 'Menunggu Approval Finance',
+        buktiPending
+          ? 'CS Order belum upload bukti pembayaran DP Produksi di menu Bukti Pembayaran.'
+          : 'Finance belum menyetujui invoice. Buka menu Approval Finance untuk review.'
+      );
       return;
     }
     if (isProofingGated(progressRow)) {
@@ -571,11 +583,18 @@ export default function ProduksiPage() {
               const gatedProof = isProofingGated(item);
               const gatedReject = isRejectGated(item);
               const gated = gatedWaiting || gatedProof || gatedReject;
+              // Differentiate whether the block is at the Bukti step or
+              // the Finance approve step so the operator knows who
+              // needs to act.
+              const waitingOrd = gatedWaiting ? ordersById[Number(item.wo?.order_id)] : null;
+              const buktiPending = waitingOrd && Number(waitingOrd.bukti_uploaded) !== 1;
               const gateLabel = gatedWaiting
-                ? 'Menunggu Finance'
+                ? (buktiPending ? 'Menunggu Bukti' : 'Menunggu Finance')
                 : gatedProof ? 'Menunggu WO' : gatedReject ? 'Menunggu Gudang' : 'Selesai & Lanjut';
               const gateTitle = gatedWaiting
-                ? 'Finance belum approve invoice — buka menu Approval Finance'
+                ? (buktiPending
+                    ? 'CS Order belum upload bukti pembayaran DP Produksi'
+                    : 'Finance belum approve invoice — buka menu Approval Finance')
                 : gatedProof
                   ? 'Buat/konfirmasi WO di Menu Work Orders dulu'
                   : gatedReject

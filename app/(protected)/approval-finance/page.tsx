@@ -30,6 +30,7 @@ export default function ApprovalFinancePage() {
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Row[]>([]);
   const [payments, setPayments] = useState<Row[]>([]);
+  const [items, setItems] = useState<Row[]>([]);
   const [leads, setLeads] = useState<Row[]>([]);
   const [detail, setDetail] = useState<Row | null>(null);
   const [notes, setNotes] = useState('');
@@ -40,34 +41,44 @@ export default function ApprovalFinancePage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [o, p, l] = await Promise.all([
+      const [o, p, l, it] = await Promise.all([
         dbGet('orders').catch(() => []),
         dbGet('order_payments').catch(() => []),
         dbGet('leads').catch(() => []),
+        dbGet('order_items').catch(() => []),
       ]);
       setOrders(o);
       setPayments(p);
       setLeads(l);
+      setItems(it);
     } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Finance's scope covers three cases:
-  //   • status='SELLING'      — initial DP Desain approval.
-  //   • CS_SELLING originated — anything Finance owned at some point.
-  //   • has finance_status    — legacy rows Finance already touched
-  //                             (protects orders created before
-  //                             migration 023 stamped created_via).
-  // Anything DONE is excluded — no work left for Finance there.
+  // Finance's scope covers two review moments:
+  //   • DP Desain review — order still at status='SELLING' (initial
+  //     handoff from CS Selling).
+  //   • Invoice review — CS Order finished both Rincian and Bukti
+  //     Pembayaran, so bukti_uploaded=1. Until Bukti step is done,
+  //     the order sits with CS Order and is NOT queued for Finance.
+  //   • Anything Finance already stamped (APPROVED/REJECTED) also
+  //     shows in the "Semua" tab as history — plus rejects go into
+  //     the Ditolak tab so CS Selling can see the note.
+  // DONE is excluded — no work left for Finance there.
   const scoped = useMemo(() => {
     return orders.filter(o => {
       const st = String(o.status || '').toUpperCase();
       const via = String(o.created_via || '').toUpperCase();
       const fs = String(o.finance_status || '').toUpperCase();
+      const buktiDone = Number(o.bukti_uploaded) === 1;
       if (st === 'DONE') return false;
-      return st === 'SELLING' || via === 'CS_SELLING' || fs !== '';
+      if (via !== 'CS_SELLING' && fs === '') return false;
+      // Menunggu Bukti belum masuk Finance.
+      const rincianDone = st !== 'SELLING';
+      if (rincianDone && !buktiDone && fs === '') return false;
+      return true;
     });
   }, [orders]);
 
@@ -245,18 +256,21 @@ export default function ApprovalFinancePage() {
                     <td className="px-4 py-3.5 text-right">
                       <div className="inline-flex items-center gap-2">
                         {(() => {
-                          // Stage differentiator: SELLING = first approval
-                          // on the DP Desain from CS Selling; anything else
-                          // (typically PENDING) = re-approval on the full
-                          // invoice that CS Order just finished.
+                          // Stage differentiator:
+                          //   SELLING → approval pertama: DP Desain
+                          //     dari CS Selling.
+                          //   bukti_uploaded=1 → approval kedua:
+                          //     full invoice + semua bukti DP Produksi
+                          //     dari CS Order.
                           const st = String(o.status || '').toUpperCase();
-                          const isCsOrder = st !== 'SELLING';
+                          const buktiDone = Number(o.bukti_uploaded) === 1;
+                          const isCsOrder = st !== 'SELLING' && buktiDone;
                           const chipCls = isCsOrder
                             ? 'text-blue-300 bg-blue-500/10 border-blue-500/30'
                             : 'text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/30';
                           const chipLabel = isCsOrder ? 'dari CS Order' : 'dari CS Selling';
                           const chipTitle = isCsOrder
-                            ? 'Approval kedua — Finance review invoice lengkap dari CS Order'
+                            ? 'Approval invoice lengkap — Finance review Rincian Order + semua bukti DP Produksi'
                             : 'Approval pertama — Finance verifikasi DP Desain dari CS Selling';
                           return (
                             <span title={chipTitle}
@@ -282,18 +296,36 @@ export default function ApprovalFinancePage() {
       {detail && (() => {
         const p = paymentsByOrder[Number(detail.id)] || [];
         const dpDesain = p.find((x: Row) => String(x.tipe) === 'dp_desain');
+        const dpProduksi = p
+          .filter((x: Row) => String(x.tipe) === 'dp_produksi')
+          .sort((a: Row, b: Row) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
         const dpAmt = Number(dpDesain?.amount || detail.dp_desain || 0);
         const fs = String(detail.finance_status || '').toUpperCase();
         const isPending = fs === '' || fs === 'PENDING';
         const isDone = fs === 'APPROVED' || fs === 'REJECTED';
+        // Stage-aware detail: post-Bukti orders show a full Rincian
+        // Order block (items + ekspedisi + all DP schedule) so Finance
+        // can approve the whole invoice, not just the initial DP.
+        const st = String(detail.status || '').toUpperCase();
+        const buktiDone = Number(detail.bukti_uploaded) === 1;
+        const isInvoiceStage = st !== 'SELLING' && buktiDone;
+        const detailItems = items
+          .filter((it: Row) => Number(it.order_id) === Number(detail.id))
+          .sort((a: Row, b: Row) => Number(a.id) - Number(b.id));
+        const totalItems = detailItems.reduce(
+          (s, it) => s + (Number(it.qty) || 0) * (Number(it.harga) || 0),
+          0
+        );
         return (
           <>
             <div className="fixed inset-0 bg-black/50 z-40" onClick={closeDetail} />
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-              <div className="w-full max-w-2xl bg-[#111827] border border-white/[0.06] rounded-xl shadow-2xl shadow-black/50 flex flex-col max-h-[92vh]">
+              <div className={`w-full ${isInvoiceStage ? 'max-w-4xl' : 'max-w-2xl'} bg-[#111827] border border-white/[0.06] rounded-xl shadow-2xl shadow-black/50 flex flex-col max-h-[92vh]`}>
                 <div className="px-6 py-4 border-b border-white/[0.06] flex items-start justify-between shrink-0">
                   <div>
-                    <h3 className="text-base font-semibold text-white">Review Order {detail.no_order}</h3>
+                    <h3 className="text-base font-semibold text-white">
+                      {isInvoiceStage ? 'Review Invoice' : 'Review DP Desain'} — {detail.no_order}
+                    </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
                       {detail.customer_nama} · {detail.customer_phone || '-'}
                     </p>
@@ -314,6 +346,73 @@ export default function ApprovalFinancePage() {
                       <InfoRow label="Keterangan" value={String(detail.keterangan)} full />
                     )}
                   </div>
+
+                  {isInvoiceStage && (
+                    <>
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1.5">Rincian Order</div>
+                        <div className="border border-white/10 rounded-lg overflow-hidden bg-[#0d1117]">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b border-white/10 text-slate-500 uppercase tracking-wider text-[10px]">
+                                <th className="text-left px-3 py-2">Nama Barang</th>
+                                <th className="text-right px-3 py-2 w-16">Qty</th>
+                                <th className="text-right px-3 py-2 w-32">Harga</th>
+                                <th className="text-right px-3 py-2 w-32">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detailItems.length === 0 ? (
+                                <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-500">Belum ada item.</td></tr>
+                              ) : detailItems.map((it: Row) => {
+                                const qty = Number(it.qty) || 0;
+                                const harga = Number(it.harga) || 0;
+                                return (
+                                  <tr key={it.id} className="border-b border-white/[0.04]">
+                                    <td className="px-3 py-2 text-slate-200">{it.paket_nama || '-'}</td>
+                                    <td className="px-3 py-2 text-right text-slate-300 tabular-nums">{qty}</td>
+                                    <td className="px-3 py-2 text-right text-slate-300 tabular-nums">Rp {fmtRp(harga)}</td>
+                                    <td className="px-3 py-2 text-right text-slate-100 font-medium tabular-nums">Rp {fmtRp(qty * harga)}</td>
+                                  </tr>
+                                );
+                              })}
+                              <tr className="bg-white/[0.03]">
+                                <td colSpan={3} className="px-3 py-2 text-right font-semibold text-slate-300">TOTAL PEMBELIAN</td>
+                                <td className="px-3 py-2 text-right font-bold text-white tabular-nums">Rp {fmtRp(totalItems)}</td>
+                              </tr>
+                              {(detail.ekspedisi_nama || Number(detail.ekspedisi_biaya)) && (
+                                <>
+                                  <tr>
+                                    <td className="px-3 py-2 text-slate-300">
+                                      Ekspedisi: {detail.ekspedisi_nama || '-'}
+                                      {detail.ekspedisi_kg ? ` · ${detail.ekspedisi_kg} kg` : ''}
+                                    </td>
+                                    <td colSpan={2} className="px-3 py-2 text-right text-slate-300 tabular-nums" />
+                                    <td className="px-3 py-2 text-right text-slate-100 tabular-nums">Rp {fmtRp(Number(detail.ekspedisi_biaya) || 0)}</td>
+                                  </tr>
+                                  <tr className="bg-white/[0.05] border-t border-white/[0.08]">
+                                    <td colSpan={3} className="px-3 py-2 text-right font-semibold text-slate-200">TOTAL</td>
+                                    <td className="px-3 py-2 text-right font-bold text-white tabular-nums">
+                                      Rp {fmtRp(totalItems + (Number(detail.ekspedisi_biaya) || 0))}
+                                    </td>
+                                  </tr>
+                                </>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {detail.keterangan && (
+                        <div>
+                          <div className="text-xs text-slate-500 mb-1.5">NB / Catatan</div>
+                          <div className="border border-white/10 rounded-lg px-3 py-2 bg-[#0d1117] text-xs text-slate-300 whitespace-pre-wrap">
+                            {String(detail.keterangan)}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
 
                   <div>
                     <div className="text-xs text-slate-500 mb-1.5">DP Desain</div>
@@ -413,6 +512,68 @@ export default function ApprovalFinancePage() {
                       )}
                     </div>
                   </div>
+
+                  {isInvoiceStage && dpProduksi.length > 0 && (
+                    <div>
+                      <div className="text-xs text-slate-500 mb-1.5">DP Produksi ({dpProduksi.length} pembayaran)</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {dpProduksi.map((dp: Row, idx: number) => {
+                          const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'][idx + 1] || String(idx + 2);
+                          const amt = Number(dp.amount) || (Number(dp.tunai) || 0) + (Number(dp.trf) || 0);
+                          const ref = dp.bukti_tf ? String(dp.bukti_tf) : '';
+                          const name = String(dp.bukti_tf_name || '');
+                          const isImg = ref && (
+                            ref.startsWith('data:image')
+                            || /\.(png|jpe?g|gif|webp)$/i.test(name)
+                            || /\.(png|jpe?g|gif|webp)$/i.test(ref)
+                          );
+                          const isPdf = ref && (
+                            ref.startsWith('data:application/pdf')
+                            || /\.pdf$/i.test(name)
+                            || /\.pdf$/i.test(ref)
+                          );
+                          return (
+                            <div key={dp.id} className="border border-white/10 rounded-lg p-3 bg-[#0d1117] space-y-2">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <div className="text-sm font-semibold text-white">DP Produksi #{roman}</div>
+                                  <div className="text-[10px] text-slate-500 mt-0.5">
+                                    {dp.tanggal ? fmtDate(dp.tanggal) : 'Tanggal -'}
+                                  </div>
+                                </div>
+                                <div className="text-sm font-bold text-white tabular-nums text-right">
+                                  Rp {fmtRp(amt)}
+                                </div>
+                              </div>
+                              {ref ? (
+                                isImg ? (
+                                  <button type="button" onClick={() => setZoomedImg(ref)}
+                                    className="block w-full group relative">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={ref} alt="Bukti TF" className="w-full max-h-48 object-contain rounded border border-white/10 cursor-zoom-in" />
+                                  </button>
+                                ) : isPdf ? (
+                                  <a href={ref} target="_blank" rel="noopener noreferrer"
+                                    className="text-[11px] text-blue-400 hover:text-blue-300 underline underline-offset-2 inline-flex items-center gap-1">
+                                    Buka PDF ({name || 'bukti.pdf'})
+                                  </a>
+                                ) : (
+                                  <a href={ref} target="_blank" rel="noopener noreferrer"
+                                    className="text-[11px] text-blue-400 hover:text-blue-300 underline underline-offset-2">
+                                    Buka file bukti ({name || 'bukti'})
+                                  </a>
+                                )
+                              ) : (
+                                <div className="text-[11px] text-slate-500 italic border border-dashed border-white/10 rounded px-2 py-2 text-center">
+                                  Belum ada bukti TF.
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium text-white mb-1.5">
