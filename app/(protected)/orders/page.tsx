@@ -13,6 +13,7 @@ import CreateOrderDrawer from './create-order-drawer';
 import PembayaranModal from './pembayaran-modal';
 import { dbUpdate } from '@/lib/api-db';
 import { classifyLayanan } from '@/lib/business-days';
+import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 
 const STATUS_STYLES_DARK: Record<string, string> = {
   OPEN: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
@@ -171,16 +172,28 @@ export default function OrdersPage() {
     return `${BULAN[+m - 1]} ${y}`;
   };
 
+  // Baseline visible orders — buang legacy (sebelum cutoff) di semua
+  // perhitungan agar stat cards, month chips, dan report konsisten
+  // dengan tabel utama. Data mentah `orders` masih diakses via useMemo
+  // yang sudah ada di bawah untuk kasus yang perlu semua (misal SELLING).
+  const visibleOrders = useMemo(
+    () => orders.filter(o => isVisibleTanggalOrder(o.rawTanggalOrder)),
+    [orders]
+  );
+
   const sortedMonths = useMemo(() => {
-    const keys = new Set(orders.map(o => parseMonthKey(o.tglSelesai || o.dlCust || '')).filter(Boolean));
+    const keys = new Set(visibleOrders.map(o => parseMonthKey(o.tglSelesai || o.dlCust || '')).filter(Boolean));
     return Array.from(keys).sort();
-  }, [orders]);
+  }, [visibleOrders]);
 
   const filtered = useMemo(() => {
     return orders.filter(o => {
       // SELLING rows still await CS Order handoff — they belong in the
       // Pembayaran AYRES dropdown, not the completed orders table.
       if (o.rawStatus === 'SELLING') return false;
+      // Hide legacy data sebelum cutoff (lihat lib/data-cutoff.ts).
+      // Data lama tidak dihapus, cuma tidak muncul di tabel.
+      if (!isVisibleTanggalOrder(o.rawTanggalOrder)) return false;
       // Repeat orders + orders waiting Finance re-review still show
       // here so CS Order can see both the legacy in-flight WO and the
       // fresh one from the same customer side by side. The Finance
@@ -221,14 +234,14 @@ export default function OrdersPage() {
     </div>
   );
 
-  const countOverdue = orders.filter(o => o.riskLevel === 'OVERDUE').length;
+  const countOverdue = visibleOrders.filter(o => o.riskLevel === 'OVERDUE').length;
   // Unique customer counts for the three payment/proofing stat cards.
   // Deduplicated by customer name so multiple orders from the same buyer
   // only tick each card once.
   const uniqueCust = (list: Order[]) => new Set(list.map(o => o.customer)).size;
-  const custDpDesain = uniqueCust(orders.filter(o => (o.dpDesainAmount || 0) > 0));
-  const custDpProduksi = uniqueCust(orders.filter(o => (o.dpProduksiAmount || 0) > 0));
-  const custAccProofing = uniqueCust(orders.filter(o => o.hasAccProofing));
+  const custDpDesain = uniqueCust(visibleOrders.filter(o => (o.dpDesainAmount || 0) > 0));
+  const custDpProduksi = uniqueCust(visibleOrders.filter(o => (o.dpProduksiAmount || 0) > 0));
+  const custAccProofing = uniqueCust(visibleOrders.filter(o => o.hasAccProofing));
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
@@ -292,12 +305,12 @@ export default function OrdersPage() {
               </button>
               {exportOpen && (
                 <div className="absolute right-0 top-full mt-1.5 bg-[#141628] border border-white/[0.08] rounded-xl shadow-2xl shadow-black/40 z-20 py-1 min-w-[180px]">
-                  <button onClick={() => { generateOrderPDF(orders, 'weekly', parseMonthKey); setExportOpen(false); }}
+                  <button onClick={() => { generateOrderPDF(visibleOrders, 'weekly', parseMonthKey); setExportOpen(false); }}
                     className="w-full text-left px-4 py-2.5 text-[13px] text-white/60 hover:text-white hover:bg-white/[0.04] flex items-center gap-2 transition-colors">
                     <svg className="w-4 h-4 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                     Laporan 2 Mingguan
                   </button>
-                  <button onClick={() => { generateOrderPDF(orders, 'monthly', parseMonthKey); setExportOpen(false); }}
+                  <button onClick={() => { generateOrderPDF(visibleOrders, 'monthly', parseMonthKey); setExportOpen(false); }}
                     className="w-full text-left px-4 py-2.5 text-[13px] text-white/60 hover:text-white hover:bg-white/[0.04] flex items-center gap-2 transition-colors">
                     <svg className="w-4 h-4 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                     Laporan Bulanan
@@ -325,7 +338,7 @@ export default function OrdersPage() {
             Semua
           </button>
           {sortedMonths.map(mk => {
-            const count = orders.filter(o => parseMonthKey(o.tglSelesai || o.dlCust || '') === mk).length;
+            const count = visibleOrders.filter(o => parseMonthKey(o.tglSelesai || o.dlCust || '') === mk).length;
             return (
               <button key={mk} onClick={() => setMonthFilter(mk)}
                 className={`shrink-0 px-4 py-1.5 rounded-lg text-[12px] font-medium transition-all border

@@ -294,6 +294,7 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
       rawStatus: r.status || '',
       createdVia: r.created_via || '',
       financeStatus: r.finance_status || '',
+      rawTanggalOrder: r.tanggal_order || '',
       progress: { PROOFING: false, WAITINGLIST: false, PRINT: false, PRES: false, CUT_FABRIC: false, JAHIT: false, QC_JAHIT_STEAM: false, FINISHING: false, PENGIRIMAN: false },
       progressPercent,
       currentStageName,

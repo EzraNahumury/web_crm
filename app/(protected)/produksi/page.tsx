@@ -4,6 +4,7 @@ import { dbGet, dbUpdate, dbCreate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { useAuth } from '@/lib/auth-context';
 import { GUDANG_FORM_ITEMS } from '@/lib/gudang-form-items';
+import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -248,7 +249,13 @@ export default function ProduksiPage() {
 
       setStages(sortedStages);
       setProgress(updatedProgress);
-      setWos(w);
+      // Sembunyikan WO yang order-nya legacy (sebelum cutoff). Data tidak
+      // dihapus — cuma tidak muncul di UI Produksi. Lihat lib/data-cutoff.ts.
+      const filteredWos = (w as Row[]).filter((wo: Row) => {
+        const ord = ordersMap[Number(wo.order_id)];
+        return isVisibleTanggalOrder(ord?.tanggal_order);
+      });
+      setWos(filteredWos);
     } catch {}
     setLoading(false);
   }, []);

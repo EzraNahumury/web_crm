@@ -7,6 +7,7 @@ import { useToast } from '@/lib/toast';
 import { normBagian } from '@/lib/utils';
 import { Pagination, paginate } from '@/lib/pagination';
 import { sha256Hex } from '@/lib/hash';
+import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -91,20 +92,24 @@ export default function WorkOrdersPage() {
         itemsByOrder[key].qty += Number(it.qty) || 0;
       }
       // Merge real-time data from orders + order_items
-      const merged = wos.map((w: Row) => {
-        const ord = orderMap[String(w.order_id)];
-        const oi = itemsByOrder[String(w.order_id)];
-        return {
-          ...w,
-          customer_nama: ord?.customer_nama || w.customer_nama,
-          paket: oi ? oi.paket.join(', ') : w.paket || '-',
-          qty: oi ? oi.qty : (Number(w.jumlah) || 0),
-          bahan: oi ? oi.bahan.join(', ') : w.bahan || '-',
-          deadline: ord?.estimasi_deadline || w.deadline,
-          keterangan: ord?.keterangan || w.keterangan,
-          tanggal_order: ord?.tanggal_order || w.created_at,
-        };
-      });
+      const merged = wos
+        .map((w: Row) => {
+          const ord = orderMap[String(w.order_id)];
+          const oi = itemsByOrder[String(w.order_id)];
+          return {
+            ...w,
+            customer_nama: ord?.customer_nama || w.customer_nama,
+            paket: oi ? oi.paket.join(', ') : w.paket || '-',
+            qty: oi ? oi.qty : (Number(w.jumlah) || 0),
+            bahan: oi ? oi.bahan.join(', ') : w.bahan || '-',
+            deadline: ord?.estimasi_deadline || w.deadline,
+            keterangan: ord?.keterangan || w.keterangan,
+            tanggal_order: ord?.tanggal_order || w.created_at,
+          };
+        })
+        // Hide legacy data (order sebelum cutoff). Data tetap ada di DB,
+        // cuma tidak muncul di tabel. Lihat lib/data-cutoff.ts.
+        .filter((w: Row) => isVisibleTanggalOrder(w.tanggal_order));
       setWoList(merged);
     } catch { setWoList([]); }
     setLoading(false);
@@ -130,6 +135,8 @@ export default function WorkOrdersPage() {
           if (usedOrderIds.has(o.id)) return false;
           const st = String(o.status || '').toUpperCase();
           if (st === 'SELLING' || st === 'DONE') return false;
+          // Sembunyikan order legacy (sebelum cutoff) dari dropdown.
+          if (!isVisibleTanggalOrder(o.tanggal_order)) return false;
           return true;
         })
       );

@@ -58,6 +58,10 @@ export interface Order {
   // table filter to hide rows that are still waiting Finance re-review
   // after CS Order finished the Pembayaran.
   financeStatus?: string;
+  // Raw tanggal_order (ISO). Dipakai oleh cutoff filter di CS Order,
+  // Produksi, dan Work Orders untuk menyembunyikan data legacy tanpa
+  // menghapusnya. Lihat lib/data-cutoff.ts.
+  rawTanggalOrder?: string;
 }
 
 export interface DashboardStats {
