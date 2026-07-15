@@ -881,7 +881,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                       <td className={`${cellCls} bg-slate-100 font-bold`}>
                         <div className="flex items-center gap-1 flex-wrap">
                           <span>DP PRODUKSI</span>
-                          {dpProdMode === 'pct' ? (
+                          {dpProdMode === 'pct' && (
                             <>
                               <input
                                 type="text"
@@ -895,21 +895,6 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                                 readOnly={readOnly}
                                 className="w-12 border border-slate-300 rounded text-center text-xs" />
                               <span>%</span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="text-[10px] text-slate-500">Rp</span>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={dpProdManual ? fmtRp(dpProdManual) : ''}
-                                onChange={e => {
-                                  const digits = e.target.value.replace(/\D/g, '');
-                                  setDpProdManual(digits ? Number(digits) : 0);
-                                }}
-                                placeholder="0"
-                                readOnly={readOnly}
-                                className="w-24 border border-slate-300 rounded text-right text-xs px-1" />
                             </>
                           )}
                           {!readOnly && (
@@ -938,7 +923,23 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                         </div>
                       </td>
                       <td className={`${cellCls} text-right tabular-nums font-bold text-blue-700`}>
-                        − Rp {fmtRp(dpProduksi)}
+                        {dpProdMode === 'nominal' && !readOnly ? (
+                          <div className="inline-flex items-center gap-1 justify-end">
+                            <span>− Rp</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={dpProdManual ? fmtRpPlain(dpProdManual) : ''}
+                              onChange={e => {
+                                const digits = e.target.value.replace(/\D/g, '');
+                                setDpProdManual(digits ? Number(digits) : 0);
+                              }}
+                              placeholder="0"
+                              className="w-32 border border-slate-300 rounded text-right text-sm px-1.5 py-0.5 text-blue-700 font-bold tabular-nums" />
+                          </div>
+                        ) : (
+                          <>− Rp {fmtRp(dpProduksi)}</>
+                        )}
                       </td>
                     </tr>
                     <tr>
