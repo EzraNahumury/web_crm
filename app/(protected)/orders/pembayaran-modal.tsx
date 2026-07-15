@@ -607,18 +607,6 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
   return (
     <>
-      {/* Datalist untuk dropdown Nama Barang di tabel item.
-          Datalist itu inert — tidak render, jadi aman diletakkan di
-          root modal dan bisa dirujuk oleh input via list="barang-cs-list". */}
-      {barangCs.length > 0 && (
-        <datalist id="barang-cs-list">
-          {barangCs.map(b => (
-            <option key={b.id} value={String(b.nama)}>
-              Rp {new Intl.NumberFormat('id-ID').format(Number(b.harga) || 0)}
-            </option>
-          ))}
-        </datalist>
-      )}
       <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3 overflow-y-auto">
         <div className="w-full max-w-5xl bg-white border border-white/[0.06] rounded-xl shadow-2xl shadow-black/50 my-8 flex flex-col max-h-[92vh]">
@@ -747,24 +735,16 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                       <tr key={line.id}>
                         <td className={cellCls}>
                           <div className="flex items-center gap-2">
-                            <input
-                              type="text"
+                            <BarangCsCombobox
                               value={line.nama}
-                              onChange={e => {
-                                const val = e.target.value;
-                                updateItemLine(idx, 'nama', val);
-                                // Autofill harga kalau nama match master Barang CS.
-                                // Kalau nama diketik manual (bukan pilihan), skip
-                                // autofill dan biarkan user input harga sendiri.
-                                const match = barangCs.find(b => String(b.nama).toLowerCase() === val.toLowerCase());
-                                if (match) {
-                                  updateItemLine(idx, 'harga', Number(match.harga) || 0);
-                                }
+                              options={barangCs}
+                              readOnly={readOnly}
+                              onPick={(nama, harga) => {
+                                updateItemLine(idx, 'nama', nama);
+                                if (harga !== null) updateItemLine(idx, 'harga', harga);
                               }}
-                              list={barangCs.length > 0 ? 'barang-cs-list' : undefined}
-                              placeholder="Pilih / ketik nama barang"
-                              className={inputCls}
-                              readOnly={readOnly} />
+                              inputClassName={inputCls}
+                            />
                             {!readOnly && itemLines.length > 1 && (
                               <button onClick={() => removeItemLine(idx)} title="Hapus"
                                 className="text-slate-400 hover:text-rose-500 shrink-0 text-lg leading-none px-1">×</button>
@@ -1016,5 +996,88 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
         </div>
       </div>
     </>
+  );
+}
+
+/* ═════════════════════════════════════════════════════════════════
+   BarangCsCombobox — dropdown Nama Barang di tabel Rincian Order.
+   Custom UI (bukan <datalist> native) supaya tampilannya konsisten
+   dan bisa nampilin harga sebagai secondary text. Ketik untuk
+   filter; klik pilihan → autofill nama + harga.
+   ═════════════════════════════════════════════════════════════════ */
+function BarangCsCombobox({
+  value, options, onPick, readOnly, inputClassName,
+}: {
+  value: string;
+  options: Row[];
+  onPick: (nama: string, harga: number | null) => void;
+  readOnly?: boolean;
+  inputClassName?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // Filter suggestions kalau user ketik. Kalau kosong, tampilkan semua.
+  const filtered = useMemo(() => {
+    const q = value.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(b => String(b.nama).toLowerCase().includes(q));
+  }, [value, options]);
+
+  // Close saat klik di luar
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  const fmt = (n: number) => new Intl.NumberFormat('id-ID').format(n || 0);
+
+  return (
+    <div ref={wrapRef} className="relative flex-1">
+      <input
+        type="text"
+        value={value}
+        onChange={e => {
+          const val = e.target.value;
+          const match = options.find(b => String(b.nama).toLowerCase() === val.toLowerCase());
+          onPick(val, match ? Number(match.harga) || 0 : null);
+          if (!readOnly && options.length > 0) setOpen(true);
+        }}
+        onFocus={() => { if (!readOnly && options.length > 0) setOpen(true); }}
+        placeholder={options.length > 0 ? 'Pilih / ketik nama barang' : 'Nama barang'}
+        className={inputClassName}
+        readOnly={readOnly}
+        autoComplete="off"
+      />
+      {open && filtered.length > 0 && (
+        <div
+          className="absolute left-0 right-0 top-full mt-1 z-40 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg text-slate-800"
+          role="listbox"
+        >
+          {filtered.map(b => (
+            <button
+              key={b.id}
+              type="button"
+              onMouseDown={e => {
+                // mousedown supaya fire sebelum blur menutup dropdown
+                e.preventDefault();
+                onPick(String(b.nama), Number(b.harga) || 0);
+                setOpen(false);
+              }}
+              className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-blue-50 transition-colors border-b border-slate-100 last:border-b-0"
+            >
+              <span className="text-sm font-medium text-slate-900 truncate">{b.nama}</span>
+              <span className="text-xs text-slate-500 tabular-nums shrink-0">Rp {fmt(Number(b.harga))}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
