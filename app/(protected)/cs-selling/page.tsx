@@ -33,7 +33,10 @@ function fmtDate(v: string | Date | null | undefined): string {
   return '-';
 }
 
-const BANK_OPTIONS = ['BRI', 'BCA', 'BNI', 'MANDIRI', 'DANA', 'WISE', 'FLIP', 'F-BANK', 'SHOOPE PAY', 'GOPAY'];
+// Fallback bank list dipakai kalau master `bank` belum siap (migration
+// 035 belum landing di lingkungan lama). Sekali migration jalan, dropdown
+// baca dari DB dan admin bisa CRUD sendiri via Master → Bank.
+const BANK_OPTIONS_FALLBACK = ['BRI', 'BCA', 'BNI', 'MANDIRI', 'DANA', 'WISE', 'FLIP', 'F-BANK', 'SHOOPE PAY', 'GOPAY'];
 const METHOD_OPTIONS = ['TF', 'QRIS', 'DLL'];
 
 interface Option { value: string; label: string; sublabel?: string }
@@ -137,6 +140,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
   const [dpBank, setDpBank] = useState('');
   const [dpMethod, setDpMethod] = useState('');
   const [dpMethodOther, setDpMethodOther] = useState('');
+  const [bankList, setBankList] = useState<Row[]>([]);
 
   const [buktiTf, setBuktiTf] = useState<string | null>(null);
   const [buktiTfName, setBuktiTfName] = useState('');
@@ -184,6 +188,16 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
   // the form. We rely on the caller passing latest editPayments too.
   // When switching from an edit back to a fresh create, reset state
   // so we don't leak the previous edit's values.
+  // Fetch master bank tiap kali drawer dibuka supaya perubahan dari
+  // Master → Bank langsung kepakai tanpa reload page. Fallback ke
+  // BANK_OPTIONS_FALLBACK kalau tabel belum ada / kosong.
+  useEffect(() => {
+    if (!open) return;
+    dbGet('bank')
+      .then(rows => setBankList(Array.isArray(rows) ? rows : []))
+      .catch(() => setBankList([]));
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     if (!editOrder) { reset(); return; }
@@ -678,7 +692,10 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
                 <select value={dpBank} onChange={e => setDpBank(e.target.value)}
                   className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer">
                   <option value="">Nama Bank...</option>
-                  {BANK_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+                  {(bankList.length > 0
+                    ? bankList.map(b => String(b.nama))
+                    : BANK_OPTIONS_FALLBACK
+                  ).map(b => <option key={b} value={b}>{b}</option>)}
                 </select>
                 <select value={dpMethod} onChange={e => {
                   const m = e.target.value; setDpMethod(m);

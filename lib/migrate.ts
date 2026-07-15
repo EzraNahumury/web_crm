@@ -648,6 +648,25 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Master Bank: daftar bank untuk dropdown "Nama Bank" di DP Desain
+    // CS Selling (+ tempat lain yang butuh). Sebelumnya di-hardcode di
+    // page.tsx (BANK_OPTIONS). Seed pakai daftar hardcode lama supaya
+    // dropdown tidak kosong pas migration jalan pertama kali.
+    name: '035_bank',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `bank` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`nama` VARCHAR(100) NOT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "UNIQUE KEY `uniq_bank_nama` (`nama`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "INSERT IGNORE INTO `bank` (`nama`) VALUES " +
+        "('BRI'),('BCA'),('BNI'),('MANDIRI'),('DANA'),('WISE'),('FLIP'),('F-BANK'),('SHOOPE PAY'),('GOPAY')",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
