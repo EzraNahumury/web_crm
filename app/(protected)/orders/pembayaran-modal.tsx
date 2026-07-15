@@ -450,15 +450,14 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       // Sync order_payments untuk Rincian Order versi baru:
       //   • dp_desain (dari CS Selling) di-preserve — cuma update amount
       //     kalau CS Order override. Bukti TF + bank + method tetap.
-      //   • dp_produksi: hapus semua row dp_produksi lama, buat SATU row
-      //     baru dengan amount = dpProduksi (hasil kalkulasi %).
+      //   • dp_produksi: JANGAN hapus row lama, karena bukti TF, tanggal,
+      //     bank, method sudah di-upload via menu Bukti Pembayaran.
+      //     Cukup UPDATE amount row pertama; kalau belum ada baru INSERT.
+      //     Kalau ada row extra (legacy multi-installment), biarkan saja.
       // Row lain (tipe custom) tidak disentuh.
       const existingPayments = payments.filter(pp => Number(pp.order_id) === orderId);
       const prevDpDesain = existingPayments.find(pp => String(pp.tipe) === 'dp_desain');
       const oldDpProduksi = existingPayments.filter(pp => String(pp.tipe) === 'dp_produksi');
-      for (const pp of oldDpProduksi) {
-        try { await dbDelete('order_payments', Number(pp.id)); } catch {}
-      }
 
       // Update / insert DP Desain row supaya amount konsisten dengan
       // apa yang tampil di summary. Kalau CS Selling belum bikin, kita
@@ -484,18 +483,26 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
         }
       }
 
-      // Insert single DP Produksi row (amount = calc). Bukti TF-nya
-      // diisi belakangan oleh CS Order via Bukti Pembayaran menu.
+      // Sinkronkan DP Produksi:
+      //   • Kalau sudah ada row → UPDATE amount di row pertama, JANGAN
+      //     sentuh bukti_tf / bank / method / tanggal / tunai / trf
+      //     supaya upload dari menu Bukti Pembayaran tidak hilang.
+      //   • Kalau belum ada → INSERT row baru (amount saja).
       if (dpProduksi > 0) {
+        const firstDp = oldDpProduksi[0];
         try {
-          await dbCreate('order_payments', {
-            order_id: orderId,
-            tipe: 'dp_produksi',
-            amount: dpProduksi,
-            urutan: 1,
-          });
+          if (firstDp) {
+            await dbUpdate('order_payments', Number(firstDp.id), { amount: dpProduksi });
+          } else {
+            await dbCreate('order_payments', {
+              order_id: orderId,
+              tipe: 'dp_produksi',
+              amount: dpProduksi,
+              urutan: 1,
+            });
+          }
         } catch (err) {
-          console.warn('dp_produksi create failed:', err);
+          console.warn('dp_produksi sync failed:', err);
         }
       }
 
