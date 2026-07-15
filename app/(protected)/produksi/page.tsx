@@ -267,6 +267,11 @@ export default function ProduksiPage() {
   const activeStageId = activeStageRow?.id;
   const activeStageCanManage = activeStageId ? canManageStage(activeStageId) : false;
 
+  // Set WO id yang lolos cutoff. Dipakai buat filter row wo_progress
+  // saat menghitung badge tab supaya count sinkron dengan antrian.
+  const visibleWoIds = new Set(wos.map((w: Row) => Number(w.id)));
+  const visibleProgress = progress.filter((p: Row) => visibleWoIds.has(Number(p.work_order_id)));
+
   // Show actionable WOs at this stage. Includes legacy SEDANG rows so any
   // in-flight work from the old two-click flow still shows here and can be
   // advanced with a single click.
@@ -650,7 +655,7 @@ export default function ProduksiPage() {
           {PROD_STAGES.map(stage => {
             const stageRow = stages.find((s: Row) => s.nama === stage);
             const stageId = stageRow?.id;
-            const count = progress.filter((p: Row) => p.stage_id === stageId && (p.status === 'TERSEDIA' || p.status === 'SEDANG')).length;
+            const count = visibleProgress.filter((p: Row) => p.stage_id === stageId && (p.status === 'TERSEDIA' || p.status === 'SEDANG')).length;
             const hasAccess = stageId ? canManageStage(stageId) : false;
             return (
               <button key={stage} onClick={() => setActiveStage(stage)}
