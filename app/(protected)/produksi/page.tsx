@@ -682,48 +682,49 @@ export default function ProduksiPage() {
 
       <div className="space-y-4 pt-6">
         {/* Antrian Section (one-click finish + advance) */}
-        <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-6">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-500/10 grid place-items-center">
-                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-white">Antrian {activeStage}</h2>
-                <div className="flex items-center gap-4 mt-1">
-                  <span className="text-xs text-slate-500">Total Qty: <strong className="text-white">{tersediaQty}</strong></span>
-                  <span className="text-xs text-slate-500">
-                    Jumlah WO: <strong className="text-white">{tersediaWos.length}</strong>
-                    {search && tersediaWosRaw.length !== tersediaWos.length && (
-                      <span className="text-slate-500"> / {tersediaWosRaw.length}</span>
-                    )}
-                  </span>
-                </div>
+        <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 grid place-items-center shrink-0">
+              <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-white">Antrian {activeStage}</h2>
+              <div className="flex items-center gap-4 mt-1 flex-wrap">
+                <span className="text-xs text-slate-500">Total Qty: <strong className="text-white">{tersediaQty}</strong></span>
+                <span className="text-xs text-slate-500">
+                  Jumlah WO: <strong className="text-white">{tersediaWos.length}</strong>
+                  {search && tersediaWosRaw.length !== tersediaWos.length && (
+                    <span className="text-slate-500"> / {tersediaWosRaw.length}</span>
+                  )}
+                </span>
               </div>
             </div>
-            {/* Per-stage search — filters by no_wo, customer, or paket */}
-            <div className="relative w-full sm:w-72">
-              <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-              </svg>
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Cari WO, customer, paket..."
-                className="w-full bg-[#0d1117] border border-white/10 text-white text-sm placeholder-slate-500 rounded-lg pl-9 pr-8 py-2 focus:outline-none focus:border-blue-500/40"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch('')}
-                  title="Clear"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              )}
-            </div>
+          </div>
+          {/* Per-stage search di baris sendiri supaya tidak kepotong /
+              ke-wrap tersembunyi pas ruang antrian sempit atau role
+              dengan sidebar yang lebih lebar. Selalu terlihat untuk
+              semua role (super admin, proofing, produksi, dsb). */}
+          <div className="relative w-full">
+            <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Cari WO, customer, paket..."
+              className="w-full bg-[#0d1117] border border-white/10 text-white text-sm placeholder-slate-500 rounded-lg pl-9 pr-8 py-2 focus:outline-none focus:border-blue-500/40"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                title="Clear"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            )}
           </div>
         </div>
 
