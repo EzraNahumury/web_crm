@@ -711,8 +711,14 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                           </div>
                         </td>
                         <td className={cellCls}>
-                          <input type="number" value={line.qty || ''}
-                            onChange={e => updateItemLine(idx, 'qty', Number(e.target.value) || 0)}
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={line.qty || ''}
+                            onChange={e => {
+                              const digits = e.target.value.replace(/\D/g, '');
+                              updateItemLine(idx, 'qty', digits ? Number(digits) : 0);
+                            }}
                             className={smInputCls} readOnly={readOnly} />
                         </td>
                         <td className={cellCls}>
@@ -802,13 +808,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
               </table>
 
               {/* NB + Summary panel (Grand Total → Sisa Tagihan) */}
-              <div className="grid grid-cols-2 gap-3 mb-2">
-                <div>
+              <div className="grid grid-cols-2 gap-3 mb-2 items-stretch">
+                <div className="flex flex-col">
                   <div className="text-sm font-bold mb-1">NB:</div>
                   <textarea value={nb} onChange={e => setNb(e.target.value)}
-                    rows={6} readOnly={readOnly}
+                    readOnly={readOnly}
                     placeholder="Catatan bahan, promo, size dsb..."
-                    className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-none" />
+                    className="flex-1 min-h-[180px] w-full border border-slate-300 rounded px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-none" />
                 </div>
                 <table className="w-full border-collapse text-sm h-fit">
                   <tbody>
@@ -819,8 +825,15 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                     <tr>
                       <td className={`${cellCls} bg-slate-100 font-bold`}>
                         DISKON
-                        <input type="number" min={0} max={100} value={diskonPct}
-                          onChange={e => setDiskonPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={diskonPct}
+                          onChange={e => {
+                            const digits = e.target.value.replace(/\D/g, '');
+                            const n = digits ? Number(digits) : 0;
+                            setDiskonPct(Math.max(0, Math.min(100, n)));
+                          }}
                           readOnly={readOnly}
                           className="w-12 mx-1 border border-slate-300 rounded text-center text-xs" />%
                       </td>
@@ -839,8 +852,15 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                     <tr>
                       <td className={`${cellCls} bg-slate-100 font-bold`}>
                         DP PRODUKSI
-                        <input type="number" min={0} max={100} value={dpProdPct}
-                          onChange={e => setDpProdPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={dpProdPct}
+                          onChange={e => {
+                            const digits = e.target.value.replace(/\D/g, '');
+                            const n = digits ? Number(digits) : 0;
+                            setDpProdPct(Math.max(0, Math.min(100, n)));
+                          }}
                           readOnly={readOnly}
                           className="w-12 mx-1 border border-slate-300 rounded text-center text-xs" />%
                       </td>
