@@ -74,6 +74,12 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const [diskonPct, setDiskonPct] = useState(0);
   // DP Produksi percentage (0-100, default 70).
   const [dpProdPct, setDpProdPct] = useState(70);
+  // DP Produksi input mode:
+  //   'pct'     → hitung otomatis dari %  (default)
+  //   'nominal' → CS Order isi Rupiah manual (buat case customer transfer
+  //               lebih/kurang dari perhitungan persen)
+  const [dpProdMode, setDpProdMode] = useState<'pct' | 'nominal'>('pct');
+  const [dpProdManual, setDpProdManual] = useState(0);
   // Tracking link surfaced at the bottom in read-only mode.
   const [trackingLink, setTrackingLink] = useState('');
   const [noOrder, setNoOrder] = useState('');
@@ -110,6 +116,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       setNb(''); setTrackingLink(''); setNoOrder('');
       setDpDesainAmount(0); setDpDesainPaymentId(null);
       setDiskonPct(0); setDpProdPct(70);
+      setDpProdMode('pct'); setDpProdManual(0);
       setItemLines([{ id: 1, nama: '', qty: 0, harga: 0 }]);
       return;
     }
@@ -128,6 +135,9 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setNoOrder(String(o.no_order || ''));
     // Diskon% dari order (kolom baru). Kalau tidak ada, default 0.
     setDiskonPct(Number(o.diskon_pct) || 0);
+    const mode = String(o.dp_prod_mode || 'pct') === 'nominal' ? 'nominal' : 'pct';
+    setDpProdMode(mode);
+    setDpProdManual(Number(o.dp_prod_manual) || 0);
 
     // Load item lines
     const orderItems = items.filter(it => Number(it.order_id) === Number(o.id));
@@ -173,13 +183,18 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const grandTotal = totalPembelian + (Number(ekspBiaya) || 0);
   // Diskon amount = grandTotal × diskonPct / 100.
   const diskonAmount = Math.round((grandTotal * diskonPct) / 100);
-  // DP Produksi = (Total Pembelian × dpProdPct%) − DP Design − Diskon.
-  // Perhatikan: base-nya Total Pembelian (tanpa ekspedisi), bukan
-  // Grand Total. Ekspedisi + Diskon di-handle terpisah di rumus.
-  const dpProduksi = Math.max(
+  // DP Produksi:
+  //   • mode 'pct'    → (Total Pembelian × dpProdPct%) − DP Design − Diskon
+  //                     Base-nya Total Pembelian (tanpa ekspedisi).
+  //   • mode 'nominal'→ dpProdManual apa adanya (customer bisa transfer
+  //                     lebih dari perhitungan persen, pakai mode ini)
+  const dpProduksiPct = Math.max(
     0,
     Math.round((totalPembelian * dpProdPct) / 100) - (Number(dpDesainAmount) || 0) - diskonAmount
   );
+  const dpProduksi = dpProdMode === 'nominal'
+    ? Math.max(0, Number(dpProdManual) || 0)
+    : dpProduksiPct;
   // Sisa Tagihan = apa yang belum dibayar sama sekali oleh customer
   // setelah dikurangi diskon + DP Design + DP Produksi dari Grand Total.
   const sisaTagihan = grandTotal - diskonAmount - (Number(dpDesainAmount) || 0) - dpProduksi;
@@ -374,15 +389,28 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
           ekspedisi_kg: ekspKg ? Number(ekspKg) : null,
           ekspedisi_biaya: ekspBiaya || null,
           diskon_pct: diskonPct,
+          dp_prod_mode: dpProdMode,
+          dp_prod_manual: dpProdMode === 'nominal' ? (Number(dpProdManual) || 0) : 0,
         });
       } catch (err) {
-        // Fallback: drop columns yang mungkin belum ada.
-        console.warn('order update with ekspedisi/diskon failed, retrying without:', err);
+        // Fallback: drop columns yang mungkin belum ada (migration 033 belum jalan).
+        console.warn('order update with ekspedisi/diskon/dp_prod failed, retrying without dp_prod:', err);
         try {
-          await dbUpdate('orders', orderId, { ...baseUpdate, diskon_pct: diskonPct });
-        } catch (err2) {
-          console.warn('order update with diskon_pct failed, retrying without:', err2);
-          await dbUpdate('orders', orderId, baseUpdate);
+          await dbUpdate('orders', orderId, {
+            ...baseUpdate,
+            ekspedisi_nama: ekspNama || null,
+            ekspedisi_kg: ekspKg ? Number(ekspKg) : null,
+            ekspedisi_biaya: ekspBiaya || null,
+            diskon_pct: diskonPct,
+          });
+        } catch (err1) {
+          console.warn('order update with ekspedisi/diskon failed, retrying without ekspedisi:', err1);
+          try {
+            await dbUpdate('orders', orderId, { ...baseUpdate, diskon_pct: diskonPct });
+          } catch (err2) {
+            console.warn('order update with diskon_pct failed, retrying without:', err2);
+            await dbUpdate('orders', orderId, baseUpdate);
+          }
         }
       }
 
@@ -851,18 +879,63 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                     </tr>
                     <tr>
                       <td className={`${cellCls} bg-slate-100 font-bold`}>
-                        DP PRODUKSI
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={dpProdPct}
-                          onChange={e => {
-                            const digits = e.target.value.replace(/\D/g, '');
-                            const n = digits ? Number(digits) : 0;
-                            setDpProdPct(Math.max(0, Math.min(100, n)));
-                          }}
-                          readOnly={readOnly}
-                          className="w-12 mx-1 border border-slate-300 rounded text-center text-xs" />%
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span>DP PRODUKSI</span>
+                          {dpProdMode === 'pct' ? (
+                            <>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={dpProdPct}
+                                onChange={e => {
+                                  const digits = e.target.value.replace(/\D/g, '');
+                                  const n = digits ? Number(digits) : 0;
+                                  setDpProdPct(Math.max(0, Math.min(100, n)));
+                                }}
+                                readOnly={readOnly}
+                                className="w-12 border border-slate-300 rounded text-center text-xs" />
+                              <span>%</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-[10px] text-slate-500">Rp</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={dpProdManual ? fmtRp(dpProdManual) : ''}
+                                onChange={e => {
+                                  const digits = e.target.value.replace(/\D/g, '');
+                                  setDpProdManual(digits ? Number(digits) : 0);
+                                }}
+                                placeholder="0"
+                                readOnly={readOnly}
+                                className="w-24 border border-slate-300 rounded text-right text-xs px-1" />
+                            </>
+                          )}
+                          {!readOnly && (
+                            <div className="inline-flex ml-1 rounded overflow-hidden border border-slate-300 text-[10px]">
+                              <button
+                                type="button"
+                                onClick={() => setDpProdMode('pct')}
+                                className={`px-1.5 py-0.5 ${dpProdMode === 'pct' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                title="Hitung DP Produksi dari persentase (auto)"
+                              >%</button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // Saat swap ke nominal, pre-fill dengan hasil % sebelumnya
+                                  // supaya user tinggal edit angka kalau perlu.
+                                  if (dpProdMode !== 'nominal' && !dpProdManual) {
+                                    setDpProdManual(dpProduksiPct);
+                                  }
+                                  setDpProdMode('nominal');
+                                }}
+                                className={`px-1.5 py-0.5 border-l border-slate-300 ${dpProdMode === 'nominal' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                title="Isi nominal DP Produksi manual (kalau customer transfer lebih/kurang)"
+                              >nominal</button>
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className={`${cellCls} text-right tabular-nums font-bold text-blue-700`}>
                         − Rp {fmtRp(dpProduksi)}

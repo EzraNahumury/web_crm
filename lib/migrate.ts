@@ -620,6 +620,18 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `diskon_pct` INT NOT NULL DEFAULT 0",
     ],
   },
+  {
+    // orders.dp_prod_mode + orders.dp_prod_manual: DP Produksi bisa di-input
+    // dua cara — 'pct' (persen dari Total Pembelian, default 70%) atau
+    // 'nominal' (Rupiah manual, dipakai kalau customer transfer lebih/kurang
+    // dari perhitungan persen). Kalau mode = 'nominal', dp_prod_manual jadi
+    // nilai final (tidak lagi dikurangi DP Design/Diskon).
+    name: '033_orders_dp_prod_mode',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `dp_prod_mode` VARCHAR(10) NOT NULL DEFAULT 'pct'",
+      "ALTER TABLE `orders` ADD COLUMN `dp_prod_manual` BIGINT NOT NULL DEFAULT 0",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
