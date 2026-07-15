@@ -8,6 +8,7 @@ import { query, insert, execute } from '@/lib/db';
 const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; filterCols?: string[] }> = {
   customers:         { columns: '*', searchCols: ['nama', 'no_hp'], filterCols: ['id'] },
   paket:             { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
+  barang_cs:         { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
   barang:            { columns: 'b.*, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['b.id'] },
   tipe_barang:       { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
   ukuran:            { columns: '*', searchCols: ['nama'], filterCols: ['id'] },

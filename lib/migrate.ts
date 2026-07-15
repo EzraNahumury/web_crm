@@ -632,6 +632,22 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `dp_prod_manual` BIGINT NOT NULL DEFAULT 0",
     ],
   },
+  {
+    // Master Barang CS: katalog barang khusus untuk CS Order — dipakai
+    // di dropdown Nama Barang di Rincian Order supaya CS tinggal pilih
+    // + isi QTY. Field harga jadi default price yang otomatis prefill.
+    name: '034_barang_cs',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `barang_cs` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`nama` VARCHAR(255) NOT NULL," +
+        "`harga` BIGINT NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

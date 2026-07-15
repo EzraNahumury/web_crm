@@ -5,11 +5,12 @@ import { useToast } from '@/lib/toast';
 import { Pagination, paginate } from '@/lib/pagination';
 
 /* ═══ Tab config ═══ */
-type TabKey = 'customer'|'paket'|'barang'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads';
+type TabKey = 'customer'|'paket'|'barang'|'barang-cs'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads';
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'customer', label: 'Customer' },
   { key: 'paket', label: 'Paket' },
   { key: 'barang', label: 'Barang' },
+  { key: 'barang-cs', label: 'Barang CS' },
   { key: 'tipe-barang', label: 'Tipe Barang' },
   { key: 'ukuran', label: 'Ukuran' },
   { key: 'pecah-pola', label: 'Pecah Pola' },
@@ -21,7 +22,8 @@ const TABS: { key: TabKey; label: string }[] = [
 
 // Map tab key to DB table name
 const TABLE_MAP: Record<TabKey, string> = {
-  customer: 'customers', paket: 'paket', barang: 'barang', 'tipe-barang': 'tipe_barang',
+  customer: 'customers', paket: 'paket', barang: 'barang', 'barang-cs': 'barang_cs',
+  'tipe-barang': 'tipe_barang',
   ukuran: 'ukuran', 'pecah-pola': 'pecah_pola', jabatan: 'jabatan', karyawan: 'karyawan',
   promo: 'promo', leads: 'leads',
 };
@@ -171,6 +173,7 @@ export default function MasterPage() {
     customer:      { title: 'Master Data Customer', subtitle: 'Kelola data semua pelanggan Anda.', addLabel: 'Tambah Customer', searchPlaceholder: 'Cari customer...' },
     paket:         { title: 'Master Data Paket', subtitle: 'Kelola jenis paket produk yang ditawarkan.', addLabel: 'Tambah Paket', searchPlaceholder: 'Cari nama paket...' },
     barang:        { title: 'Master Data Barang', subtitle: 'Kelola daftar semua barang mentah untuk produksi.', addLabel: 'Tambah Barang', searchPlaceholder: 'Cari nama barang...' },
+    'barang-cs':   { title: 'Master Data Barang CS', subtitle: 'Katalog barang untuk dropdown di Rincian Order CS.', addLabel: 'Tambah Barang CS', searchPlaceholder: 'Cari nama barang...' },
     'tipe-barang': { title: 'Master Data Tipe Barang', subtitle: 'Kelola daftar semua tipe barang jadi.', addLabel: 'Tambah Tipe Barang', searchPlaceholder: 'Cari nama tipe barang...' },
     ukuran:        { title: 'Master Data Ukuran', subtitle: 'Kelola daftar semua ukuran produk.', addLabel: 'Tambah Ukuran', searchPlaceholder: 'Cari nama ukuran...' },
     'pecah-pola':  { title: 'Master Data Pecah Pola', subtitle: 'Kelola daftar semua pecah pola produksi.', addLabel: 'Tambah Pecah Pola', searchPlaceholder: 'Cari nama pecah pola...' },
@@ -218,6 +221,7 @@ export default function MasterPage() {
                 {tab === 'customer' && <TableCustomer rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'paket' && <TableSimple rows={paged.slice} col="nama" header="NAMA PAKET" onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'barang' && <TableBarang rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'barang-cs' && <TableBarangCs rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'tipe-barang' && <TableNameDesc rows={paged.slice} col1="nama" col2="deskripsi" h1="NAMA TIPE" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'ukuran' && <TableNameDesc rows={paged.slice} col1="nama" col2="deskripsi" h1="NAMA UKURAN" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'pecah-pola' && <TableNameDesc rows={paged.slice} col1="nama" col2="inisial" h1="NAMA PECAH POLA" h2="INISIAL" onEdit={handleEdit} onDelete={handleDelete} />}
@@ -261,7 +265,7 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
       }
     }
   }, [open, editingRow]);
-  const set = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
+  const set = (k: string, v: string | number) => setForm(prev => ({ ...prev, [k]: v }));
   const submit = () => onSave(form);
   const footer = (
     <div className="flex items-center justify-end gap-3 mt-6">
@@ -271,7 +275,7 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
   );
 
   const labels: Record<TabKey, string> = {
-    customer: 'Customer', paket: 'Paket', barang: 'Barang',
+    customer: 'Customer', paket: 'Paket', barang: 'Barang', 'barang-cs': 'Barang CS',
     'tipe-barang': 'Tipe Barang', ukuran: 'Ukuran', 'pecah-pola': 'Pecah Pola',
     jabatan: 'Jabatan', karyawan: 'Karyawan', promo: 'Promo', leads: 'Lead',
   };
@@ -289,6 +293,23 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
         {tab === 'paket' && <>
           <Field label="Nama Paket" value={form.nama} onChange={v => set('nama', v)} placeholder="e.g., KAOS" />
           <Field label="Deskripsi (Opsional)" value={form.deskripsi} onChange={v => set('deskripsi', v)} />
+        </>}
+        {tab === 'barang-cs' && <>
+          <Field label="Nama Barang *" value={form.nama} onChange={v => set('nama', v)} placeholder="e.g., Jersey Sublim" />
+          <div>
+            <label className="block text-sm font-medium text-white mb-1.5">Harga (Rp) *</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={form.harga ? new Intl.NumberFormat('id-ID').format(Number(form.harga)) : ''}
+              onChange={e => {
+                const digits = e.target.value.replace(/\D/g, '');
+                set('harga', digits ? Number(digits) : 0);
+              }}
+              placeholder="0"
+              className={inputCls}
+            />
+          </div>
         </>}
         {tab === 'barang' && <>
           <Field label="Nama Barang *" value={form.nama} onChange={v => set('nama', v)} />
@@ -507,6 +528,25 @@ function TableBarang({ rows, onEdit, onDelete }: { rows: Row[]; onEdit: (r: Row)
           <td className="px-5 py-4 text-sm text-slate-400">{r.tipe_nama || '-'}</td>
           <td className="px-5 py-4 text-sm text-slate-400">{r.satuan}</td>
           <td className="px-5 py-4"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
+        </tr>
+      ))}
+    </tbody></table>
+  );
+}
+
+function TableBarangCs({ rows, onEdit, onDelete }: { rows: Row[]; onEdit: (r: Row) => void; onDelete: (id: number) => void }) {
+  const fmtIdr = (n: number) => new Intl.NumberFormat('id-ID').format(n || 0);
+  return (
+    <table className="w-full"><thead><tr className="border-b border-white/[0.06]">
+      <th className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">NAMA BARANG</th>
+      <th className="text-[11px] text-slate-500 font-medium text-right px-5 py-3.5 uppercase tracking-wider">HARGA</th>
+      <th className="text-[11px] text-slate-500 font-medium text-right px-5 py-3.5 uppercase tracking-wider">AKSI</th>
+    </tr></thead><tbody>
+      {rows.length === 0 ? <EmptyState label="barang CS" /> : rows.map(r => (
+        <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+          <td className="px-5 py-4 text-sm font-medium text-white">{r.nama}</td>
+          <td className="px-5 py-4 text-sm text-slate-300 text-right tabular-nums">Rp {fmtIdr(Number(r.harga))}</td>
+          <td className="px-5 py-4 text-right"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
         </tr>
       ))}
     </tbody></table>

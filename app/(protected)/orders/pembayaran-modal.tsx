@@ -83,18 +83,24 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // Tracking link surfaced at the bottom in read-only mode.
   const [trackingLink, setTrackingLink] = useState('');
   const [noOrder, setNoOrder] = useState('');
+  // Master Barang CS untuk dropdown Nama Barang. Kalau tabel/API belum
+  // ada (migration 034 belum landing), array kosong dan input jatuh
+  // balik ke free-text supaya modal tetap jalan.
+  const [barangCs, setBarangCs] = useState<Row[]>([]);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [o, p, i, l] = await Promise.all([
+      const [o, p, i, l, bcs] = await Promise.all([
         dbGet('orders').catch(() => []),
         dbGet('order_payments').catch(() => []),
         dbGet('order_items').catch(() => []),
         dbGet('leads').catch(() => []),
+        dbGet('barang_cs').catch(() => []),
       ]);
       setOrders(o);
       setPayments(p);
       setItems(i);
+      setBarangCs(bcs);
       setLeads(l);
     } catch (e) { console.error(e); }
   }, []);
@@ -601,6 +607,18 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
   return (
     <>
+      {/* Datalist untuk dropdown Nama Barang di tabel item.
+          Datalist itu inert — tidak render, jadi aman diletakkan di
+          root modal dan bisa dirujuk oleh input via list="barang-cs-list". */}
+      {barangCs.length > 0 && (
+        <datalist id="barang-cs-list">
+          {barangCs.map(b => (
+            <option key={b.id} value={String(b.nama)}>
+              Rp {new Intl.NumberFormat('id-ID').format(Number(b.harga) || 0)}
+            </option>
+          ))}
+        </datalist>
+      )}
       <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3 overflow-y-auto">
         <div className="w-full max-w-5xl bg-white border border-white/[0.06] rounded-xl shadow-2xl shadow-black/50 my-8 flex flex-col max-h-[92vh]">
@@ -729,9 +747,24 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                       <tr key={line.id}>
                         <td className={cellCls}>
                           <div className="flex items-center gap-2">
-                            <input type="text" value={line.nama}
-                              onChange={e => updateItemLine(idx, 'nama', e.target.value)}
-                              placeholder="Nama barang" className={inputCls} readOnly={readOnly} />
+                            <input
+                              type="text"
+                              value={line.nama}
+                              onChange={e => {
+                                const val = e.target.value;
+                                updateItemLine(idx, 'nama', val);
+                                // Autofill harga kalau nama match master Barang CS.
+                                // Kalau nama diketik manual (bukan pilihan), skip
+                                // autofill dan biarkan user input harga sendiri.
+                                const match = barangCs.find(b => String(b.nama).toLowerCase() === val.toLowerCase());
+                                if (match) {
+                                  updateItemLine(idx, 'harga', Number(match.harga) || 0);
+                                }
+                              }}
+                              list={barangCs.length > 0 ? 'barang-cs-list' : undefined}
+                              placeholder="Pilih / ketik nama barang"
+                              className={inputCls}
+                              readOnly={readOnly} />
                             {!readOnly && itemLines.length > 1 && (
                               <button onClick={() => removeItemLine(idx)} title="Hapus"
                                 className="text-slate-400 hover:text-rose-500 shrink-0 text-lg leading-none px-1">×</button>
