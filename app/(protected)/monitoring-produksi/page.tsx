@@ -324,9 +324,9 @@ function PerbanyakPicker({
         </div>
 
         <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-4 py-3 mb-5">
-          <p className="text-sm font-semibold text-white">{row.tim || row.customer || '-'}</p>
+          <p className="text-sm font-semibold text-white">{row.customer || row.tim || '-'}</p>
           {row.tim && row.customer && row.tim !== row.customer && (
-            <p className="text-xs text-slate-500">{row.customer}</p>
+            <p className="text-xs text-slate-500">{row.tim}</p>
           )}
           <p className="text-xs text-slate-400 mt-1">{row.paket} · {row.qty || 0} pcs</p>
         </div>
@@ -563,9 +563,13 @@ function BoardCard({
                   return (
                   <tr key={row.mpId} className={`border-b border-white/[0.04] transition-colors ${rowBg}`}>
                     <Td className="text-slate-200">
-                      <span className="font-medium">{row.tim || row.customer || '-'}</span>
-                      {row.tim && row.customer && (
-                        <span className="block text-[10px] text-slate-500">{row.customer}</span>
+                      {/* Customer name di atas (bold, main line), nama tim di
+                          bawah sebagai subtitle. Kalau tidak ada nama tim,
+                          fallback ke tim/customer apa adanya supaya baris
+                          tidak kosong. */}
+                      <span className="font-semibold">{row.customer || row.tim || '-'}</span>
+                      {row.tim && row.customer && row.tim !== row.customer && (
+                        <span className="block text-[10px] text-slate-500">{row.tim}</span>
                       )}
                     </Td>
                     <Td className="text-center tabular-nums text-slate-300">{row.qty > 0 ? row.qty : '-'}</Td>

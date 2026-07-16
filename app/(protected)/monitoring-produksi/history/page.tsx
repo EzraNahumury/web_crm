@@ -121,8 +121,8 @@ export default function HistoryMonitoringPage() {
                   <tr key={r.mpId} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                     <td className="px-5 py-4 text-sm text-slate-500 tabular-nums">{i + 1}</td>
                     <td className="px-5 py-4">
-                      <span className="text-sm text-slate-200 font-medium">{r.tim || r.customer || '-'}</span>
-                      {r.tim && r.customer && <span className="block text-[11px] text-slate-500">{r.customer}</span>}
+                      <span className="text-sm text-slate-200 font-semibold">{r.customer || r.tim || '-'}</span>
+                      {r.tim && r.customer && r.tim !== r.customer && <span className="block text-[11px] text-slate-500">{r.tim}</span>}
                     </td>
                     <td className="px-5 py-4 text-center text-sm text-slate-300 tabular-nums">{r.qty > 0 ? r.qty : '-'}</td>
                     <td className="px-5 py-4 text-sm text-slate-400">{r.paket}</td>
