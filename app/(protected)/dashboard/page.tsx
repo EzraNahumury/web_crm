@@ -86,19 +86,19 @@ export default function DashboardPage() {
             <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
               {greeting}, {displayName} 👋
             </h1>
-            <p className="text-sm text-slate-300/80 mt-1.5 max-w-xl">
+            <p className="text-sm text-slate-300 mt-1.5 max-w-xl">
               Ringkasan bisnis Anda hari ini. Ada <strong className="text-white">{pendingCount}</strong> order pending
-              dan <strong className={overdueCount > 0 ? 'text-red-300' : 'text-white'}>{overdueCount}</strong> WO terlambat.
+              dan <strong className={overdueCount > 0 ? 'text-red-400' : 'text-white'}>{overdueCount}</strong> WO terlambat.
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <Link href="/orders?create=1"
-              className="group inline-flex items-center gap-2 bg-white/[0.06] hover:bg-white text-white hover:text-slate-900 border border-white/10 hover:border-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-blue-500/10">
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-blue-500/20">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
               Order Baru
             </Link>
             <Link href="/master"
-              className="inline-flex items-center gap-2 border border-white/10 hover:bg-white/[0.06] text-slate-300 hover:text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+              className="inline-flex items-center gap-2 border border-white/10 bg-[#111827] hover:bg-white/[0.06] text-slate-200 hover:text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" /></svg>
               Master
             </Link>
@@ -165,14 +165,14 @@ export default function DashboardPage() {
 
       {/* Peringatan Deadline — glass panel dengan strip merah tipis di kiri
           untuk menekankan urgensi tanpa harus mewarnai seluruh card. */}
-      <div className="relative rounded-2xl bg-[#111827]/70 backdrop-blur border border-white/[0.06] p-6 overflow-hidden">
+      <div className="relative rounded-2xl bg-[#111827] border border-white/[0.06] p-6 overflow-hidden">
         {overdueOrders.length > 0 && (
           <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-red-500/80 via-red-500/40 to-transparent" />
         )}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-500/25 to-red-500/5 border border-red-500/20 grid place-items-center">
-              <svg className="w-4.5 h-4.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <svg className="w-[18px] h-[18px] text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
               </svg>
             </div>
@@ -236,11 +236,11 @@ export default function DashboardPage() {
       </div>
 
       {/* Work Order Terbaru — table modern dengan avatar bulat untuk WO */}
-      <div className="rounded-2xl bg-[#111827]/70 backdrop-blur border border-white/[0.06] overflow-hidden">
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="flex items-center justify-between p-6 pb-4">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500/25 to-blue-500/5 border border-blue-500/20 grid place-items-center">
-              <svg className="w-4.5 h-4.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <svg className="w-[18px] h-[18px] text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
               </svg>
             </div>
@@ -344,7 +344,7 @@ function RevenueCard({ value, orders, done, completionRate }: {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/25 grid place-items-center">
-              <svg className="w-4.5 h-4.5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <svg className="w-[18px] h-[18px] text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -386,7 +386,7 @@ function StatCard({ label, value, trend, icon, accent }: {
 }) {
   const a = STAT_ACCENT[accent];
   return (
-    <div className={`relative overflow-hidden rounded-2xl border ${a.border} bg-[#111827]/60 backdrop-blur p-4 transition-all hover:border-white/20`}>
+    <div className={`relative overflow-hidden rounded-2xl border ${a.border} bg-[#111827] p-4 transition-all hover:border-white/20`}>
       <div aria-hidden className={`absolute -top-8 -right-8 w-24 h-24 rounded-full ${a.glow} blur-2xl pointer-events-none`} />
       <div className="relative">
         <div className="flex items-start justify-between mb-3">

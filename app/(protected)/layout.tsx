@@ -11,7 +11,7 @@ function ThemeToggle({ variant = 'sidebar' }: { variant?: 'sidebar' | 'topbar' }
   const isDark = theme === 'dark';
   const label = isDark ? 'Mode Terang' : 'Mode Gelap';
   const cls = variant === 'sidebar'
-    ? 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition-colors'
+    ? 'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[12.5px] font-medium text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition-colors border border-white/[0.04] hover:border-white/[0.08]'
     : 'text-slate-500 hover:text-slate-300 transition-colors p-1';
   return (
     <button onClick={toggle} className={cls} title={label} aria-label={label}>
@@ -221,14 +221,23 @@ function AdminLayout({ user, logout, children }: {
       {mobileOpen && <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setMobileOpen(false)} />}
 
       {/* ── Sidebar ── */}
-      <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-[230px] bg-[#0c1120] border-r border-white/[0.06] flex flex-col shrink-0 transform transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-        {/* Logo */}
-        <div className="px-5 h-20 flex items-center justify-center border-b border-white/[0.06] shrink-0">
-          <img src="/logo/new logo.png" alt="AYRES" className="h-14 brightness-0 invert" />
+      <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-[244px] bg-[#0c1120] border-r border-white/[0.06] flex flex-col shrink-0 transform transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+        {/* Logo — versi baru: logo + wordmark side-by-side, halus,
+            tidak ada border pembatas yang berat. */}
+        <div className="px-5 h-[72px] flex items-center gap-2 shrink-0">
+          <img src="/logo/new logo.png" alt="AYRES" className="h-9 brightness-0 invert opacity-90" />
+          <div className="flex flex-col leading-tight">
+            <span className="text-[13px] font-bold text-white tracking-tight">AYRES CRM</span>
+            <span className="text-[10px] text-slate-500 tracking-wider uppercase">Production</span>
+          </div>
         </div>
 
-        {/* Navigation */}
+        <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
+
+        {/* Navigation — spacing lebih longgar, active state pakai
+            gradient tipis + indicator kiri, hover state halus. */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+          <p className="px-3 pb-2 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Menu</p>
           {filteredNav.map((item) => {
             if (item.children) {
               const childActive = item.children.some(c => pathname === c.href);
@@ -237,30 +246,47 @@ function AdminLayout({ user, logout, children }: {
                 <div key={item.label}>
                   <button
                     onClick={() => toggleMenu(item.label)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${childActive ? 'text-white bg-white/[0.06]' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}
+                    className={`w-full relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${
+                      childActive
+                        ? 'text-white bg-white/[0.04]'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
+                    }`}
                   >
-                    <span className="shrink-0 opacity-70">{item.icon}</span>
+                    <span className={`shrink-0 transition-colors ${childActive ? 'text-blue-400' : 'opacity-70'}`}>{item.icon}</span>
                     <span className="flex-1 text-left">{item.label}</span>
-                    <svg className={`w-4 h-4 transition-transform duration-200 opacity-50 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    <svg className={`w-3.5 h-3.5 transition-transform duration-200 opacity-50 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </button>
                   {open && (
-                    <div className="ml-4 mt-0.5 space-y-0.5 border-l border-white/[0.06] pl-3">
-                      {item.children.map(child => (
-                        <Link key={child.href} href={child.href}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${isActive(child.href) ? 'text-white bg-blue-600/80' : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]'}`}>
-                          <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50" />
-                          {child.label}
-                        </Link>
-                      ))}
+                    <div className="mt-0.5 ml-6 pl-3 border-l border-white/[0.06] space-y-0.5 py-0.5">
+                      {item.children.map(child => {
+                        const active = isActive(child.href);
+                        return (
+                          <Link key={child.href} href={child.href}
+                            className={`relative flex items-center gap-2.5 px-3 py-2 rounded-md text-[12.5px] font-medium transition-colors ${
+                              active
+                                ? 'text-blue-300 bg-blue-500/10'
+                                : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
+                            }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full transition-colors ${active ? 'bg-blue-400' : 'bg-slate-600'}`} />
+                            {child.label}
+                          </Link>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               );
             }
+            const active = isActive(item.href!);
             return (
               <Link key={item.href} href={item.href!}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${isActive(item.href!) ? 'text-white bg-blue-600' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}>
-                <span className="shrink-0 opacity-70">{item.icon}</span>
+                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all ${
+                  active
+                    ? 'text-white bg-gradient-to-r from-blue-500/20 to-blue-500/[0.02] shadow-inner'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
+                }`}>
+                {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full bg-blue-400" />}
+                <span className={`shrink-0 transition-colors ${active ? 'text-blue-400' : 'opacity-70'}`}>{item.icon}</span>
                 {item.label}
               </Link>
             );
@@ -268,22 +294,26 @@ function AdminLayout({ user, logout, children }: {
         </nav>
 
         {/* Theme toggle */}
-        <div className="px-3 py-2 border-t border-white/[0.06] shrink-0">
+        <div className="px-3 pb-2 shrink-0">
           <ThemeToggle />
         </div>
 
-        {/* User info */}
-        <div className="px-4 py-4 border-t border-white/[0.06] shrink-0">
+        {/* User card — versi lebih clean, avatar bulat dengan ring
+            tipis, chip role kapital kecil di bawah nama. */}
+        <div className="mx-3 mb-3 p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-emerald-600 grid place-items-center text-white text-[11px] font-bold shrink-0">
-              {(user.nama || user.username).charAt(0).toUpperCase()}
+            <div className="relative shrink-0">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 grid place-items-center text-white text-sm font-bold ring-2 ring-emerald-500/20">
+                {(user.nama || user.username).charAt(0).toUpperCase()}
+              </div>
+              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#0c1120]" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-white font-medium truncate">{user.nama || user.username}</p>
-              <p className="text-[11px] text-slate-500 capitalize">{user.role}</p>
+              <p className="text-[13px] text-white font-semibold truncate leading-tight">{user.nama || user.username}</p>
+              <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mt-0.5">{user.role}</p>
             </div>
-            <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 transition-colors p-1" title="Keluar">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
+            <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors p-1.5" title="Keluar">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
             </button>
           </div>
         </div>
@@ -291,19 +321,37 @@ function AdminLayout({ user, logout, children }: {
 
       {/* ── Main Area ── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {/* Top bar */}
-        <header className="shrink-0 h-14 flex items-center justify-between px-6 border-b border-white/[0.06] bg-[#0a0e17]">
-          <button className="lg:hidden text-slate-400 hover:text-white transition-colors" onClick={() => setMobileOpen(true)}>
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+        {/* Top bar — sticky, kompak, hanya menampilkan trigger mobile
+            dan user chip. Nama page tidak duplicate — heading page-level
+            sudah ada di masing-masing route. */}
+        <header className="shrink-0 h-14 flex items-center justify-between px-6 border-b border-white/[0.06] bg-[#0a0e17] sticky top-0 z-30 backdrop-blur">
+          <button
+            className="lg:hidden text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors p-1.5 rounded-lg"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Buka menu"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
           </button>
           <div className="flex-1" />
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-400 font-medium hidden sm:block">{user.nama || user.username}</span>
-            <button className="text-slate-500 hover:text-slate-300 transition-colors p-1">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
+          <div className="flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-2 pr-3 border-r border-white/[0.06]">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 grid place-items-center text-white text-[11px] font-bold">
+                {(user.nama || user.username).charAt(0).toUpperCase()}
+              </div>
+              <span className="text-sm text-slate-300 font-medium">{user.nama || user.username}</span>
+            </div>
+            <button
+              className="text-slate-500 hover:text-slate-200 hover:bg-white/[0.04] transition-colors p-1.5 rounded-lg"
+              title="Refresh"
+            >
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
             </button>
-            <button onClick={handleLogout} className="text-slate-500 hover:text-slate-300 transition-colors p-1" title="Keluar">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
+            <button
+              onClick={handleLogout}
+              className="text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors p-1.5 rounded-lg"
+              title="Keluar"
+            >
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
             </button>
           </div>
         </header>
