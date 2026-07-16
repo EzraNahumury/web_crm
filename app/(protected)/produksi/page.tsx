@@ -662,14 +662,40 @@ export default function ProduksiPage() {
     // artinya sudah lewat SLA yang dijanjikan untuk lanjut ke stage berikut.
     const lateStatus = targetSelesaiStage ? classifyLate(targetSelesaiStage, todayISO) : 'aman';
     const finalLateStatus = targetSelesaiFinal ? classifyLate(targetSelesaiFinal, todayISO) : 'aman';
+    // Danger level: terlambat final (lewat QC Final target) lebih parah
+    // dari terlambat stage. Kalau salah satu terlambat, styling card
+    // seluruh row berubah jadi merah gelap dengan strip kiri agar
+    // langsung kelihatan tanpa harus baca chip.
+    const isDangerLate = finalLateStatus === 'terlambat' || lateStatus === 'terlambat';
+    const isWarnLate = !isDangerLate && (finalLateStatus === 'warning' || lateStatus === 'warning');
+    const cardWrapCls = isDangerLate
+      ? 'relative flex flex-col gap-2 px-6 py-4 border-b border-red-500/25 bg-gradient-to-r from-red-500/[0.08] to-transparent hover:from-red-500/[0.12] transition-colors'
+      : isWarnLate
+        ? 'relative flex flex-col gap-2 px-6 py-4 border-b border-amber-500/20 bg-gradient-to-r from-amber-500/[0.05] to-transparent hover:from-amber-500/[0.08] transition-colors'
+        : 'flex flex-col gap-2 px-6 py-4 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors';
     return (
-      <div className="flex flex-col gap-2 px-6 py-4 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors">
+      <div className={cardWrapCls}>
+        {isDangerLate && (
+          <span aria-hidden className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-full bg-red-500" />
+        )}
+        {isWarnLate && (
+          <span aria-hidden className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-full bg-amber-500" />
+        )}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm font-medium text-blue-400 whitespace-nowrap">{wo.no_wo}</span>
-              <span className="text-sm font-semibold text-white">{wo.customer_nama}</span>
-              {lateStatus === 'terlambat' && (
+              <span className={`text-sm font-semibold ${isDangerLate ? 'text-red-100' : 'text-white'}`}>{wo.customer_nama}</span>
+              {finalLateStatus === 'terlambat' && (
+                <span
+                  title={`Target selesai final (QC Final) ${fmtDateLabel(targetSelesaiFinal)} — sudah lewat`}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border border-red-500/50 text-white bg-red-500/40 whitespace-nowrap"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                  Lewat Deadline
+                </span>
+              )}
+              {finalLateStatus !== 'terlambat' && lateStatus === 'terlambat' && (
                 <span
                   title={`Target stage ini ${fmtDateLabel(targetSelesaiStage)} — sudah lewat`}
                   className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-red-500/40 text-red-300 bg-red-500/15 whitespace-nowrap"
@@ -678,12 +704,12 @@ export default function ProduksiPage() {
                   Terlambat SLA
                 </span>
               )}
-              {lateStatus === 'warning' && (
+              {finalLateStatus !== 'terlambat' && lateStatus !== 'terlambat' && lateStatus === 'warning' && (
                 <span
                   title={`Target stage ini ${fmtDateLabel(targetSelesaiStage)} — hari ini deadline`}
                   className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-500/40 text-amber-300 bg-amber-500/15 whitespace-nowrap"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                   Hari-H
                 </span>
               )}
@@ -729,7 +755,18 @@ export default function ProduksiPage() {
                 </>
               )}
             </div>
-            {lateStatus === 'terlambat' && (
+            {finalLateStatus === 'terlambat' && (
+              <div className="mt-1.5 text-[11px] leading-snug max-w-2xl bg-red-500/20 border border-red-500/40 text-red-100 rounded-lg px-3 py-2 flex items-start gap-2">
+                <svg className="w-4 h-4 shrink-0 mt-0.5 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                <div>
+                  <strong className="text-red-200 uppercase tracking-wider text-[10px]">Lewat Deadline Final</strong>
+                  <div className="mt-0.5">
+                    Target <strong>QC Final</strong> di <strong>{fmtDateLabel(targetSelesaiFinal)}</strong> — {daysBetweenLabel(targetSelesaiFinal, todayISO)}. Segera koordinasi dengan admin!
+                  </div>
+                </div>
+              </div>
+            )}
+            {finalLateStatus !== 'terlambat' && lateStatus === 'terlambat' && (
               <div className="mt-1.5 text-[11px] leading-snug max-w-2xl bg-red-500/10 border border-red-500/20 text-red-200 rounded-lg px-2.5 py-1.5">
                 ⚠ Stage <strong>{activeStage}</strong> harusnya selesai di <strong>{fmtDateLabel(targetSelesaiStage)}</strong> ({daysBetweenLabel(targetSelesaiStage, todayISO)}).
               </div>
