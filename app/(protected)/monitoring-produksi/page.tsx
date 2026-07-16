@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { classifyLayanan, type LayananKind } from '@/lib/business-days';
+import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -106,7 +107,14 @@ export default function MonitoringProduksiPage() {
       }
 
       const enriched = mps
-        .filter((m: Row) => m.board !== 'history' && orderMap[String(m.order_id)])
+        .filter((m: Row) => {
+          if (m.board === 'history') return false;
+          const o = orderMap[String(m.order_id)];
+          if (!o) return false;
+          // Sembunyikan data legacy sebelum cutoff (lihat lib/data-cutoff.ts).
+          if (!isVisibleTanggalOrder(o.tanggal_order)) return false;
+          return true;
+        })
         .map((m: Row) => {
           const o = orderMap[String(m.order_id)];
           const pilihan = String(o.pilihan_paket || '');

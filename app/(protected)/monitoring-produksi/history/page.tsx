@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { dbGet } from '@/lib/api-db';
+import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -38,7 +39,12 @@ export default function HistoryMonitoringPage() {
       }
 
       const enriched = mps
-        .filter((m: Row) => orderMap[String(m.order_id)])
+        .filter((m: Row) => {
+          const o = orderMap[String(m.order_id)];
+          if (!o) return false;
+          // Sembunyikan data legacy sebelum cutoff (lihat lib/data-cutoff.ts).
+          return isVisibleTanggalOrder(o.tanggal_order);
+        })
         .map((m: Row) => {
           const o = orderMap[String(m.order_id)];
           return {
