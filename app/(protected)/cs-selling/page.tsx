@@ -971,7 +971,15 @@ export default function CsSellingPage() {
 
       <div className="grid grid-cols-1 sm:max-w-sm gap-3">
         {[
-          { label: 'Menunggu CS Order', count: rows.length, color: 'from-fuchsia-500/20 to-fuchsia-500/5', border: 'border-fuchsia-500/15', text: 'text-fuchsia-400', dot: 'bg-fuchsia-400' },
+          {
+            label: 'Menunggu CS Order',
+            // Hanya order yang benar-benar masih SELLING yang dihitung —
+            // begitu CS Order isi Rincian Order status berubah ke PENDING,
+            // baris masih tampil di tabel (created_via='CS_SELLING') tapi
+            // tidak lagi "menunggu" untuk keperluan card ini.
+            count: rows.filter((r: Row) => String(r.status || '').toUpperCase() === 'SELLING').length,
+            color: 'from-fuchsia-500/20 to-fuchsia-500/5', border: 'border-fuchsia-500/15', text: 'text-fuchsia-400', dot: 'bg-fuchsia-400',
+          },
         ].map(s => (
           <div key={s.label} className={`relative rounded-xl bg-gradient-to-br ${s.color} border ${s.border} p-4 overflow-hidden`}>
             <div className="flex items-center gap-2 mb-1">
