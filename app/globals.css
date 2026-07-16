@@ -72,6 +72,7 @@ select option {
 [data-theme="light"] .bg-\[\#0d1117\] { background-color: #f1f5f9 !important; }
 [data-theme="light"] .bg-\[\#141a2e\] { background-color: #ffffff !important; }
 [data-theme="light"] .bg-\[\#161618\] { background-color: #ffffff !important; }
+[data-theme="light"] .bg-\[\#1a1f35\] { background-color: #ffffff !important; }
 
 /* Zinc backgrounds (from DefaultLayout / login menus) */
 [data-theme="light"] .bg-zinc-800,
