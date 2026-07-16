@@ -1,8 +1,9 @@
 'use client';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { dbGet, dbUpdate } from '@/lib/api-db';
+import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
+import { sha256Hex } from '@/lib/hash';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -235,6 +236,84 @@ export default function BuktiPembayaranPage() {
           toast.warning('Kolom bukti_uploaded Belum Ada',
             'Jalankan /api/admin/run-migrations lalu ulangi simpan supaya order pindah ke Finance.');
         } catch {}
+      }
+
+      // Auto-create WO (placeholder, wo_confirmed=0) supaya order langsung
+      // muncul di Produksi → Waiting List sebagai read-only. Gate Waiting
+      // List → Approval Design tetap dijaga oleh finance_status='APPROVED',
+      // jadi row tidak bisa maju sampai Finance verify. Gate Proofing →
+      // Approval WO dijaga oleh wo_confirmed=1 supaya admin wajib buka
+      // menu Work Orders dan detail WO-nya dulu sebelum proses lanjut.
+      try {
+        const orderId = Number(pickedOrder.id);
+        const allWos = await dbGet('work_orders');
+        const existingWo = (allWos as Row[]).find(w => Number(w.order_id) === orderId);
+        if (!existingWo) {
+          const now = new Date();
+          const prefix = `WO${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+          const suffixRe = new RegExp(`^${prefix}-(\\d+)$`);
+          const maxNum = (allWos as Row[]).reduce((max: number, w: Row) => {
+            const m = String(w.no_wo || '').match(suffixRe);
+            return m ? Math.max(max, parseInt(m[1], 10)) : max;
+          }, 0);
+          const noWo = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
+          const trackingHash = await sha256Hex(noWo);
+
+          const stagesRaw = await dbGet('production_stages');
+          const sortedStages = (stagesRaw as Row[])
+            .filter(s => s.active === undefined || s.active === 1 || s.active === true)
+            .sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+          const firstStageId = sortedStages[0]?.id;
+
+          const orderItems = await dbGet('order_items').catch(() => []);
+          const rowsForOrder = (orderItems as Row[]).filter(it => Number(it.order_id) === orderId);
+          const paketNames = rowsForOrder.map(it => String(it.paket_nama || '')).filter(Boolean).join(', ') || '-';
+          const totalQty = rowsForOrder.reduce((s, it) => s + (Number(it.qty) || 0), 0);
+          // work_orders.deadline NOT NULL di base schema. Kasih placeholder
+          // +7 hari; admin nanti overwrite via menu Work Orders sesuai
+          // jadwal produksi sebenarnya.
+          const woDeadline = (() => {
+            const d = new Date(); d.setDate(d.getDate() + 7);
+            return d.toISOString().split('T')[0];
+          })();
+
+          const woId = await dbCreate('work_orders', {
+            no_wo: noWo,
+            tracking_hash: trackingHash,
+            order_id: orderId,
+            customer_nama: String(pickedOrder.customer_nama || '').trim(),
+            paket: paketNames,
+            bahan: '-',
+            jumlah: totalQty,
+            deadline: woDeadline,
+            keterangan: String(pickedOrder.keterangan || ''),
+            status: 'PROSES_PRODUKSI',
+            current_stage_id: firstStageId,
+            // wo_confirmed=0: WO cuma placeholder — Admin harus detail via
+            // menu Work Orders sebelum row Proofing bisa lanjut ke Approval WO.
+            wo_confirmed: 0,
+          });
+
+          for (const stage of sortedStages) {
+            try {
+              await dbCreate('wo_progress', {
+                work_order_id: woId,
+                stage_id: stage.id,
+                status: stage.id === firstStageId ? 'TERSEDIA' : 'BELUM',
+              });
+            } catch {}
+          }
+
+          try {
+            await dbUpdate('orders', orderId, {
+              tracking_link: `/tracking/${trackingHash}`,
+            });
+          } catch {}
+        }
+      } catch (err) {
+        console.warn('auto-create WO from Bukti Pembayaran failed:', err);
+        toast.warning('WO Belum Terbentuk',
+          'Order tersimpan tapi WO otomatis belum terbentuk. Buat manual dari menu Work Orders.');
       }
 
       invalidateCache('wp_orders', 'wp_dashboard');
