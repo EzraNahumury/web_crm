@@ -110,3 +110,51 @@ export function classifyLate(
   if (todayISO === targetISO) return 'warning';
   return 'aman';
 }
+
+// ─── Kapasitas harian per stage ──────────────────────────────────────
+// Unit 'wo' → dihitung per Work Order (misal Proofing: 1 WO = 1 model,
+// tidak peduli jumlah pcs).
+// Unit 'pcs' → dihitung per satuan pcs.
+// null → tidak ada limit (misal Approval Design/Pattern/WO/Layout yang
+// murni approval workflow tanpa batasan fisik).
+export type CapacityUnit = 'wo' | 'pcs';
+
+export interface StageCapacity {
+  limit: number;
+  unit: CapacityUnit;
+}
+
+export const STAGE_CAPACITY: Record<string, StageCapacity | null> = {
+  'Waiting List': null,
+  'Approval Design': null,
+  'Approval Pattern': null,
+  'Proofing': { limit: 15, unit: 'wo' },
+  'Approval WO': null,
+  'Printing Layout': { limit: 300, unit: 'pcs' },
+  'Approval Layout': null,
+  'Printing Process': { limit: 350, unit: 'pcs' },
+  'Sublim Press': { limit: 250, unit: 'pcs' },
+  'Fabric Cutting': { limit: 250, unit: 'pcs' },
+  'QC Panel Process': { limit: 250, unit: 'pcs' },
+  'Sewing': { limit: 200, unit: 'pcs' },
+  'QC Jersey': { limit: 200, unit: 'pcs' },
+  'Steam Jersey': { limit: 200, unit: 'pcs' },
+  'Finishing': { limit: 250, unit: 'pcs' },
+  'QC Final dan Packing': { limit: 250, unit: 'pcs' },
+  'Shipment': null,
+};
+
+// Status pemakaian kapasitas.
+//   'aman'   → di bawah 80% limit
+//   'hampir' → 80% – kurang dari 100% limit
+//   'penuh'  → sama persis dengan limit
+//   'lebih'  → melebihi limit (overload)
+export type CapacityStatus = 'aman' | 'hampir' | 'penuh' | 'lebih';
+
+export function classifyCapacity(current: number, limit: number): CapacityStatus {
+  if (limit <= 0) return 'aman';
+  if (current > limit) return 'lebih';
+  if (current === limit) return 'penuh';
+  if (current >= limit * 0.8) return 'hampir';
+  return 'aman';
+}

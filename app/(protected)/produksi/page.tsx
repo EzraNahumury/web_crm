@@ -9,7 +9,9 @@ import {
   computeStageTargets,
   totalDurasiHariKerja,
   classifyLate,
+  classifyCapacity,
   STAGE_DURATIONS,
+  STAGE_CAPACITY,
 } from '@/lib/produksi-durasi';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -900,6 +902,91 @@ export default function ProduksiPage() {
               </div>
             </div>
           </div>
+          {/* Capacity meter — beban antrian vs kapasitas harian.
+              Unit 'wo' untuk Proofing (per WO), 'pcs' untuk stage produksi
+              fisik. Stage tanpa limit (Approval Design/Pattern/WO/Layout)
+              di-skip supaya tidak nampil section kosong. */}
+          {(() => {
+            const cap = STAGE_CAPACITY[activeStage];
+            if (!cap) return null;
+            const current = cap.unit === 'wo' ? tersediaWos.length : tersediaQty;
+            const pct = cap.limit > 0 ? Math.min(100, Math.round((current / cap.limit) * 100)) : 0;
+            const overPct = cap.limit > 0 && current > cap.limit ? Math.round(((current - cap.limit) / cap.limit) * 100) : 0;
+            const status = classifyCapacity(current, cap.limit);
+            const barColor =
+              status === 'lebih' ? 'bg-gradient-to-r from-red-500 to-red-400'
+              : status === 'penuh' ? 'bg-gradient-to-r from-amber-500 to-orange-400'
+              : status === 'hampir' ? 'bg-gradient-to-r from-amber-400 to-yellow-400'
+              : 'bg-gradient-to-r from-emerald-500 to-teal-400';
+            const wrapCls =
+              status === 'lebih' ? 'border-red-500/30 bg-red-500/[0.06]'
+              : status === 'penuh' ? 'border-orange-500/30 bg-orange-500/[0.06]'
+              : status === 'hampir' ? 'border-amber-500/25 bg-amber-500/[0.05]'
+              : 'border-white/[0.06] bg-white/[0.02]';
+            const iconColor =
+              status === 'lebih' ? 'text-red-300'
+              : status === 'penuh' ? 'text-orange-300'
+              : status === 'hampir' ? 'text-amber-300'
+              : 'text-emerald-300';
+            const statusChip =
+              status === 'lebih' ? { label: 'OVER LIMIT', cls: 'border-red-500/40 bg-red-500/20 text-red-100' }
+              : status === 'penuh' ? { label: 'PENUH', cls: 'border-orange-500/40 bg-orange-500/20 text-orange-100' }
+              : status === 'hampir' ? { label: 'HAMPIR PENUH', cls: 'border-amber-500/35 bg-amber-500/15 text-amber-100' }
+              : { label: 'AMAN', cls: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-100' };
+            return (
+              <div className={`rounded-xl border p-3 ${wrapCls}`}>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className={`w-9 h-9 rounded-lg bg-white/[0.03] border border-white/10 grid place-items-center shrink-0 ${iconColor}`}>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-3 2.148 2.148A12.061 12.061 0 0116.5 7.605" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-[180px]">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">Kapasitas Harian</span>
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${statusChip.cls}`}>
+                        {status === 'lebih' && (
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                        )}
+                        {statusChip.label}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-baseline gap-2">
+                      <span className={`text-lg font-bold tabular-nums ${status === 'lebih' ? 'text-red-100' : 'text-white'}`}>{current}</span>
+                      <span className="text-[13px] text-slate-500">/ {cap.limit} {cap.unit === 'wo' ? 'WO' : 'pcs'}</span>
+                      {status === 'lebih' && (
+                        <span className="ml-1 text-[11px] font-semibold text-red-300">(+{current - cap.limit} {cap.unit === 'wo' ? 'WO' : 'pcs'}, {overPct}% over)</span>
+                      )}
+                    </div>
+                    <div className="mt-2 relative h-2 rounded-full bg-white/[0.05] overflow-hidden">
+                      <div
+                        className={`h-full ${barColor} rounded-full transition-all duration-500`}
+                        style={{ width: `${pct}%` }}
+                      />
+                      {status === 'lebih' && (
+                        <div aria-hidden className="absolute inset-y-0 right-0 w-1 bg-red-500/60 rounded-r-full animate-pulse" />
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                      <span>0</span>
+                      <span className="text-slate-400">
+                        {cap.unit === 'wo' ? 'per model WO' : 'per pcs (semua ukuran)'}
+                      </span>
+                      <span>{cap.limit}</span>
+                    </div>
+                  </div>
+                </div>
+                {status === 'lebih' && (
+                  <div className="mt-3 flex items-start gap-2 text-[11px] leading-snug bg-red-500/10 border border-red-500/25 text-red-100 rounded-lg px-3 py-2">
+                    <svg className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                    <div>
+                      <strong>Overload!</strong> Beban antrian melebihi kapasitas harian. Prioritaskan WO paling mendekati deadline atau lakukan overtime.
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {/* Per-stage search di baris sendiri supaya tidak kepotong /
               ke-wrap tersembunyi pas ruang antrian sempit atau role
               dengan sidebar yang lebih lebar. Selalu terlihat untuk
