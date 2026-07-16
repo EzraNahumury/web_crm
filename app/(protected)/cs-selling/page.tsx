@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
+import { Pagination, paginate } from '@/lib/pagination';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -814,6 +815,7 @@ export default function CsSellingPage() {
   const [customers, setCustomers] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // When editOrder is set, the drawer opens in edit mode with the row's
   // data pre-filled. Closing the drawer clears it, so opening "Buat
@@ -923,6 +925,11 @@ export default function CsSellingPage() {
         || String(r.customer_phone || '').toLowerCase().includes(q);
     });
   }, [rows, search]);
+
+  // Reset page saat search berubah supaya tidak stuck di halaman kosong.
+  useEffect(() => { setPage(1); }, [search]);
+
+  const paged = paginate(filtered, page);
 
   const paymentsByOrder = useMemo(() => {
     const m: Record<number, Row[]> = {};
@@ -1061,7 +1068,9 @@ export default function CsSellingPage() {
                     <p className="text-xs text-slate-500 max-w-xs">Klik <strong className="text-white">Buat Order</strong> di kanan atas untuk mencatat order baru dari customer.</p>
                   </div>
                 </td></tr>
-              ) : filtered.map((o: Row, i: number) => {
+              ) : paged.slice.map((o: Row, i: number) => {
+                // Nomor urut absolut (global), bukan reset per halaman.
+                const rowIdx = (paged.current - 1) * paged.count + i;
                 const p = paymentsByOrder[Number(o.id)] || [];
                 const dpDesain = p.find((x: Row) => String(x.tipe) === 'dp_desain');
                 const dpAmt = Number(dpDesain?.amount || o.dp_desain || 0);
@@ -1076,7 +1085,7 @@ export default function CsSellingPage() {
                 const custInitial = String(o.customer_nama || '?').trim().charAt(0).toUpperCase();
                 return (
                   <tr key={o.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors group">
-                    <td className="px-4 py-3.5 text-sm text-slate-500 tabular-nums">{i + 1}</td>
+                    <td className="px-4 py-3.5 text-sm text-slate-500 tabular-nums">{rowIdx + 1}</td>
                     <td className="px-4 py-3.5 text-sm text-blue-300 font-semibold">{o.no_order}</td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2.5">
@@ -1138,6 +1147,12 @@ export default function CsSellingPage() {
             </tbody>
           </table>
         </div>
+        <Pagination
+          current={paged.current}
+          total={paged.total}
+          count={paged.count}
+          onChange={setPage}
+        />
       </div>
 
       <CsSellingDrawer

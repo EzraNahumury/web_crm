@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { apiGetDashboardForce, apiGetOrdersForce } from '@/lib/api';
 import { DashboardStats, Order } from '@/lib/types';
 import { formatDate } from '@/lib/utils';
+import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -37,8 +38,11 @@ export default function DashboardPage() {
     setLoading(false);
   }
 
-  const overdueOrders = orders.filter(o => o.riskLevel === 'OVERDUE' || o.riskLevel === 'HIGH');
-  const recentOrders = orders.slice(0, 5);
+  // Filter cutoff — konsisten dengan CS Order / Produksi / WO / Monitoring.
+  // Data legacy pre-2026-07-13 tetap ada di DB tapi tidak dihitung ke KPI.
+  const visibleOrders = orders.filter(o => isVisibleTanggalOrder(o.rawTanggalOrder));
+  const overdueOrders = visibleOrders.filter(o => o.riskLevel === 'OVERDUE' || o.riskLevel === 'HIGH');
+  const recentOrders = visibleOrders.slice(0, 5);
 
   const pendingCount = stats ? stats.openOrders : 0;
   const activeCount = stats ? stats.totalOrders - stats.doneOrders : 0;

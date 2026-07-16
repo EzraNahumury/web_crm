@@ -1,6 +1,7 @@
 import { Order, DashboardStats, ApiResponse } from './types';
 import { getCached, setCached, invalidateCache } from './cache';
 import { computeDeadlineLock, hasJaket } from './business-days';
+import { isVisibleTanggalOrder } from './data-cutoff';
 
 // ─── Auth ───────────────────────────────────────────────
 export async function apiLogin(username: string, password: string) {
@@ -58,7 +59,11 @@ export async function apiGetDashboard(): Promise<ApiResponse<DashboardStats>> {
   ]);
   if (oRes.success && oRes.data) {
     const orders = mapOrders(oRes.data, iRes.success ? iRes.data : [], woRes.success ? woRes.data : [], wpRes.success ? wpRes.data : [], stagesRes.success ? stagesRes.data : [], holidaysRes?.success ? holidaysRes.data : []);
-    const stats = computeStats(orders);
+    // Terapkan cutoff supaya statistik dashboard konsisten dengan CS
+    // Order, Produksi, Work Orders, Monitoring. Data legacy pre-cutoff
+    // tetap ada di DB, cuma tidak dihitung ke KPI dashboard.
+    const visibleOrders = orders.filter(o => isVisibleTanggalOrder(o.rawTanggalOrder));
+    const stats = computeStats(visibleOrders);
     setCached('wp_dashboard', stats);
     return { success: true, data: stats };
   }
