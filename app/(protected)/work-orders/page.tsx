@@ -321,23 +321,48 @@ export default function WorkOrdersPage() {
     </div>
   );
 
+  const totalActive = filtered.filter((w: Row) => String(w.status || '').toUpperCase() === 'PROSES_PRODUKSI').length;
+  const totalDone = filtered.filter((w: Row) => String(w.status || '').toUpperCase() === 'SELESAI').length;
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Work Order</h1>
-          <p className="text-sm text-slate-400 mt-1">Lacak semua perintah kerja dan progres produksi.</p>
+    <div className="space-y-5">
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-blue-500/[0.14] via-cyan-500/[0.06] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500/25 to-blue-500/5 border border-blue-500/25 grid place-items-center shrink-0">
+              <svg className="w-5 h-5 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Work Order</h1>
+              <p className="text-[13px] text-slate-300 mt-0.5 max-w-xl">Lacak semua perintah kerja dan progres produksi. Klik <strong className="text-white">Buat WO dari Order</strong> untuk membuat WO baru.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="hidden sm:flex items-center gap-4 pr-3 border-r border-white/10">
+              <div className="text-right">
+                <p className="text-[10px] font-semibold text-blue-300/70 uppercase tracking-widest">Aktif</p>
+                <p className="text-lg font-bold text-white tabular-nums">{totalActive}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-semibold text-emerald-300/70 uppercase tracking-widest">Selesai</p>
+                <p className="text-lg font-bold text-white tabular-nums">{totalDone}</p>
+              </div>
+            </div>
+            <button onClick={() => setModalOpen(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shrink-0 shadow-lg shadow-blue-500/20">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+              Buat WO dari Order
+            </button>
+          </div>
         </div>
-        <button onClick={() => setModalOpen(true)}
-          className="flex items-center gap-2 border border-white/10 hover:bg-white/[0.04] text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors shrink-0">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-          Buat WO dari Order
-        </button>
       </div>
 
       {/* Search & Filter */}
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-4">
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3">
         <div className="flex gap-3 items-center">
           <div className="relative flex-1">
             <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -346,7 +371,7 @@ export default function WorkOrdersPage() {
               className="w-full bg-transparent border-0 text-white placeholder-slate-500 pl-10 pr-4 py-2.5 text-sm focus:outline-none" />
           </div>
           <select value={customerFilter} onChange={e => setCustomerFilter(e.target.value)}
-            className="bg-transparent border border-white/10 text-slate-300 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer pr-8 shrink-0">
+            className="bg-white/[0.03] border border-white/10 text-slate-300 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer pr-8 shrink-0">
             <option value="ALL">Semua Customer</option>
             {customers.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
@@ -354,20 +379,29 @@ export default function WorkOrdersPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1000px]">
             <thead>
-              <tr className="border-b border-white/[0.06]">
+              <tr className="border-b border-white/[0.06] bg-white/[0.015]">
                 {['NO WO','CUSTOMER','PAKET','QTY','TGL ORDER','DEADLINE','STATUS','AKSI'].map(h => (
-                  /* BAHAN column hidden, data still fetched */
-                  <th key={h} className={`text-[11px] text-slate-500 font-medium ${h === 'QTY' ? 'text-right' : 'text-left'} px-5 py-3.5 uppercase tracking-wider`}>{h}</th>
+                  <th key={h} className={`text-[10px] text-slate-500 font-semibold ${h === 'QTY' ? 'text-right' : h === 'AKSI' ? 'text-right' : 'text-left'} px-5 py-3.5 uppercase tracking-widest`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={10} className="px-5 py-12 text-center text-sm text-slate-500">Tidak ada work order ditemukan</td></tr>
+                <tr><td colSpan={10} className="px-5 py-16 text-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500/15 to-transparent border border-blue-500/20 grid place-items-center">
+                      <svg className="w-6 h-6 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+                      </svg>
+                    </div>
+                    <p className="text-sm text-slate-300 font-medium">Tidak ada work order ditemukan</p>
+                    <p className="text-xs text-slate-500 max-w-xs">Coba ubah kata kunci pencarian atau buat WO baru dari order yang sudah masuk.</p>
+                  </div>
+                </td></tr>
               ) : (
                 paged.slice.map((wo: Row) => {
                   const deadline = wo.deadline ? new Date(wo.deadline) : null;
@@ -382,14 +416,26 @@ export default function WorkOrdersPage() {
                   };
                   const st = isOverdue ? statusMap.TERLAMBAT : (statusMap[wo.status] || statusMap.PENDING);
                   return (
-                    <tr key={wo.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                    <tr key={wo.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors group">
                       <td className="px-5 py-4">
-                        <span className="text-sm text-blue-400 font-medium">{wo.no_wo}</span>
-                        {isOverdue && (
-                          <svg className="inline-block w-3.5 h-3.5 text-amber-400 ml-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-blue-300 font-semibold">{wo.no_wo}</span>
+                          {isOverdue && (
+                            <span title="Terlambat" className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-red-500/10 border border-red-500/25 text-red-300">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+                              LATE
+                            </span>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-5 py-4 text-sm text-slate-300">{wo.customer_nama}</td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-500/5 border border-blue-500/20 grid place-items-center text-[11px] font-bold text-blue-200 shrink-0">
+                            {String(wo.customer_nama || '?').trim().charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-sm text-white font-medium truncate max-w-[220px]" title={wo.customer_nama}>{wo.customer_nama || '-'}</span>
+                        </div>
+                      </td>
                       <td className="px-5 py-4 text-sm text-slate-400">{wo.paket || '-'}</td>
                       <td className="px-5 py-4 text-right">
                         <span className="text-sm text-slate-300 font-semibold tabular-nums">{wo.qty > 0 ? wo.qty : '-'}</span>

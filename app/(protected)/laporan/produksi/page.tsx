@@ -113,20 +113,26 @@ export default function LaporanProduksiPage() {
   );
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Laporan Produksi</h1>
-          <p className="text-sm text-slate-400 mt-1">Statistik pergerakan produksi per tahap</p>
+    <div className="space-y-5">
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-violet-500/[0.14] via-indigo-500/[0.06] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-violet-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-violet-500/25 to-violet-500/5 border border-violet-500/25 grid place-items-center shrink-0">
+              <svg className="w-5 h-5 text-violet-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Laporan Produksi</h1>
+              <p className="text-[13px] text-slate-300 mt-0.5">
+                Statistik pergerakan produksi per tahap · <span className="text-white font-medium">{periode}</span>
+              </p>
+            </div>
+          </div>
+          <DateRangePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
         </div>
-        <DateRangePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
-      </div>
-
-      {/* Periode badge */}
-      <div className="flex items-center gap-2 text-sm text-slate-400">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg>
-        Periode: {periode}
       </div>
 
       {/* Stat Cards */}

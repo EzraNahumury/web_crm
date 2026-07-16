@@ -943,88 +943,123 @@ export default function CsSellingPage() {
   // All rows here are SELLING by construction — the filter above drops
   // anything else, so we just use rows.length for the single stat card.
 
+  const menungguCount = rows.filter((r: Row) => String(r.status || '').toUpperCase() === 'SELLING').length;
+  const totalRows = rows.length;
+
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold text-white">CS Selling</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Input order awal + DP Desain. Detail order (paket, deadline, DP Produksi) dilanjutkan di menu CS Order.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={fetchAll} disabled={loading}
-            title="Refresh — muat ulang daftar order"
-            className="text-sm font-medium text-slate-300 border border-white/10 hover:bg-white/[0.04] px-3 py-2 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50">
-            <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            Refresh
-          </button>
-          <button onClick={() => { setEditOrder(null); setDrawerOpen(true); }}
-            className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-            Buat Order Baru
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:max-w-sm gap-3">
-        {[
-          {
-            label: 'Menunggu CS Order',
-            // Hanya order yang benar-benar masih SELLING yang dihitung —
-            // begitu CS Order isi Rincian Order status berubah ke PENDING,
-            // baris masih tampil di tabel (created_via='CS_SELLING') tapi
-            // tidak lagi "menunggu" untuk keperluan card ini.
-            count: rows.filter((r: Row) => String(r.status || '').toUpperCase() === 'SELLING').length,
-            color: 'from-fuchsia-500/20 to-fuchsia-500/5', border: 'border-fuchsia-500/15', text: 'text-fuchsia-400', dot: 'bg-fuchsia-400',
-          },
-        ].map(s => (
-          <div key={s.label} className={`relative rounded-xl bg-gradient-to-br ${s.color} border ${s.border} p-4 overflow-hidden`}>
-            <div className="flex items-center gap-2 mb-1">
-              <div className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-              <span className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{s.label}</span>
+      {/* Hero header — gradient card seperti Dashboard, dengan icon chip
+          dan CTA di kanan. */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-fuchsia-500/[0.14] via-pink-500/[0.06] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-fuchsia-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-fuchsia-500/25 to-fuchsia-500/5 border border-fuchsia-500/25 grid place-items-center shrink-0">
+              <svg className="w-5 h-5 text-fuchsia-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+              </svg>
             </div>
-            <p className={`text-2xl font-bold ${s.text} tabular-nums`}>{s.count}</p>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">CS Selling</h1>
+              <p className="text-[13px] text-slate-300 mt-0.5 max-w-xl">
+                Input order awal + DP Desain. Detail (paket, deadline, DP Produksi) dilanjutkan di CS Order.
+              </p>
+            </div>
           </div>
-        ))}
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={fetchAll} disabled={loading}
+              title="Refresh"
+              className="text-sm font-medium text-slate-300 hover:text-white border border-white/10 hover:bg-white/[0.06] bg-[#111827] px-3 py-2.5 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50">
+              <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+            <button onClick={() => { setEditOrder(null); setDrawerOpen(true); }}
+              className="text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 px-4 py-2.5 rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-blue-500/20">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              Buat Order
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-[200px]">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      {/* Stat strip — 2 chip untuk konteks cepat. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="relative overflow-hidden rounded-2xl border border-fuchsia-500/20 bg-[#111827] p-4">
+          <div aria-hidden className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-fuchsia-500/10 blur-2xl pointer-events-none" />
+          <div className="relative flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-fuchsia-500/15 border border-fuchsia-500/25 grid place-items-center text-fuchsia-300 shrink-0">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold text-fuchsia-300/70 uppercase tracking-widest">Menunggu CS Order</p>
+              <p className="text-2xl font-bold text-white tabular-nums leading-tight mt-0.5">{menungguCount}</p>
+            </div>
+          </div>
+        </div>
+        <div className="relative overflow-hidden rounded-2xl border border-blue-500/20 bg-[#111827] p-4">
+          <div aria-hidden className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
+          <div className="relative flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/25 grid place-items-center text-blue-300 shrink-0">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold text-blue-300/70 uppercase tracking-widest">Total di tabel</p>
+              <p className="text-2xl font-bold text-white tabular-nums leading-tight mt-0.5">{totalRows}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search bar dalam kartu terpisah dengan icon chip. */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3">
+        <div className="relative">
+          <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Cari no order, customer, no HP..."
-            className="w-full pl-9 pr-3 py-2 bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg placeholder-white/25 focus:outline-none focus:border-blue-500/40" />
+            className="w-full pl-10 pr-3 py-2.5 bg-transparent text-white text-sm placeholder-slate-500 focus:outline-none" />
         </div>
       </div>
 
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1000px]">
             <thead>
-              <tr className="border-b border-white/[0.06] text-[11px] text-slate-500 font-medium uppercase tracking-wider">
-                <th className="text-left px-4 py-3">No</th>
-                <th className="text-left px-4 py-3">No Order</th>
-                <th className="text-left px-4 py-3">Customer</th>
-                <th className="text-left px-4 py-3">Leads</th>
-                <th className="text-left px-4 py-3">No HP</th>
-                <th className="text-right px-4 py-3">DP Desain</th>
-                <th className="text-center px-4 py-3">Bukti TF</th>
-                <th className="text-left px-4 py-3">Tgl Order</th>
-                <th className="text-left px-4 py-3">Finance</th>
-                <th className="text-right px-4 py-3">Aksi</th>
+              <tr className="border-b border-white/[0.06] text-[10px] text-slate-500 font-semibold uppercase tracking-widest bg-white/[0.015]">
+                <th className="text-left px-4 py-3.5">No</th>
+                <th className="text-left px-4 py-3.5">No Order</th>
+                <th className="text-left px-4 py-3.5">Customer</th>
+                <th className="text-left px-4 py-3.5">Leads</th>
+                <th className="text-left px-4 py-3.5">No HP</th>
+                <th className="text-right px-4 py-3.5">DP Desain</th>
+                <th className="text-center px-4 py-3.5">Bukti TF</th>
+                <th className="text-left px-4 py-3.5">Tgl Order</th>
+                <th className="text-left px-4 py-3.5">Finance</th>
+                <th className="text-right px-4 py-3.5">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-slate-500">Memuat...</td></tr>
+                <tr><td colSpan={10} className="px-4 py-16 text-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-10 h-10 rounded-full border-2 border-blue-500/20 border-t-blue-400 animate-spin" />
+                    <span className="text-sm text-slate-500">Memuat data order...</span>
+                  </div>
+                </td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-slate-500">
-                  Belum ada order menunggu. Klik <strong className="text-white">Buat Order Baru</strong> untuk mulai.
+                <tr><td colSpan={10} className="px-4 py-16 text-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-fuchsia-500/15 to-transparent border border-fuchsia-500/20 grid place-items-center">
+                      <svg className="w-6 h-6 text-fuchsia-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm text-slate-300 font-medium">Belum ada order</p>
+                    <p className="text-xs text-slate-500 max-w-xs">Klik <strong className="text-white">Buat Order</strong> di kanan atas untuk mencatat order baru dari customer.</p>
+                  </div>
                 </td></tr>
               ) : filtered.map((o: Row, i: number) => {
                 const p = paymentsByOrder[Number(o.id)] || [];
@@ -1038,13 +1073,21 @@ export default function CsSellingPage() {
                     : fs === 'REJECTED'
                       ? { label: 'Ditolak', cls: 'text-rose-300 bg-rose-500/10 border-rose-500/30', dot: 'bg-rose-400' }
                       : { label: 'Menunggu', cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30', dot: 'bg-amber-400' };
+                const custInitial = String(o.customer_nama || '?').trim().charAt(0).toUpperCase();
                 return (
-                  <tr key={o.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                  <tr key={o.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors group">
                     <td className="px-4 py-3.5 text-sm text-slate-500 tabular-nums">{i + 1}</td>
-                    <td className="px-4 py-3.5 text-sm text-blue-400 font-medium">{o.no_order}</td>
-                    <td className="px-4 py-3.5 text-sm text-white font-medium">{o.customer_nama}</td>
+                    <td className="px-4 py-3.5 text-sm text-blue-300 font-semibold">{o.no_order}</td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500/20 to-fuchsia-500/5 border border-fuchsia-500/20 grid place-items-center text-[11px] font-bold text-fuchsia-200 shrink-0">
+                          {custInitial}
+                        </div>
+                        <span className="text-sm text-white font-medium truncate max-w-[220px]" title={o.customer_nama}>{o.customer_nama}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3.5 text-sm text-slate-300">{leadById[Number(o.lead_id)] || '-'}</td>
-                    <td className="px-4 py-3.5 text-sm text-slate-400">{o.customer_phone || '-'}</td>
+                    <td className="px-4 py-3.5 text-sm text-slate-400 tabular-nums">{o.customer_phone || '-'}</td>
                     <td className="px-4 py-3.5 text-sm text-slate-300 text-right tabular-nums">
                       {dpAmt > 0 ? `Rp ${fmtRp(dpAmt)}` : '-'}
                     </td>

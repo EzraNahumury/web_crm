@@ -318,14 +318,25 @@ export default function BuktiPembayaranPage() {
 
   return (
     <div className="space-y-5 max-w-5xl mx-auto">
-      <div>
-        <h1 className="text-xl font-bold text-white">Bukti Pembayaran</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Upload bukti transfer untuk tiap DP Produksi. Setelah lengkap, order diteruskan ke Approval Finance untuk review invoice.
-        </p>
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-amber-500/[0.14] via-orange-500/[0.06] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/25 to-amber-500/5 border border-amber-500/25 grid place-items-center shrink-0">
+            <svg className="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15m0-3l-3-3m0 0l-3 3m3-3V15" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Bukti Pembayaran</h1>
+            <p className="text-[13px] text-slate-300 mt-0.5 max-w-2xl">
+              Upload bukti transfer untuk tiap DP Produksi. Setelah lengkap, order diteruskan ke Approval Finance untuk review invoice.
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-5 space-y-4">
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-5 space-y-4">
         <div>
           <label className="block text-sm font-medium text-white mb-1.5">
             Pilih Order <span className="text-rose-400">*</span>

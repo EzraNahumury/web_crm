@@ -190,35 +190,54 @@ export default function MasterPage() {
   const fmtDate = (d: string) => { if (!d) return '-'; try { return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }); } catch { return d; } };
 
   return (
-    <div className="space-y-0">
-      {/* Tab nav */}
-      <div className="border-b border-white/[0.06] -mx-6 px-6 overflow-x-auto">
-        <div className="flex gap-0 min-w-max">
-          {TABS.map(t => (
-            <button key={t.key} onClick={() => switchTab(t.key)}
-              className={`px-4 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${tab === t.key ? 'text-blue-400 border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}>
-              {t.label}
-            </button>
-          ))}
+    <div className="space-y-5">
+      {/* Tab nav — pill style */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-2 overflow-x-auto">
+        <div className="flex gap-1 min-w-max">
+          {TABS.map(t => {
+            const active = tab === t.key;
+            return (
+              <button key={t.key} onClick={() => switchTab(t.key)}
+                className={`px-3.5 py-2 rounded-xl text-[13px] font-medium whitespace-nowrap transition-all ${
+                  active
+                    ? 'text-white bg-gradient-to-b from-blue-500/25 to-blue-500/10 border border-blue-500/30 shadow-inner'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03] border border-transparent'
+                }`}>
+                {t.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="space-y-5 pt-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-white">{cur.title}</h1>
-            <p className="text-sm text-slate-400 mt-1">{cur.subtitle}</p>
+      {/* Section header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500/25 to-blue-500/5 border border-blue-500/25 grid place-items-center shrink-0">
+            <svg className="w-5 h-5 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+            </svg>
           </div>
-          <AddBtn label={cur.addLabel} onClick={() => { setEditingRow(null); setModal(true); }} />
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{cur.title}</h1>
+            <p className="text-[13px] text-slate-300 mt-0.5">{cur.subtitle}</p>
+          </div>
         </div>
+        <AddBtn label={cur.addLabel} onClick={() => { setEditingRow(null); setModal(true); }} />
+      </div>
 
-        <SearchBar value={search} onChange={setSearch} placeholder={cur.searchPlaceholder} />
+      <SearchBar value={search} onChange={setSearch} placeholder={cur.searchPlaceholder} />
 
-        {/* Table */}
-        <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-          {loading ? (
-            <div className="px-5 py-12 text-center text-sm text-slate-500">Memuat data...</div>
-          ) : (
+      {/* Table */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+        {loading ? (
+          <div className="px-5 py-16 text-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-10 h-10 rounded-full border-2 border-blue-500/20 border-t-blue-400 animate-spin" />
+              <span className="text-sm text-slate-500">Memuat data...</span>
+            </div>
+          </div>
+        ) : (
             <>
               <div className="overflow-x-auto">
                 {tab === 'customer' && <TableCustomer rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
@@ -238,7 +257,6 @@ export default function MasterPage() {
             </>
           )}
         </div>
-      </div>
 
       {/* ═══ Modals ═══ */}
       <ModalForm tab={tab} open={modal} onClose={() => { setModal(false); setEditingRow(null); }} onSave={handleSave}

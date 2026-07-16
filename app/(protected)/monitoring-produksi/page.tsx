@@ -225,49 +225,63 @@ export default function MonitoringProduksiPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Monitoring Produksi</h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Papan monitoring 4 tahap, difilter berdasarkan tanggal order. Flow: Proofing → Perbanyak → Print Fedar → Print Grando.
-          </p>
-        </div>
+    <div className="space-y-5">
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-cyan-500/[0.14] via-blue-500/[0.06] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-cyan-500/25 to-cyan-500/5 border border-cyan-500/25 grid place-items-center shrink-0">
+              <svg className="w-5 h-5 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-3 2.148 2.148A12.061 12.061 0 0116.5 7.605" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Monitoring Produksi</h1>
+              <p className="text-[13px] text-slate-300 mt-0.5 max-w-2xl">
+                Papan 4 tahap: <strong className="text-white">Proofing → Perbanyak → Print Fedar → Print Grando</strong>.
+              </p>
+            </div>
+          </div>
 
-        {/* Date filter — filters rows by tanggal order. "Semua" shows every date. */}
-        <div className="flex items-center gap-2 shrink-0">
-          <label className="text-xs text-slate-500 uppercase tracking-wider">Tanggal Order</label>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={e => { setSelectedDate(e.target.value); setShowAll(false); }}
-            disabled={showAll}
-            className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input disabled:opacity-40"
-          />
-          <button
-            onClick={() => { setSelectedDate(todayIso()); setShowAll(false); }}
-            className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors"
-          >
-            Hari Ini
-          </button>
-          <button
-            onClick={() => setShowAll(v => !v)}
-            className={`text-xs px-3 py-2 rounded-lg border transition-colors ${showAll ? 'bg-blue-600 border-blue-500 text-white' : 'border-white/10 text-slate-400 hover:text-white hover:bg-white/[0.04]'}`}
-          >
-            Semua
-          </button>
+          {/* Date filter */}
+          <div className="flex items-center gap-2 shrink-0">
+            <label className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider hidden sm:block">Tanggal</label>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={e => { setSelectedDate(e.target.value); setShowAll(false); }}
+              disabled={showAll}
+              className="bg-[#111827] border border-white/10 text-white text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input disabled:opacity-40"
+            />
+            <button
+              onClick={() => { setSelectedDate(todayIso()); setShowAll(false); }}
+              className="text-xs font-medium text-slate-300 hover:text-white px-3 py-2 rounded-xl border border-white/10 bg-[#111827] hover:bg-white/[0.04] transition-colors"
+            >
+              Hari Ini
+            </button>
+            <button
+              onClick={() => setShowAll(v => !v)}
+              className={`text-xs font-semibold px-3 py-2 rounded-xl border transition-colors ${
+                showAll ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20' : 'border-white/10 bg-[#111827] text-slate-300 hover:text-white hover:bg-white/[0.04]'
+              }`}
+            >
+              Semua
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Info flow */}
-      <div className="rounded-xl bg-blue-500/[0.06] border border-blue-500/20 p-4 flex items-start gap-3">
-        <svg className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-        </svg>
-        <p className="text-xs text-blue-300 leading-relaxed">
-          Semua order otomatis masuk ke <strong>Proofing</strong>. Centang <strong>Checklist</strong> untuk memindahkan baris
-          ke tabel berikutnya. Setelah dicentang di <strong>Print Grando</strong>, baris tersimpan di <strong>History Monitoring</strong>.
+      <div className="rounded-2xl bg-blue-500/[0.06] border border-blue-500/20 p-4 flex items-start gap-3">
+        <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/25 grid place-items-center shrink-0">
+          <svg className="w-4 h-4 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+          </svg>
+        </div>
+        <p className="text-[12px] text-blue-100/90 leading-relaxed">
+          Semua order otomatis masuk ke <strong className="text-white">Proofing</strong>. Centang <strong className="text-white">Checklist</strong> untuk memindahkan baris ke tabel berikutnya.
+          Setelah dicentang di <strong className="text-white">Print Grando</strong>, baris tersimpan di <strong className="text-white">History Monitoring</strong>.
         </p>
       </div>
 

@@ -274,49 +274,78 @@ export default function ApprovalFinancePage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold text-white">Approval Finance</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Verifikasi bukti transfer DP Desain dari CS Selling. Approve untuk membuka gate CS Order.
-        </p>
-      </div>
-
-      <div className="border-b border-white/[0.06] -mx-6 px-6 overflow-x-auto">
-        <div className="flex gap-0 min-w-max">
-          {tabs.map(t => (
-            <button key={t.key} onClick={() => setFilter(t.key)}
-              className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                filter === t.key ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
-              }`}>
-              {t.label}
-              {t.count > 0 && (
-                <span className={`ml-1.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1 text-[10px] font-bold rounded-full bg-white/[0.06] ${t.cls}`}>{t.count}</span>
-              )}
-            </button>
-          ))}
+    <div className="space-y-5">
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-emerald-500/[0.14] via-teal-500/[0.06] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/25 to-emerald-500/5 border border-emerald-500/25 grid place-items-center shrink-0">
+            <svg className="w-5 h-5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Approval Finance</h1>
+            <p className="text-[13px] text-slate-300 mt-0.5 max-w-xl">
+              Verifikasi bukti transfer DP Desain dari CS Selling. Approve untuk membuka gate CS Order.
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      {/* Tabs — pill style */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-2 overflow-x-auto">
+        <div className="flex gap-1 min-w-max">
+          {tabs.map(t => {
+            const isActiveTab = filter === t.key;
+            return (
+              <button key={t.key} onClick={() => setFilter(t.key)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium whitespace-nowrap transition-all ${
+                  isActiveTab
+                    ? 'text-white bg-gradient-to-b from-blue-500/25 to-blue-500/10 border border-blue-500/30 shadow-inner'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03] border border-transparent'
+                }`}>
+                {t.label}
+                {t.count > 0 && (
+                  <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full ${
+                    isActiveTab ? 'bg-white/20 text-white' : `bg-white/[0.06] ${t.cls}`
+                  }`}>{t.count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px]">
             <thead>
-              <tr className="border-b border-white/[0.06] text-[11px] text-slate-500 font-medium uppercase tracking-wider">
-                <th className="text-left px-4 py-3">No Order</th>
-                <th className="text-left px-4 py-3">Customer</th>
-                <th className="text-left px-4 py-3">Leads</th>
-                <th className="text-left px-4 py-3">No HP</th>
-                <th className="text-right px-4 py-3">DP Desain</th>
-                <th className="text-center px-4 py-3">Bukti TF</th>
-                <th className="text-left px-4 py-3">Tgl Order</th>
-                <th className="text-left px-4 py-3">Status</th>
-                <th className="text-right px-4 py-3">Aksi</th>
+              <tr className="border-b border-white/[0.06] text-[10px] text-slate-500 font-semibold uppercase tracking-widest bg-white/[0.015]">
+                <th className="text-left px-4 py-3.5">No Order</th>
+                <th className="text-left px-4 py-3.5">Customer</th>
+                <th className="text-left px-4 py-3.5">Leads</th>
+                <th className="text-left px-4 py-3.5">No HP</th>
+                <th className="text-right px-4 py-3.5">DP Desain</th>
+                <th className="text-center px-4 py-3.5">Bukti TF</th>
+                <th className="text-left px-4 py-3.5">Tgl Order</th>
+                <th className="text-left px-4 py-3.5">Status</th>
+                <th className="text-right px-4 py-3.5">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">Tidak ada order di kategori ini.</td></tr>
+                <tr><td colSpan={9} className="px-4 py-16 text-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-transparent border border-emerald-500/20 grid place-items-center">
+                      <svg className="w-6 h-6 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm text-slate-300 font-medium">Tidak ada order di kategori ini</p>
+                    <p className="text-xs text-slate-500 max-w-xs">Coba pilih tab lain untuk melihat order dengan status berbeda.</p>
+                  </div>
+                </td></tr>
               ) : filtered.map((o: Row) => {
                 const p = paymentsByOrder[Number(o.id)] || [];
                 const dpDesain = p.find((x: Row) => String(x.tipe) === 'dp_desain');
@@ -332,11 +361,18 @@ export default function ApprovalFinancePage() {
                   : rs === 'REJECTED' ? 'Ditolak'
                   : 'Menunggu';
                 return (
-                  <tr key={o.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                    <td className="px-4 py-3.5 text-sm text-blue-400 font-medium">{o.no_order}</td>
-                    <td className="px-4 py-3.5 text-sm text-white font-medium">{o.customer_nama}</td>
+                  <tr key={o.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors group">
+                    <td className="px-4 py-3.5 text-sm text-blue-300 font-semibold">{o.no_order}</td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border border-emerald-500/20 grid place-items-center text-[11px] font-bold text-emerald-200 shrink-0">
+                          {String(o.customer_nama || '?').trim().charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-sm text-white font-medium truncate max-w-[220px]" title={o.customer_nama}>{o.customer_nama}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3.5 text-sm text-slate-300">{leadById[Number(o.lead_id)] || '-'}</td>
-                    <td className="px-4 py-3.5 text-sm text-slate-400">{o.customer_phone || '-'}</td>
+                    <td className="px-4 py-3.5 text-sm text-slate-400 tabular-nums">{o.customer_phone || '-'}</td>
                     <td className="px-4 py-3.5 text-sm text-slate-300 text-right tabular-nums">
                       {dpAmt > 0 ? `Rp ${fmtRp(dpAmt)}` : '-'}
                     </td>

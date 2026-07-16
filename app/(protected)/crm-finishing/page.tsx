@@ -226,40 +226,50 @@ export default function CrmFinishingPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Papan Finishing</h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Order minggu ini (dan yang sudah overdue). Checklist untuk memindahkan ke History Finishing.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          <label className="text-xs text-slate-500 uppercase tracking-wider">Tanggal</label>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input"
-          />
-          <button
-            onClick={() => setDate(todayIso())}
-            className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors"
-          >
-            Hari Ini
-          </button>
-          <button
-            onClick={handleExportPdf}
-            disabled={exporting || loading || filtered.length === 0}
-            title="Export Papan Finishing ke PDF"
-            className="inline-flex items-center gap-1.5 text-xs text-white bg-pink-600 hover:bg-pink-500 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-2 rounded-lg transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
-            {exporting ? 'Menyiapkan...' : 'Export PDF'}
-          </button>
+    <div className="space-y-5">
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-pink-500/[0.14] via-fuchsia-500/[0.06] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-pink-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-pink-500/25 to-pink-500/5 border border-pink-500/25 grid place-items-center shrink-0">
+              <svg className="w-5 h-5 text-pink-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Papan Finishing</h1>
+              <p className="text-[13px] text-slate-300 mt-0.5 max-w-2xl">
+                Order minggu ini (dan yang sudah overdue). Checklist untuk memindahkan ke History Finishing.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <label className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider hidden sm:block">Tanggal</label>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="bg-[#111827] border border-white/10 text-white text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input"
+            />
+            <button
+              onClick={() => setDate(todayIso())}
+              className="text-xs font-medium text-slate-300 hover:text-white px-3 py-2 rounded-xl border border-white/10 bg-[#111827] hover:bg-white/[0.04] transition-colors"
+            >
+              Hari Ini
+            </button>
+            <button
+              onClick={handleExportPdf}
+              disabled={exporting || loading || filtered.length === 0}
+              title="Export Papan Finishing ke PDF"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-pink-600 hover:bg-pink-500 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-2 rounded-xl transition-colors shadow-lg shadow-pink-500/20"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              {exporting ? 'Menyiapkan...' : 'Export PDF'}
+            </button>
+          </div>
         </div>
       </div>
 

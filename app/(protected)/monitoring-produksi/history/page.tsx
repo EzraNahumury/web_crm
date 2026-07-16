@@ -78,22 +78,33 @@ export default function HistoryMonitoringPage() {
   }, [rows, search]);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">History Monitoring</h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Order yang sudah selesai melewati semua tahap monitoring (Proofing → Print Grando).
-          </p>
-        </div>
-        <div className="text-sm text-slate-500 shrink-0">
-          Total: <span className="text-white font-semibold">{rows.length}</span>
+    <div className="space-y-5">
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-slate-500/[0.14] via-slate-500/[0.05] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-slate-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-500/25 to-slate-500/5 border border-slate-500/25 grid place-items-center shrink-0">
+              <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">History Monitoring</h1>
+              <p className="text-[13px] text-slate-300 mt-0.5 max-w-2xl">
+                Order yang sudah selesai melewati semua tahap monitoring (Proofing → Print Grando).
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 bg-[#111827] border border-white/10 rounded-xl px-4 py-2.5">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Total</span>
+            <span className="text-lg font-bold text-white tabular-nums">{rows.length}</span>
+          </div>
         </div>
       </div>
 
       {/* Search */}
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-4">
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3">
         <div className="relative">
           <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           <input

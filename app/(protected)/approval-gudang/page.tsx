@@ -127,35 +127,54 @@ export default function ApprovalGudangPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold text-white">Approval Gudang</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Permintaan bahan dari produksi (Reject dengan penambahan bahan). Approve untuk membuka gate produksi.
-        </p>
-      </div>
-
-      <div className="border-b border-white/[0.06] -mx-6 px-6 overflow-x-auto">
-        <div className="flex gap-0 min-w-max">
-          {tabs.map(t => (
-            <button key={t.key} onClick={() => setFilter(t.key)}
-              className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                filter === t.key ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
-              }`}>
-              {t.label}
-              {t.count > 0 && (
-                <span className={`ml-1.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1 text-[10px] font-bold rounded-full bg-white/[0.06] ${t.cls}`}>{t.count}</span>
-              )}
-            </button>
-          ))}
+    <div className="space-y-5">
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-orange-500/[0.14] via-amber-500/[0.06] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-orange-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500/25 to-orange-500/5 border border-orange-500/25 grid place-items-center shrink-0">
+            <svg className="w-5 h-5 text-orange-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Approval Gudang</h1>
+            <p className="text-[13px] text-slate-300 mt-0.5 max-w-2xl">
+              Permintaan bahan dari produksi (Reject dengan penambahan bahan). Approve untuk membuka gate produksi.
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      {/* Tabs — pill style */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-2 overflow-x-auto">
+        <div className="flex gap-1 min-w-max">
+          {tabs.map(t => {
+            const isActiveTab = filter === t.key;
+            return (
+              <button key={t.key} onClick={() => setFilter(t.key)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium whitespace-nowrap transition-all ${
+                  isActiveTab
+                    ? 'text-white bg-gradient-to-b from-blue-500/25 to-blue-500/10 border border-blue-500/30 shadow-inner'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03] border border-transparent'
+                }`}>
+                {t.label}
+                {t.count > 0 && (
+                  <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full ${
+                    isActiveTab ? 'bg-white/20 text-white' : `bg-white/[0.06] ${t.cls}`
+                  }`}>{t.count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px]">
             <thead>
-              <tr className="border-b border-white/[0.06] text-[11px] text-slate-500 font-medium uppercase tracking-wider">
+              <tr className="border-b border-white/[0.06] text-[10px] text-slate-500 font-semibold uppercase tracking-widest bg-white/[0.015]">
                 <th className="text-left px-5 py-3.5">No WO</th>
                 <th className="text-left px-5 py-3.5">Customer</th>
                 <th className="text-left px-5 py-3.5">Tahap</th>

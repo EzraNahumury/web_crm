@@ -648,32 +648,53 @@ export default function ProduksiPage() {
   }
 
   return (
-    <div className="space-y-0">
-      {/* Stage Tabs */}
-      <div className="border-b border-white/[0.06] -mx-6 px-6 overflow-x-auto">
-        <div className="flex gap-0 min-w-max">
+    <div className="space-y-5">
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-emerald-500/[0.12] via-teal-500/[0.05] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/25 to-emerald-500/5 border border-emerald-500/25 grid place-items-center shrink-0">
+            <svg className="w-5 h-5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 6.878V6a2.25 2.25 0 012.25-2.25h7.5A2.25 2.25 0 0118 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 004.5 9v.878m13.5-3A2.25 2.25 0 0119.5 9v.878m0 0a2.246 2.246 0 00-.75-.128H5.25c-.263 0-.515.045-.75.128m15 0A2.25 2.25 0 0121 12v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6c0-.98.626-1.813 1.5-2.122" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Produksi</h1>
+            <p className="text-[13px] text-slate-300 mt-0.5">
+              Antrian per tahap produksi. Klik <strong className="text-white">Selesai & Lanjut</strong> untuk memindahkan WO ke tahap berikutnya.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Stage Tabs — pill style, indicator biru di bawah */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-x-auto">
+        <div className="flex gap-0 min-w-max px-2 py-2">
           {PROD_STAGES.map(stage => {
             const stageRow = stages.find((s: Row) => s.nama === stage);
             const stageId = stageRow?.id;
             const count = visibleProgress.filter((p: Row) => p.stage_id === stageId && (p.status === 'TERSEDIA' || p.status === 'SEDANG')).length;
             const hasAccess = stageId ? canManageStage(stageId) : false;
+            const isActiveTab = activeStage === stage;
             return (
               <button key={stage} onClick={() => setActiveStage(stage)}
-                className={`px-4 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors relative ${
-                  activeStage === stage
-                    ? 'text-white border-blue-500'
+                className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-medium whitespace-nowrap transition-all ${
+                  isActiveTab
+                    ? 'text-white bg-gradient-to-b from-blue-500/25 to-blue-500/10 border border-blue-500/30 shadow-inner'
                     : hasAccess
-                      ? 'text-slate-500 border-transparent hover:text-slate-300'
-                      : 'text-slate-600 border-transparent hover:text-slate-500'
+                      ? 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03] border border-transparent'
+                      : 'text-slate-600 hover:text-slate-500 border border-transparent'
                 }`}>
                 {stage}
                 {!hasAccess && !isFullAccess && (
-                  <svg className="inline-block w-3 h-3 ml-1 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <svg className="w-3 h-3 text-slate-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
                   </svg>
                 )}
                 {count > 0 && (
-                  <span className="ml-1.5 inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded-full bg-blue-500/20 text-blue-400">{count}</span>
+                  <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full ${
+                    isActiveTab ? 'bg-white/20 text-white' : 'bg-blue-500/20 text-blue-300'
+                  }`}>{count}</span>
                 )}
               </button>
             );

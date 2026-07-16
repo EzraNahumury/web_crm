@@ -127,20 +127,36 @@ export default function StokPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Stok Bahan Mentah</h1>
-        <p className="text-sm text-slate-400 mt-1">Monitor inventaris dan riwayat penyesuaian stok bahan mentah.</p>
+    <div className="space-y-5">
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-teal-500/[0.14] via-emerald-500/[0.06] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-teal-500/25 to-teal-500/5 border border-teal-500/25 grid place-items-center shrink-0">
+            <svg className="w-5 h-5 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Stok Bahan Mentah</h1>
+            <p className="text-[13px] text-slate-300 mt-0.5">Monitor inventaris dan riwayat penyesuaian stok bahan mentah.</p>
+          </div>
+        </div>
       </div>
 
-      <div className="border-b border-white/[0.06]">
-        <div className="flex gap-0">
+      {/* Tabs — pill style */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-2 overflow-x-auto">
+        <div className="flex gap-1 min-w-max">
           {[
             { key: 'aktual' as const, label: 'Stok Aktual' },
             { key: 'adjustment' as const, label: 'Stok Adjustment' },
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${tab === t.key ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}>
+              className={`px-4 py-2 rounded-xl text-[13px] font-medium whitespace-nowrap transition-all ${
+                tab === t.key
+                  ? 'text-white bg-gradient-to-b from-blue-500/25 to-blue-500/10 border border-blue-500/30 shadow-inner'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03] border border-transparent'
+              }`}>
               {t.label}
             </button>
           ))}
