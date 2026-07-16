@@ -5,13 +5,14 @@ import { useToast } from '@/lib/toast';
 import { Pagination, paginate } from '@/lib/pagination';
 
 /* ═══ Tab config ═══ */
-type TabKey = 'customer'|'paket'|'barang'|'barang-cs'|'bank'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads';
+type TabKey = 'customer'|'paket'|'barang'|'barang-cs'|'bank'|'gudang'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads';
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'customer', label: 'Customer' },
   { key: 'paket', label: 'Paket' },
   { key: 'barang', label: 'Barang' },
   { key: 'barang-cs', label: 'Barang CS' },
   { key: 'bank', label: 'Bank' },
+  { key: 'gudang', label: 'Gudang' },
   { key: 'tipe-barang', label: 'Tipe Barang' },
   { key: 'ukuran', label: 'Ukuran' },
   { key: 'pecah-pola', label: 'Pecah Pola' },
@@ -24,7 +25,7 @@ const TABS: { key: TabKey; label: string }[] = [
 // Map tab key to DB table name
 const TABLE_MAP: Record<TabKey, string> = {
   customer: 'customers', paket: 'paket', barang: 'barang', 'barang-cs': 'barang_cs',
-  bank: 'bank',
+  bank: 'bank', gudang: 'gudang',
   'tipe-barang': 'tipe_barang',
   ukuran: 'ukuran', 'pecah-pola': 'pecah_pola', jabatan: 'jabatan', karyawan: 'karyawan',
   promo: 'promo', leads: 'leads',
@@ -177,6 +178,7 @@ export default function MasterPage() {
     barang:        { title: 'Master Data Barang', subtitle: 'Kelola daftar semua barang mentah untuk produksi.', addLabel: 'Tambah Barang', searchPlaceholder: 'Cari nama barang...' },
     'barang-cs':   { title: 'Master Data Barang CS', subtitle: 'Katalog barang untuk dropdown di Rincian Order CS.', addLabel: 'Tambah Barang CS', searchPlaceholder: 'Cari nama barang...' },
     bank:          { title: 'Master Data Bank', subtitle: 'Daftar bank untuk dropdown DP Desain di CS Selling.', addLabel: 'Tambah Bank', searchPlaceholder: 'Cari nama bank...' },
+    gudang:        { title: 'Master Data Gudang', subtitle: 'Daftar gudang untuk dropdown Letak barang di menu Stok.', addLabel: 'Tambah Gudang', searchPlaceholder: 'Cari nama gudang...' },
     'tipe-barang': { title: 'Master Data Tipe Barang', subtitle: 'Kelola daftar semua tipe barang jadi.', addLabel: 'Tambah Tipe Barang', searchPlaceholder: 'Cari nama tipe barang...' },
     ukuran:        { title: 'Master Data Ukuran', subtitle: 'Kelola daftar semua ukuran produk.', addLabel: 'Tambah Ukuran', searchPlaceholder: 'Cari nama ukuran...' },
     'pecah-pola':  { title: 'Master Data Pecah Pola', subtitle: 'Kelola daftar semua pecah pola produksi.', addLabel: 'Tambah Pecah Pola', searchPlaceholder: 'Cari nama pecah pola...' },
@@ -245,6 +247,7 @@ export default function MasterPage() {
                 {tab === 'barang' && <TableBarang rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'barang-cs' && <TableBarangCs rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'bank' && <TableSimple rows={paged.slice} col="nama" header="NAMA BANK" onEdit={handleEdit} onDelete={handleDelete} />}
+                {tab === 'gudang' && <TableSimple rows={paged.slice} col="nama" header="NAMA GUDANG" onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'tipe-barang' && <TableNameDesc rows={paged.slice} col1="nama" col2="deskripsi" h1="NAMA TIPE" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'ukuran' && <TableNameDesc rows={paged.slice} col1="nama" col2="deskripsi" h1="NAMA UKURAN" h2="DESKRIPSI" onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'pecah-pola' && <TableNameDesc rows={paged.slice} col1="nama" col2="inisial" h1="NAMA PECAH POLA" h2="INISIAL" onEdit={handleEdit} onDelete={handleDelete} />}
@@ -298,7 +301,7 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
 
   const labels: Record<TabKey, string> = {
     customer: 'Customer', paket: 'Paket', barang: 'Barang', 'barang-cs': 'Barang CS',
-    bank: 'Bank',
+    bank: 'Bank', gudang: 'Gudang',
     'tipe-barang': 'Tipe Barang', ukuran: 'Ukuran', 'pecah-pola': 'Pecah Pola',
     jabatan: 'Jabatan', karyawan: 'Karyawan', promo: 'Promo', leads: 'Lead',
   };
@@ -336,6 +339,9 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
         </>}
         {tab === 'bank' && <>
           <Field label="Nama Bank *" value={form.nama} onChange={v => set('nama', v)} placeholder="e.g., BCA" />
+        </>}
+        {tab === 'gudang' && <>
+          <Field label="Nama Gudang *" value={form.nama} onChange={v => set('nama', v)} placeholder="e.g., Gudang AVA" />
         </>}
         {tab === 'barang' && <>
           <Field label="Nama Barang *" value={form.nama} onChange={v => set('nama', v)} />

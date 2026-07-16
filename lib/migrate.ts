@@ -667,6 +667,33 @@ const MIGRATIONS: Migration[] = [
         "('BRI'),('BCA'),('BNI'),('MANDIRI'),('DANA'),('WISE'),('FLIP'),('F-BANK'),('SHOOPE PAY'),('GOPAY')",
     ],
   },
+  {
+    // Master Gudang: daftar gudang untuk dropdown Letak di form barang.
+    // Seed 3 gudang default sesuai briefing.
+    name: '036_gudang',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `gudang` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`nama` VARCHAR(100) NOT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "UNIQUE KEY `uniq_gudang_nama` (`nama`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "INSERT IGNORE INTO `gudang` (`nama`) VALUES ('Gudang AVA'),('Gudang Ayres'),('Ayres Produksi')",
+    ],
+  },
+  {
+    // Barang: tambah kolom kode_barang (SKU Accurate), harga per satuan,
+    // dan letak (gudang) sesuai briefing stok opname. Dipakai di form
+    // Data Barang modal + tabel stok baru.
+    name: '037_barang_stok_fields',
+    up: [
+      "ALTER TABLE `barang` ADD COLUMN `kode_barang` VARCHAR(50) NULL AFTER `id`",
+      "ALTER TABLE `barang` ADD COLUMN `harga` BIGINT NOT NULL DEFAULT 0",
+      "ALTER TABLE `barang` ADD COLUMN `letak` VARCHAR(100) NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
