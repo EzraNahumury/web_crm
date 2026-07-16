@@ -771,7 +771,7 @@ function CapacityCalendar({ value, qtyByDate, thisOrderIso, thisOrderQty, onPick
 
   return (
     <div
-      className="absolute z-50 mt-2 left-0 w-[300px] bg-[#0f1626] border border-white/10 rounded-xl shadow-2xl shadow-black/50 p-3"
+      className="absolute z-50 mt-2 left-0 w-[300px] bg-white border border-slate-200 rounded-xl shadow-xl shadow-slate-900/10 p-3"
       onClick={e => e.stopPropagation()}
     >
       {/* Header */}
@@ -779,15 +779,15 @@ function CapacityCalendar({ value, qtyByDate, thisOrderIso, thisOrderQty, onPick
         <button
           type="button"
           onClick={() => shiftMonth(-1)}
-          className="w-7 h-7 grid place-items-center rounded-md text-white/60 hover:text-white hover:bg-white/[0.06]"
+          className="w-7 h-7 grid place-items-center rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
         </button>
-        <p className="text-sm font-semibold text-white">{MONTH_NAMES_ID[viewMonth]} {viewYear}</p>
+        <p className="text-sm font-semibold text-slate-900">{MONTH_NAMES_ID[viewMonth]} {viewYear}</p>
         <button
           type="button"
           onClick={() => shiftMonth(1)}
-          className="w-7 h-7 grid place-items-center rounded-md text-white/60 hover:text-white hover:bg-white/[0.06]"
+          className="w-7 h-7 grid place-items-center rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
         </button>
@@ -796,7 +796,7 @@ function CapacityCalendar({ value, qtyByDate, thisOrderIso, thisOrderQty, onPick
       {/* Day labels */}
       <div className="grid grid-cols-7 gap-1 mb-1">
         {DAY_LABELS_SHORT.map(d => (
-          <div key={d} className="text-center text-[10px] text-white/30 font-semibold">{d}</div>
+          <div key={d} className="text-center text-[10px] text-slate-400 font-semibold">{d}</div>
         ))}
       </div>
 
@@ -807,8 +807,6 @@ function CapacityCalendar({ value, qtyByDate, thisOrderIso, thisOrderQty, onPick
           const isSelected = c.iso === value;
           const isToday = c.iso === todayIso;
           const overCap = qty > CAPACITY_PER_DAY;
-          // If this day is the CURRENT ACC of this order, subtract it so
-          // the number reflects "what would remain if I move this order elsewhere".
           const displayQty = qty > 0 ? qty : 0;
           const wouldGoOver = !isSelected && qty + thisOrderQty > CAPACITY_PER_DAY;
 
@@ -827,21 +825,21 @@ function CapacityCalendar({ value, qtyByDate, thisOrderIso, thisOrderQty, onPick
               onClick={() => onPick(c.iso)}
               title={tooltip}
               className={`aspect-square flex flex-col items-center justify-center rounded-md text-[10px] transition-colors ${
-                !c.inMonth ? 'text-white/15' :
+                !c.inMonth ? 'text-slate-300' :
                 isSelected ? 'bg-blue-600 text-white ring-2 ring-blue-400/60' :
-                overCap ? 'bg-red-500/[0.15] text-red-300 hover:bg-red-500/[0.25] border border-red-500/40' :
-                wouldGoOver ? 'bg-amber-500/[0.10] text-amber-200 hover:bg-amber-500/[0.20] border border-amber-500/30' :
-                isToday ? 'bg-blue-500/[0.15] text-blue-300 hover:bg-blue-500/[0.25]' :
-                'text-white/70 hover:bg-white/[0.06]'
+                overCap ? 'bg-red-50 text-red-700 hover:bg-red-100 border border-red-300' :
+                wouldGoOver ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-300' :
+                isToday ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' :
+                'text-slate-700 hover:bg-slate-100'
               }`}
             >
               <span className={`text-xs leading-none ${isSelected ? 'font-bold' : 'font-semibold'}`}>{c.day}</span>
               {displayQty > 0 && (
                 <span className={`text-[9px] leading-none mt-0.5 tabular-nums ${
                   isSelected ? 'text-white/90' :
-                  overCap ? 'text-red-300 font-bold' :
-                  wouldGoOver ? 'text-amber-300 font-semibold' :
-                  'text-white/40'
+                  overCap ? 'text-red-600 font-bold' :
+                  wouldGoOver ? 'text-amber-600 font-semibold' :
+                  'text-slate-500'
                 }`}>{displayQty}</span>
               )}
             </button>
@@ -850,24 +848,24 @@ function CapacityCalendar({ value, qtyByDate, thisOrderIso, thisOrderQty, onPick
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.06]">
+      <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
         <button
           type="button"
           onClick={onClear}
-          className="text-[11px] text-slate-400 hover:text-white transition-colors"
+          className="text-[11px] text-slate-500 hover:text-slate-900 transition-colors"
         >
           Clear
         </button>
-        <div className="flex items-center gap-2 text-[9px] text-white/40">
+        <div className="flex items-center gap-2 text-[9px] text-slate-500">
           <span className="inline-flex items-center gap-1">
-            <span className="w-2 h-2 rounded-sm bg-red-500/40 border border-red-500" />
+            <span className="w-2 h-2 rounded-sm bg-red-100 border border-red-400" />
             &gt;{CAPACITY_PER_DAY}/hari
           </span>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="text-[11px] text-slate-400 hover:text-white transition-colors"
+          className="text-[11px] text-slate-500 hover:text-slate-900 transition-colors"
         >
           Tutup
         </button>
