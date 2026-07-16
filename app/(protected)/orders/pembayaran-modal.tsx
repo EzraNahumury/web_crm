@@ -3,7 +3,6 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
-import { sha256Hex } from '@/lib/hash';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -506,84 +505,11 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
         }
       }
 
-      // Auto-create a WO for this order so it lands in Produksi Waiting List.
-      // Reset finance_status so Finance re-approves the completed invoice
-      // (not just the initial DP Desain from CS Selling). Waiting List
-      // stays read-only in produksi until Finance flips finance_status
-      // back to APPROVED.
-      try {
-        const allWos = await dbGet('work_orders');
-        const existingWo = allWos.find((w: Row) => Number(w.order_id) === orderId);
-        if (!existingWo) {
-          const now = new Date();
-          const prefix = `WO${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-          const suffixRe = new RegExp(`^${prefix}-(\\d+)$`);
-          const maxNum = (allWos as Row[]).reduce((max: number, w: Row) => {
-            const m = String(w.no_wo || '').match(suffixRe);
-            return m ? Math.max(max, parseInt(m[1], 10)) : max;
-          }, 0);
-          const noWo = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
-          const trackingHash = await sha256Hex(noWo);
-
-          const stagesRaw = await dbGet('production_stages');
-          const sortedStages = (stagesRaw as Row[])
-            .filter(s => s.active === undefined || s.active === 1 || s.active === true)
-            .sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
-          const firstStageId = sortedStages[0]?.id;
-
-          const paketNames = itemLines.map(l => l.nama).filter(Boolean).join(', ') || '-';
-          const totalQty = itemLines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
-          // work_orders.deadline is NOT NULL in the base schema. Prefer
-          // work_orders.deadline is NOT NULL, jadi kita kasih placeholder
-          // 7 hari ke depan. Production akan overwrite kolom ini via
-          // menu Work Orders sesuai jadwal produksi sebenarnya.
-          const woDeadline = (() => {
-            const d = new Date(); d.setDate(d.getDate() + 7);
-            return d.toISOString().split('T')[0];
-          })();
-
-          const woId = await dbCreate('work_orders', {
-            no_wo: noWo,
-            tracking_hash: trackingHash,
-            order_id: orderId,
-            customer_nama: nama.trim(),
-            paket: paketNames,
-            bahan: '-',
-            jumlah: totalQty,
-            deadline: woDeadline,
-            keterangan: nb,
-            status: 'PROSES_PRODUKSI',
-            current_stage_id: firstStageId,
-            // wo_confirmed=0 sengaja. Rincian Order dari CS Order
-            // cuma placeholder — admin produksi masih perlu buka
-            // menu Work Orders dan detail-kan WO (spesifikasi paket,
-            // bahan, dsb) sebelum flow produksi bisa lanjut lewat
-            // gate di stage Proofing. Save Work Orders → wo_confirmed
-            // otomatis flip ke 1 dan Selesai & Lanjut membuka.
-            wo_confirmed: 0,
-          });
-
-          for (const stage of sortedStages) {
-            try {
-              await dbCreate('wo_progress', {
-                work_order_id: woId,
-                stage_id: stage.id,
-                status: stage.id === firstStageId ? 'TERSEDIA' : 'BELUM',
-              });
-            } catch {}
-          }
-
-          try {
-            await dbUpdate('orders', orderId, {
-              tracking_link: `/tracking/${trackingHash}`,
-            });
-          } catch {}
-        }
-      } catch (err) {
-        console.warn('auto-create WO from Pembayaran failed:', err);
-        toast.warning('WO Tidak Terbentuk',
-          'Order tersimpan tapi WO otomatis belum terbentuk. Buat WO manual dari Menu Work Orders.');
-      }
+      // WO TIDAK auto-terbentuk di sini. Setelah Rincian Order tersimpan,
+      // order muncul di daftar "Buat WO dari Order" di menu Work Orders.
+      // Admin produksi yang memutuskan kapan konversi jadi WO — supaya
+      // semua order mampir dulu di antrian pending sebelum benar-benar
+      // masuk ke pipeline produksi.
 
       // Do NOT touch finance_status here. In the new two-step CS Order
       // flow, Finance re-review is triggered only after CS Order finishes
