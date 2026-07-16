@@ -1,10 +1,16 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { dbGet, dbUpdate, dbCreate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { useAuth } from '@/lib/auth-context';
 import { GUDANG_FORM_ITEMS } from '@/lib/gudang-form-items';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
+import {
+  computeStageTargets,
+  totalDurasiHariKerja,
+  classifyLate,
+  STAGE_DURATIONS,
+} from '@/lib/produksi-durasi';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -30,6 +36,24 @@ const PROD_STAGES = [
 // QC Final dan Packing semua branch pada pass/fail decision.
 const REJECT_STAGES = new Set(['QC Panel Process', 'Sewing', 'QC Final dan Packing']);
 
+// Format ISO YYYY-MM-DD → "12 Sep 2026" untuk label short.
+function fmtDateLabel(iso: string): string {
+  if (!iso) return '-';
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const B = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  return `${d} ${B[m - 1]} ${y}`;
+}
+
+// "3 hari lalu" / "hari ini" — dipakai di note warning kalau sudah lewat SLA.
+function daysBetweenLabel(fromISO: string, toISO: string): string {
+  if (!fromISO || !toISO) return '';
+  const parse = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1).getTime(); };
+  const diff = Math.round((parse(toISO) - parse(fromISO)) / 86400000);
+  if (diff <= 0) return 'hari ini';
+  return `terlambat ${diff} hari kalender`;
+}
+
 export default function ProduksiPage() {
   const { user } = useAuth();
   const [activeStage, setActiveStage] = useState(PROD_STAGES[0]);
@@ -37,6 +61,7 @@ export default function ProduksiPage() {
   const [progress, setProgress] = useState<Row[]>([]);
   const [wos, setWos] = useState<Row[]>([]);
   const [ordersById, setOrdersById] = useState<Record<number, Row>>({});
+  const [holidays, setHolidays] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   // Reset the search box whenever CS switches to a different stage tab.
@@ -183,7 +208,7 @@ export default function ProduksiPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, p, w, r, o] = await Promise.all([
+      const [s, p, w, r, o, hol] = await Promise.all([
         dbGet('production_stages'),
         dbGet('wo_progress'),
         dbGet('work_orders'),
@@ -192,11 +217,20 @@ export default function ProduksiPage() {
         dbGet('stage_rejects').catch(() => []),
         // orders — needed for the Waiting List → next-stage finance gate.
         dbGet('orders').catch(() => []),
+        // libur_nasional — dipakai untuk hitung target durasi produksi.
+        dbGet('libur_nasional').catch(() => []),
       ]);
       setRejects(r);
       const ordersMap: Record<number, Row> = {};
       for (const row of o as Row[]) ordersMap[Number(row.id)] = row;
       setOrdersById(ordersMap);
+      // Rebuild holiday set. Kolom tanggal biasanya DATE atau
+      // TIMESTAMP; ambil 10 char pertama supaya cocok dengan format
+      // ISO yang dipakai addBusinessDays.
+      const holSet = new Set<string>(
+        (hol as Row[]).map((r: Row) => String(r.tanggal || '').slice(0, 10)).filter(Boolean)
+      );
+      setHolidays(holSet);
       // Filter out inactive stages (QC Cutting retired in migration 016)
       const sortedStages = s
         .filter((r: Row) => r.active === undefined || r.active === 1 || r.active === true)
@@ -271,6 +305,43 @@ export default function ProduksiPage() {
   // saat menghitung badge tab supaya count sinkron dengan antrian.
   const visibleWoIds = new Set(wos.map((w: Row) => Number(w.id)));
   const visibleProgress = progress.filter((p: Row) => visibleWoIds.has(Number(p.work_order_id)));
+
+  // Hari ini dalam format ISO — dipakai untuk klasifikasi telat vs target.
+  const todayISO = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }, []);
+
+  // Map work_order_id → { startISO, targetsByStage, targetSelesai }.
+  // startISO = tanggal Approval Design mulai (wo_progress.started_at).
+  // Fallback ke wo.created_at kalau row Approval Design belum dimulai.
+  const woTargets = useMemo(() => {
+    const stagesByName: Record<string, number> = {};
+    for (const s of stages) stagesByName[String(s.nama)] = Number(s.id);
+    const adId = stagesByName['Approval Design'];
+    const out: Record<number, { startISO: string; targets: Record<string, string>; targetSelesai: string }> = {};
+    for (const wo of wos) {
+      const adProgress = adId
+        ? progress.find(p => Number(p.work_order_id) === Number(wo.id) && Number(p.stage_id) === Number(adId))
+        : undefined;
+      // Prefer started_at (tanggal admin klik "Selesai Konfirmasi" dan
+      // Approval Design terbuka). Fallback ke wo.created_at kalau row
+      // Approval Design belum di-set started_at (auto-created saat WO
+      // baru dibentuk).
+      const start = String(adProgress?.started_at || adProgress?.created_at || wo.created_at || '').slice(0, 10);
+      if (!start) continue;
+      const targets = computeStageTargets(start, holidays);
+      out[Number(wo.id)] = {
+        startISO: start,
+        targets,
+        targetSelesai: targets['QC Final dan Packing'] || '',
+      };
+    }
+    return out;
+  }, [wos, progress, stages, holidays]);
 
   // Show actionable WOs at this stage. Includes legacy SEDANG rows so any
   // in-flight work from the old two-click flow still shows here and can be
@@ -582,6 +653,15 @@ export default function ProduksiPage() {
     const rejectPending = activeReject && String(activeReject.status).toUpperCase() === 'PENDING';
     const rejectReturned = activeReject && String(activeReject.status).toUpperCase() === 'RETURNED';
     const pelunasanPending = isPelunasanPending(item);
+    // Target selesai per WO (QC Final dan Packing). Kalau tanggal
+    // Approval Design belum tercatat, targetInfo tidak muncul.
+    const targetInfo = woTargets[Number(wo.id)];
+    const targetSelesaiStage = targetInfo?.targets?.[activeStage] || '';
+    const targetSelesaiFinal = targetInfo?.targetSelesai || '';
+    // Status telat untuk stage aktif: kalau hari ini > target stage ini,
+    // artinya sudah lewat SLA yang dijanjikan untuk lanjut ke stage berikut.
+    const lateStatus = targetSelesaiStage ? classifyLate(targetSelesaiStage, todayISO) : 'aman';
+    const finalLateStatus = targetSelesaiFinal ? classifyLate(targetSelesaiFinal, todayISO) : 'aman';
     return (
       <div className="flex flex-col gap-2 px-6 py-4 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors">
         <div className="flex items-start justify-between gap-4">
@@ -589,6 +669,24 @@ export default function ProduksiPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm font-medium text-blue-400 whitespace-nowrap">{wo.no_wo}</span>
               <span className="text-sm font-semibold text-white">{wo.customer_nama}</span>
+              {lateStatus === 'terlambat' && (
+                <span
+                  title={`Target stage ini ${fmtDateLabel(targetSelesaiStage)} — sudah lewat`}
+                  className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-red-500/40 text-red-300 bg-red-500/15 whitespace-nowrap"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                  Terlambat SLA
+                </span>
+              )}
+              {lateStatus === 'warning' && (
+                <span
+                  title={`Target stage ini ${fmtDateLabel(targetSelesaiStage)} — hari ini deadline`}
+                  className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-500/40 text-amber-300 bg-amber-500/15 whitespace-nowrap"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  Hari-H
+                </span>
+              )}
               {rejectPending && (
                 <span
                   title={String(activeReject.keterangan || '')}
@@ -621,7 +719,21 @@ export default function ProduksiPage() {
               <span className="text-slate-300 font-medium">{wo.paket}</span>
               <span className="text-slate-600">|</span>
               <span className="text-slate-400">{wo.jumlah} pcs</span>
+              {targetSelesaiFinal && (
+                <>
+                  <span className="text-slate-600">|</span>
+                  <span className={`inline-flex items-center gap-1 ${finalLateStatus === 'terlambat' ? 'text-red-300' : finalLateStatus === 'warning' ? 'text-amber-300' : 'text-slate-400'}`}>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg>
+                    Target selesai: <strong className="font-semibold">{fmtDateLabel(targetSelesaiFinal)}</strong>
+                  </span>
+                </>
+              )}
             </div>
+            {lateStatus === 'terlambat' && (
+              <div className="mt-1.5 text-[11px] leading-snug max-w-2xl bg-red-500/10 border border-red-500/20 text-red-200 rounded-lg px-2.5 py-1.5">
+                ⚠ Stage <strong>{activeStage}</strong> harusnya selesai di <strong>{fmtDateLabel(targetSelesaiStage)}</strong> ({daysBetweenLabel(targetSelesaiStage, todayISO)}).
+              </div>
+            )}
             {activeReject && activeReject.keterangan && (
               <div className="mt-1.5 text-[11px] text-slate-500 leading-snug max-w-2xl">
                 <span className="text-slate-600">Keterangan:</span> {String(activeReject.keterangan)}
@@ -658,11 +770,20 @@ export default function ProduksiPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 6.878V6a2.25 2.25 0 012.25-2.25h7.5A2.25 2.25 0 0118 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 004.5 9v.878m13.5-3A2.25 2.25 0 0119.5 9v.878m0 0a2.246 2.246 0 00-.75-.128H5.25c-.263 0-.515.045-.75.128m15 0A2.25 2.25 0 0121 12v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6c0-.98.626-1.813 1.5-2.122" />
             </svg>
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Produksi</h1>
             <p className="text-[13px] text-slate-300 mt-0.5">
               Antrian per tahap produksi. Klik <strong className="text-white">Selesai & Lanjut</strong> untuk memindahkan WO ke tahap berikutnya.
             </p>
+          </div>
+          <div className="hidden md:flex items-center gap-2 shrink-0 bg-[#111827] border border-white/10 rounded-xl px-4 py-2.5">
+            <svg className="w-4 h-4 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p className="text-[10px] font-semibold text-emerald-300/70 uppercase tracking-widest">Total Durasi SLA</p>
+              <p className="text-sm font-bold text-white leading-tight">{totalDurasiHariKerja()} hari kerja</p>
+            </div>
           </div>
         </div>
       </div>
@@ -720,7 +841,7 @@ export default function ProduksiPage() {
             <div className="w-9 h-9 rounded-lg bg-emerald-500/10 grid place-items-center shrink-0">
               <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h2 className="text-base font-semibold text-white">Antrian {activeStage}</h2>
               <div className="flex items-center gap-4 mt-1 flex-wrap">
                 <span className="text-xs text-slate-500">Total Qty: <strong className="text-white">{tersediaQty}</strong></span>
@@ -730,6 +851,15 @@ export default function ProduksiPage() {
                     <span className="text-slate-500"> / {tersediaWosRaw.length}</span>
                   )}
                 </span>
+                {STAGE_DURATIONS[activeStage] !== undefined && (
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 text-emerald-300">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    Durasi SLA:
+                    {STAGE_DURATIONS[activeStage] === 0
+                      ? <strong>hari yang sama</strong>
+                      : <strong>+{STAGE_DURATIONS[activeStage]} hari kerja</strong>}
+                  </span>
+                )}
               </div>
             </div>
           </div>
