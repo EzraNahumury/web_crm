@@ -93,6 +93,11 @@ export default function WorkOrdersPage() {
       }
       // Merge real-time data from orders + order_items
       const merged = wos
+        // Sembunyikan shadow WO (wo_confirmed=0) — WO placeholder yang
+        // auto-terbentuk pas Bukti Pembayaran, belum di-acknowledge oleh
+        // admin lewat modal "Buat WO dari Order". Muncul di daftar
+        // pending modal, bukan di tabel utama.
+        .filter((w: Row) => Number(w.wo_confirmed) === 1)
         .map((w: Row) => {
           const ord = orderMap[String(w.order_id)];
           const oi = itemsByOrder[String(w.order_id)];
@@ -119,23 +124,27 @@ export default function WorkOrdersPage() {
     try {
       const allOrders = await dbGet('orders');
       const wos = await dbGet('work_orders');
-      const usedOrderIds = new Set(wos.map((w: Row) => w.order_id));
+      // Set order_id yang sudah punya WO CONFIRMED (wo_confirmed=1).
+      // Shadow WO (wo_confirmed=0) tidak dihitung "sudah punya WO",
+      // karena admin masih perlu confirm lewat modal ini.
+      const confirmedOrderIds = new Set(
+        (wos as Row[])
+          .filter(w => Number(w.wo_confirmed) === 1)
+          .map(w => w.order_id)
+      );
       // Filter:
-      //   • order yang sudah punya WO → hide
-      //   • status=SELLING → belum siap (CS Order belum isi Rincian
-      //     Order); WO akan auto-terbuat waktu CS Order Simpan
-      //     Pembayaran. Jangan tampilkan di sini supaya operator
-      //     tidak duplicate.
-      //   • status=DONE → sudah selesai, tidak perlu WO baru.
-      // Sisanya (PENDING legacy, atau PENDING dari CS Selling yang
-      // auto-WO-nya gagal karena schema issue) tetap muncul supaya
-      // admin bisa buat manual.
+      //   • order dengan WO confirmed → hide (sudah masuk tabel Work Order)
+      //   • status=SELLING → belum siap (CS Order belum isi Rincian Order)
+      //   • status=DONE → sudah selesai
+      //   • bukti_uploaded harus =1 → baru pantas WO-nya di-confirm
+      // Sisanya (shadow WO belum di-confirm, atau order legacy tanpa WO
+      // sama sekali) muncul supaya admin bisa acknowledge / buat WO.
       setPendingOrders(
         allOrders.filter((o: Row) => {
-          if (usedOrderIds.has(o.id)) return false;
+          if (confirmedOrderIds.has(o.id)) return false;
           const st = String(o.status || '').toUpperCase();
           if (st === 'SELLING' || st === 'DONE') return false;
-          // Sembunyikan order legacy (sebelum cutoff) dari dropdown.
+          if (Number(o.bukti_uploaded) !== 1) return false;
           if (!isVisibleTanggalOrder(o.tanggal_order)) return false;
           return true;
         })
@@ -153,20 +162,7 @@ export default function WorkOrdersPage() {
       const order = pendingOrders.find((o: Row) => String(o.id) === selectedOrderId);
       if (!order) throw new Error('Order tidak ditemukan');
 
-      // Generate no_wo based on the highest existing suffix for today's
-      // prefix. Count-based (length + 1) breaks after any WO is deleted
-      // because the counter reuses a number that's still in use elsewhere.
-      const wos = await dbGet('work_orders');
-      const now = new Date();
-      const prefix = `WO${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-      const suffixRe = new RegExp(`^${prefix}-(\\d+)$`);
-      const maxNum = wos.reduce((max: number, w: Row) => {
-        const m = String(w.no_wo || '').match(suffixRe);
-        return m ? Math.max(max, parseInt(m[1], 10)) : max;
-      }, 0);
-      const noWo = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
-
-      // Fetch order items for paket & bahan & qty
+      // Fetch order items for paket & bahan & qty (dipakai di kedua cabang)
       let paketNama: string = '-';
       let bahanNama: string = '-';
       let totalQty = 0;
@@ -180,52 +176,81 @@ export default function WorkOrdersPage() {
         }
       } catch {}
 
-      // Fetch production stages
-      const stages = await dbGet('production_stages');
-      const sortedStages = stages.sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0));
-      const firstStageId = sortedStages.length > 0 ? sortedStages[0].id : null;
+      // Kalau shadow WO sudah ada (auto-terbuat pas Bukti Pembayaran),
+      // cukup acknowledge — flip wo_confirmed=1 dan refresh paket/bahan/qty
+      // dari order_items terbaru. WO progres row + no_wo + tracking_hash
+      // sudah ada, jangan disentuh.
+      const wos = await dbGet('work_orders');
+      const shadowWo = (wos as Row[]).find(w =>
+        Number(w.order_id) === Number(order.id) && Number(w.wo_confirmed) !== 1
+      );
 
-      // Hash the WO number to produce an unguessable tracking slug.
-      const trackingHash = await sha256Hex(noWo);
-
-      // Create work order
-      const woId = await dbCreate('work_orders', {
-        no_wo: noWo,
-        tracking_hash: trackingHash,
-        order_id: order.id,
-        customer_nama: order.customer_nama,
-        paket: paketNama,
-        bahan: bahanNama,
-        jumlah: totalQty,
-        deadline: order.estimasi_deadline ? new Date(order.estimasi_deadline).toISOString().split('T')[0] : null,
-        keterangan: order.keterangan || '',
-        status: 'PROSES_PRODUKSI',
-        current_stage_id: firstStageId,
-        // Manual "Buat WO" means the user is entering details right now,
-        // so the WO is confirmed. Auto-created WOs from the order drawer
-        // start with wo_confirmed=0 instead and get flipped by Edit.
-        wo_confirmed: 1,
-      });
-
-      // Create wo_progress for all stages (first stage = TERSEDIA, rest = BELUM)
-      for (const stage of sortedStages) {
-        await dbCreate('wo_progress', {
-          work_order_id: woId,
-          stage_id: stage.id,
-          status: stage.id === firstStageId ? 'TERSEDIA' : 'BELUM',
+      let woNoForToast = '';
+      if (shadowWo) {
+        await dbUpdate('work_orders', Number(shadowWo.id), {
+          paket: paketNama,
+          bahan: bahanNama,
+          jumlah: totalQty,
+          deadline: order.estimasi_deadline
+            ? new Date(order.estimasi_deadline).toISOString().split('T')[0]
+            : shadowWo.deadline,
+          keterangan: order.keterangan || shadowWo.keterangan || '',
+          wo_confirmed: 1,
         });
-      }
+        await dbUpdate('orders', order.id, { status: 'IN_PROGRESS' });
+        woNoForToast = String(shadowWo.no_wo || '');
+      } else {
+        // Tidak ada shadow WO (order legacy atau bukti_uploaded=0 kasus edge).
+        // Buat WO baru manual dengan wo_confirmed=1 langsung.
+        const now = new Date();
+        const prefix = `WO${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+        const suffixRe = new RegExp(`^${prefix}-(\\d+)$`);
+        const maxNum = (wos as Row[]).reduce((max: number, w: Row) => {
+          const m = String(w.no_wo || '').match(suffixRe);
+          return m ? Math.max(max, parseInt(m[1], 10)) : max;
+        }, 0);
+        const noWo = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
 
-      // Set tracking link + status proses on order (use hash so URL is unguessable)
-      await dbUpdate('orders', order.id, {
-        tracking_link: `/tracking/${trackingHash}`,
-        status: 'IN_PROGRESS',
-      });
+        const stages = await dbGet('production_stages');
+        const sortedStages = stages.sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0));
+        const firstStageId = sortedStages.length > 0 ? sortedStages[0].id : null;
+
+        const trackingHash = await sha256Hex(noWo);
+
+        const woId = await dbCreate('work_orders', {
+          no_wo: noWo,
+          tracking_hash: trackingHash,
+          order_id: order.id,
+          customer_nama: order.customer_nama,
+          paket: paketNama,
+          bahan: bahanNama,
+          jumlah: totalQty,
+          deadline: order.estimasi_deadline ? new Date(order.estimasi_deadline).toISOString().split('T')[0] : null,
+          keterangan: order.keterangan || '',
+          status: 'PROSES_PRODUKSI',
+          current_stage_id: firstStageId,
+          wo_confirmed: 1,
+        });
+
+        for (const stage of sortedStages) {
+          await dbCreate('wo_progress', {
+            work_order_id: woId,
+            stage_id: stage.id,
+            status: stage.id === firstStageId ? 'TERSEDIA' : 'BELUM',
+          });
+        }
+
+        await dbUpdate('orders', order.id, {
+          tracking_link: `/tracking/${trackingHash}`,
+          status: 'IN_PROGRESS',
+        });
+        woNoForToast = noWo;
+      }
 
       invalidateCache('wp_orders', 'wp_dashboard');
       setModalOpen(false);
       setSelectedOrderId('');
-      toast.success('Work Order Dibuat', `${noWo} berhasil dibuat dari ${order.no_order}.`);
+      toast.success('Work Order Dibuat', `${woNoForToast} berhasil dibuat dari ${order.no_order}.`);
       fetchData();
     } catch (e) { toast.error('Gagal Membuat WO', String(e)); }
     setCreating(false);
