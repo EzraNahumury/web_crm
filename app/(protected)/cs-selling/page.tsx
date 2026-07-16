@@ -37,7 +37,7 @@ function fmtDate(v: string | Date | null | undefined): string {
 // 035 belum landing di lingkungan lama). Sekali migration jalan, dropdown
 // baca dari DB dan admin bisa CRUD sendiri via Master → Bank.
 const BANK_OPTIONS_FALLBACK = ['BRI', 'BCA', 'BNI', 'MANDIRI', 'DANA', 'WISE', 'FLIP', 'F-BANK', 'SHOOPE PAY', 'GOPAY'];
-const METHOD_OPTIONS = ['TF', 'QRIS', 'DLL'];
+const METHOD_OPTIONS = ['TF', 'QRIS', 'CASH', 'DLL'];
 
 interface Option { value: string; label: string; sublabel?: string }
 

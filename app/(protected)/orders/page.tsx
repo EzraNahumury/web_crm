@@ -408,7 +408,21 @@ export default function OrdersPage() {
                         }}
                       />
                     </td>
-                    <td className="px-4 py-3.5 text-white/35">{formatDate(order.dpProduksi)}</td>
+                    <td className="px-4 py-3.5">
+                      <TanggalOrderCell
+                        orderId={order.rowIndex}
+                        value={order.rawTanggalOrder || ''}
+                        onSaved={(newIso) => {
+                          setOrders(prev => prev.map(o =>
+                            o.rowIndex === order.rowIndex
+                              ? { ...o, rawTanggalOrder: newIso, dpProduksi: formatDate(newIso) }
+                              : o
+                          ));
+                          invalidateCache('wp_orders', 'wp_dashboard');
+                          fetchOrders();
+                        }}
+                      />
+                    </td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.tglSelesai)}</td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2 min-w-[100px]">
@@ -640,6 +654,80 @@ function AccProofingCell({ orderId, value, onSaved, qtyByDate, thisOrderQty }: {
           onClose={() => setOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+// Editable Tgl Order cell — mirip AccProofingCell tapi tanpa capacity
+// indicator. Klik → native date picker → save ke orders.tanggal_order.
+function TanggalOrderCell({ orderId, value, onSaved }: {
+  orderId: number;
+  value: string; // ISO 'YYYY-MM-DD'
+  onSaved: (newIso: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [local, setLocal] = useState(value || '');
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setLocal(value || ''); }, [value]);
+
+  const iso = String(local).slice(0, 10);
+  const display = iso ? formatDate(iso) : '-';
+
+  async function commit(newIso: string) {
+    if (newIso === iso) return;
+    setSaving(true);
+    const prev = local;
+    setLocal(newIso);
+    try {
+      await dbUpdate('orders', orderId, { tanggal_order: newIso || null });
+      onSaved(newIso);
+    } catch (e) {
+      setLocal(prev);
+      console.error('Failed to save tanggal_order', e);
+      alert('Gagal menyimpan tanggal: ' + String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="relative inline-block" onClick={e => e.stopPropagation()}>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => {
+          const el = inputRef.current;
+          if (!el) return;
+          // Native calendar picker jauh lebih rapi + tidak perlu grid capacity.
+          if (typeof el.showPicker === 'function') el.showPicker();
+          else el.focus();
+        }}
+        title="Klik untuk edit Tgl Order"
+        className="group inline-flex items-center gap-1.5 rounded-md px-2 py-1 -mx-2 -my-1 hover:bg-white/[0.04] transition-colors cursor-pointer disabled:cursor-wait"
+      >
+        <span className={`text-sm ${iso ? 'text-white/60' : 'text-white/25'}`}>{display}</span>
+        {saving ? (
+          <svg className="w-3 h-3 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <svg className="w-3 h-3 text-white/15 group-hover:text-blue-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+          </svg>
+        )}
+      </button>
+      {/* Hidden date input yang di-trigger showPicker() supaya kalender
+          bawaan browser muncul — tidak ada risiko menutupi row lain. */}
+      <input
+        ref={inputRef}
+        type="date"
+        value={iso}
+        onChange={e => commit(e.target.value)}
+        className="absolute inset-0 opacity-0 pointer-events-none"
+        tabIndex={-1}
+      />
     </div>
   );
 }

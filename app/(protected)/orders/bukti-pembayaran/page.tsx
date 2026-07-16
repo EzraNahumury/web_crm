@@ -18,13 +18,14 @@ function fmtDate(v: string | Date | null | undefined): string {
 
 interface DpUpload {
   paymentId: number;
-  // Display label for the row — "DP Desain / DP I" for repeat orders
-  // (where the CS Selling didn't upload a design fee bukti) or
-  // "DP Produksi #II/#III/#IV" for the standard case.
+  // Display label for the row (e.g. "DP Produksi #II").
   label: string;
   urutan: number;
   amount: number;
   tanggal: string;
+  // Kalau row ini pakai metode Cash, upload area disembunyikan dan
+  // row otomatis "lengkap" tanpa perlu bukti TF — cukup dicatat note.
+  isCash: boolean;
   existingBuktiTf: string | null;
   existingBuktiTfName: string | null;
   // Local state for a fresh upload — replaces existing on save.
@@ -82,13 +83,12 @@ export default function BuktiPembayaranPage() {
   );
 
   // Sync rows whenever the picker changes. Rules:
-  //   • dp_produksi rows with a non-zero amount → always shown.
-  //   • dp_desain (row I) is normally skipped — CS Selling already
-  //     uploaded the design bukti. BUT for repeat orders CS Selling
-  //     didn't collect a design fee again, so row I lives as
-  //     dp_desain here without a bukti attached. In that case we
-  //     surface it so CS Order can still upload one bukti.
-  //   • Empty scheduled slots (no amount at all) are skipped.
+  //   • Hanya row dp_produksi yang muncul di sini — DP Desain sudah
+  //     di-upload di CS Selling (repeat order pun sudah punya bukti
+  //     dari cycle sebelumnya, jadi tidak perlu upload ulang).
+  //   • Row dengan amount 0 di-skip.
+  //   • Row dengan method='CASH' tetap muncul tapi upload disembunyikan
+  //     (isCash=true) — pembayaran cash tidak butuh bukti transfer.
   useEffect(() => {
     if (!pickedOrderId) { setRows([]); return; }
     const oid = Number(pickedOrderId);
@@ -99,40 +99,26 @@ export default function BuktiPembayaranPage() {
       const tipe = String(p.tipe);
       const amt = Number(p.amount) || (Number(p.tunai) || 0) + (Number(p.trf) || 0);
       if (amt <= 0) return false;
-      if (tipe === 'dp_produksi') return true;
-      // Repeat-order safety net: include DP Desain row if CS Selling
-      // never uploaded a bukti for it. Skip when bukti_tf already set.
-      if (tipe === 'dp_desain' && !p.bukti_tf) return true;
-      return false;
+      return tipe === 'dp_produksi';
     });
 
-    // Sort: dp_desain first (represents row I in the schedule), then
-    // dp_produksi ascending by urutan.
-    relevant.sort((a, b) => {
-      const at = String(a.tipe); const bt = String(b.tipe);
-      if (at === 'dp_desain' && bt !== 'dp_desain') return -1;
-      if (bt === 'dp_desain' && at !== 'dp_desain') return 1;
-      return (Number(a.urutan) || 0) - (Number(b.urutan) || 0);
-    });
+    relevant.sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
 
-    // Compute human-friendly labels. dp_desain gets its own label so
-    // the operator knows it's the repeat-order first payment. Roman
-    // numeral for dp_produksi rows shifts by one because row I in the
-    // schedule is dp_desain.
+    // Roman numeral untuk penamaan DP Produksi #II/#III/dst (row I di
+    // schedule konseptual adalah DP Desain, sudah dihandle di CS Selling).
     const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
     setRows(
       relevant.map(p => {
-        const tipe = String(p.tipe);
         const idxProduksi = Number(p.urutan) || 0;
-        const label = tipe === 'dp_desain'
-          ? 'DP I (dari repeat order)'
-          : `DP Produksi #${roman[idxProduksi + 1] || String(idxProduksi + 2)}`;
+        const label = `DP Produksi #${roman[idxProduksi + 1] || String(idxProduksi + 2)}`;
+        const isCash = String(p.method || '').toUpperCase() === 'CASH';
         return {
           paymentId: Number(p.id),
           label,
           urutan: idxProduksi,
           amount: Number(p.amount) || (Number(p.tunai) || 0) + (Number(p.trf) || 0),
           tanggal: String(p.tanggal || '').slice(0, 10),
+          isCash,
           existingBuktiTf: p.bukti_tf ? String(p.bukti_tf) : null,
           existingBuktiTfName: p.bukti_tf_name ? String(p.bukti_tf_name) : null,
           file: null,
@@ -193,7 +179,8 @@ export default function BuktiPembayaranPage() {
     if (ref) ref.value = '';
   }
 
-  const filledCount = rows.filter(r => r.buktiTf || r.existingBuktiTf).length;
+  // Row cash otomatis "lengkap" — tidak butuh bukti TF.
+  const filledCount = rows.filter(r => r.isCash || r.buktiTf || r.existingBuktiTf).length;
   const canSave = pickedOrder && rows.length > 0 && filledCount === rows.length;
 
   async function handleSave() {
@@ -402,12 +389,17 @@ export default function BuktiPembayaranPage() {
                     <div>
                       <div className="text-sm font-semibold text-white">
                         {r.label}
-                        {r.existingBuktiTf && !r.buktiTf && (
+                        {r.isCash && (
+                          <span className="ml-2 text-[10px] font-medium px-2 py-0.5 rounded-full border border-amber-500/30 text-amber-300 bg-amber-500/10">
+                            Cash
+                          </span>
+                        )}
+                        {!r.isCash && r.existingBuktiTf && !r.buktiTf && (
                           <span className="ml-2 text-[10px] font-medium px-2 py-0.5 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">
                             Bukti sudah ada
                           </span>
                         )}
-                        {r.buktiTf && (
+                        {!r.isCash && r.buktiTf && (
                           <span className="ml-2 text-[10px] font-medium px-2 py-0.5 rounded-full border border-blue-500/30 text-blue-300 bg-blue-500/10">
                             Baru diupload
                           </span>
@@ -417,7 +409,7 @@ export default function BuktiPembayaranPage() {
                         {r.tanggal ? fmtDate(r.tanggal) : 'Tanggal belum diset'} · Nominal Rp {fmtRp(r.amount)}
                       </div>
                     </div>
-                    {activeBukti && (
+                    {!r.isCash && activeBukti && (
                       <button
                         onClick={() => clearFile(r.paymentId)}
                         className="text-xs text-slate-500 hover:text-rose-400 shrink-0"
@@ -427,7 +419,12 @@ export default function BuktiPembayaranPage() {
                     )}
                   </div>
 
-                  {!activeBukti ? (
+                  {r.isCash ? (
+                    <div className="border-2 border-dashed border-amber-500/30 rounded-lg py-6 px-4 text-center bg-amber-500/5">
+                      <div className="text-sm text-amber-200 font-medium">Pembayaran CASH</div>
+                      <div className="text-[11px] text-amber-400/70 mt-1">Bukti transfer tidak diperlukan — cukup dicatat sebagai pembayaran tunai.</div>
+                    </div>
+                  ) : !activeBukti ? (
                     <label
                       onDragEnter={(e) => { e.preventDefault(); setDragOverId(r.paymentId); }}
                       onDragOver={(e) => { e.preventDefault(); setDragOverId(r.paymentId); }}
