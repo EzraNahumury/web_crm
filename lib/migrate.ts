@@ -694,6 +694,16 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `barang` ADD COLUMN `letak` VARCHAR(100) NULL",
     ],
   },
+  {
+    // orders.bukti_notes: catatan keterangan yang diisi CS Order di menu
+    // Bukti Pembayaran ketika order tidak punya DP (tidak pakai DP Desain
+    // dan tidak pakai DP Produksi). Text dipakai Finance sebagai konteks
+    // saat approve invoice tanpa bukti transfer.
+    name: '038_orders_bukti_notes',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `bukti_notes` TEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

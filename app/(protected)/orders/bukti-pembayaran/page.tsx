@@ -42,6 +42,10 @@ export default function BuktiPembayaranPage() {
   const [payments, setPayments] = useState<Row[]>([]);
   const [pickedOrderId, setPickedOrderId] = useState<string>('');
   const [rows, setRows] = useState<DpUpload[]>([]);
+  // Keterangan yang diisi CS Order kalau order tidak punya DP sama sekali
+  // (tidak DP Desain, tidak DP Produksi). Dipakai buat menjelaskan ke
+  // Finance kenapa tidak ada bukti transfer.
+  const [keteranganTanpaDp, setKeteranganTanpaDp] = useState('');
   const [dragOverId, setDragOverId] = useState<number | null>(null);
   const inputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
@@ -81,6 +85,12 @@ export default function BuktiPembayaranPage() {
     () => orders.find(o => String(o.id) === pickedOrderId) || null,
     [orders, pickedOrderId]
   );
+
+  // Pre-fill keterangan tanpa DP kalau order sudah pernah di-save
+  // dengan keterangan (biar CS Order bisa edit/lihat lagi).
+  useEffect(() => {
+    setKeteranganTanpaDp(String(pickedOrder?.bukti_notes || ''));
+  }, [pickedOrder]);
 
   // Sync rows whenever the picker changes. Rules:
   //   • Hanya row dp_produksi yang muncul di sini — DP Desain sudah
@@ -181,12 +191,21 @@ export default function BuktiPembayaranPage() {
 
   // Row cash otomatis "lengkap" — tidak butuh bukti TF.
   const filledCount = rows.filter(r => r.isCash || r.buktiTf || r.existingBuktiTf).length;
-  const canSave = pickedOrder && rows.length > 0 && filledCount === rows.length;
+  const hasDp = rows.length > 0;
+  const canSaveDp = pickedOrder && hasDp && filledCount === rows.length;
+  // Order tanpa DP: cukup isi keterangan (min 3 huruf) supaya Finance
+  // tahu konteks pembayaran.
+  const canSaveTanpaDp = pickedOrder && !hasDp && keteranganTanpaDp.trim().length >= 3;
+  const canSave = canSaveDp || canSaveTanpaDp;
 
   async function handleSave() {
     if (!pickedOrder) return;
     if (!canSave) {
-      toast.warning('Bukti Belum Lengkap', 'Semua DP Produksi harus punya bukti TF sebelum kirim ke Finance.');
+      if (!hasDp) {
+        toast.warning('Keterangan Wajib Diisi', 'Isi keterangan minimal 3 huruf untuk order tanpa DP.');
+      } else {
+        toast.warning('Bukti Belum Lengkap', 'Semua DP Produksi harus punya bukti TF sebelum kirim ke Finance.');
+      }
       return;
     }
     setSaving(true);
@@ -207,22 +226,32 @@ export default function BuktiPembayaranPage() {
       // Flip bukti_uploaded=1 + reset finance_status so Approval Finance
       // gets the order into its Menunggu tab for full-invoice review.
       // Legacy DB without bukti_uploaded column: fall back gracefully.
+      const buktiNotesFinal = !hasDp ? keteranganTanpaDp.trim() : null;
       try {
         await dbUpdate('orders', Number(pickedOrder.id), {
           bukti_uploaded: 1,
+          bukti_notes: buktiNotesFinal,
           finance_status: null,
           finance_notes: null,
         });
       } catch (err) {
-        console.warn('orders update with bukti_uploaded failed, retrying without:', err);
+        console.warn('orders update with bukti_uploaded/bukti_notes failed, retrying:', err);
         try {
           await dbUpdate('orders', Number(pickedOrder.id), {
+            bukti_uploaded: 1,
             finance_status: null,
             finance_notes: null,
           });
-          toast.warning('Kolom bukti_uploaded Belum Ada',
-            'Jalankan /api/admin/run-migrations lalu ulangi simpan supaya order pindah ke Finance.');
-        } catch {}
+        } catch {
+          try {
+            await dbUpdate('orders', Number(pickedOrder.id), {
+              finance_status: null,
+              finance_notes: null,
+            });
+            toast.warning('Kolom bukti_uploaded / bukti_notes Belum Ada',
+              'Jalankan /api/admin/run-migrations lalu ulangi simpan.');
+          } catch {}
+        }
       }
 
       // Auto-create WO (placeholder, wo_confirmed=0) supaya order langsung
@@ -371,10 +400,47 @@ export default function BuktiPembayaranPage() {
       </div>
 
       {pickedOrder && rows.length === 0 && (
-        <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-8 text-center">
-          <p className="text-sm text-slate-400">
-            Order ini belum punya DP Produksi. Lengkapi <strong className="text-white">Rincian Order</strong> dulu di CS Order.
-          </p>
+        <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-5 space-y-4">
+          <div className="flex items-start gap-3 rounded-lg bg-amber-500/[0.06] border border-amber-500/25 p-3">
+            <svg className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-200">Order Tanpa DP</p>
+              <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
+                Order ini tidak pakai DP Desain dan tidak pakai DP Produksi.
+                Isi keterangan di bawah untuk menjelaskan konteksnya (mis. pembayaran full cash, customer VIP, dll)
+                supaya Finance bisa langsung approve invoice.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-white mb-1.5">
+              Keterangan <span className="text-rose-400">*</span>
+            </label>
+            <textarea
+              value={keteranganTanpaDp}
+              onChange={e => setKeteranganTanpaDp(e.target.value)}
+              rows={5}
+              placeholder="Contoh: Pembayaran full cash di tempat, tidak melalui transfer. Customer akan bayar setelah barang dikirim, dsb."
+              className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500/40 resize-none"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Keterangan wajib diisi minimal 3 huruf. Finance akan lihat catatan ini di modal review.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button onClick={() => setPickedOrderId('')} disabled={saving}
+              className="text-sm font-medium text-slate-400 hover:text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+              Batal
+            </button>
+            <button onClick={handleSave} disabled={!canSave || saving}
+              className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 px-5 py-2 rounded-lg transition-colors disabled:opacity-40">
+              {saving ? 'Menyimpan...' : 'Simpan & Kirim ke Finance'}
+            </button>
+          </div>
         </div>
       )}
 

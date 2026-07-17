@@ -826,6 +826,18 @@ export default function ApprovalFinancePage() {
                     </div>
                   )}
 
+                  {detail.bukti_notes && (
+                    <div className="rounded-lg bg-amber-500/[0.06] border border-amber-500/25 p-3 flex items-start gap-2.5">
+                      <svg className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                      </svg>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-amber-200 uppercase tracking-widest">Order Tanpa DP · Keterangan CS Order</p>
+                        <p className="text-sm text-slate-200 leading-relaxed mt-1 whitespace-pre-wrap break-words">{String(detail.bukti_notes)}</p>
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-sm font-medium text-white mb-1.5">
                       Catatan Finance {isPending && <span className="text-slate-500 font-normal text-[11px]">(wajib jika menolak)</span>}
