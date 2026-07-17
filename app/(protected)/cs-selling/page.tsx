@@ -1110,7 +1110,12 @@ export default function CsSellingPage() {
                         <span className="text-[10px] text-slate-600">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3.5 text-sm text-slate-400">{fmtDate(o.tanggal_order)}</td>
+                    <td className="px-4 py-3.5">
+                      <TglOrderCell
+                        order={o}
+                        onSaved={async () => { await fetchAll(); }}
+                      />
+                    </td>
                     <td className="px-4 py-3.5">
                       <span
                         title={o.finance_notes ? `Catatan Finance: ${o.finance_notes}` : undefined}
@@ -1163,6 +1168,81 @@ export default function CsSellingPage() {
         leads={leads}
         editOrder={editOrder}
         editPayments={editPayments}
+      />
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   TglOrderCell — clickable date cell dengan native picker.
+   Pola sama dengan TanggalOrderCell di CS Order supaya UX konsisten.
+   ───────────────────────────────────────────────────────────────────── */
+function TglOrderCell({ order, onSaved }: {
+  order: Row;
+  onSaved: () => Promise<void> | void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [local, setLocal] = useState<string>(() => String(order.tanggal_order || '').slice(0, 10));
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Kalau parent refetch data, sync ulang local supaya tampil terbaru.
+  useEffect(() => {
+    setLocal(String(order.tanggal_order || '').slice(0, 10));
+  }, [order.tanggal_order]);
+
+  const iso = String(local).slice(0, 10);
+  const display = iso ? fmtDate(iso) : '-';
+
+  async function commit(newIso: string) {
+    if (newIso === iso) return;
+    setSaving(true);
+    const prev = local;
+    setLocal(newIso); // optimistic
+    try {
+      await dbUpdate('orders', Number(order.id), { tanggal_order: newIso || null });
+      await onSaved();
+    } catch (e) {
+      setLocal(prev);
+      console.error('Failed to save tanggal_order', e);
+      alert('Gagal menyimpan tanggal: ' + String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="relative inline-block" onClick={e => e.stopPropagation()}>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => {
+          const el = inputRef.current;
+          if (!el) return;
+          if (typeof el.showPicker === 'function') el.showPicker();
+          else el.focus();
+        }}
+        title="Klik untuk edit Tgl Order"
+        className="group inline-flex items-center gap-1.5 rounded-md px-2 py-1 -mx-2 -my-1 hover:bg-white/[0.04] transition-colors cursor-pointer disabled:cursor-wait"
+      >
+        <span className={`text-sm ${iso ? 'text-slate-300' : 'text-slate-500'}`}>{display}</span>
+        {saving ? (
+          <svg className="w-3 h-3 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <svg className="w-3 h-3 text-slate-500 group-hover:text-blue-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+          </svg>
+        )}
+      </button>
+      <input
+        ref={inputRef}
+        type="date"
+        value={iso}
+        onChange={e => commit(e.target.value)}
+        className="absolute inset-0 opacity-0 pointer-events-none"
+        tabIndex={-1}
       />
     </div>
   );
