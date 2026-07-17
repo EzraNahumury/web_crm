@@ -237,25 +237,36 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     const atStart = target.selectionStart === 0 && target.selectionEnd === 0;
     const atEnd = target.selectionStart === target.value.length && target.selectionEnd === target.value.length;
 
+    // Kalau row terakhir → auto tambah row baru sebelum pindah fokus.
+    // Setelah setState, DOM baru butuh 1 tick untuk render, jadi
+    // focusCell dijalankan lewat setTimeout supaya elemen sudah ada.
+    const goToNextRow = (targetCol: number) => {
+      if (row < totalRows - 1) {
+        focusCell(row + 1, targetCol);
+      } else if (!readOnly) {
+        addItemLine();
+        setTimeout(() => focusCell(row + 1, targetCol), 0);
+      }
+    };
+
     if (e.key === 'ArrowDown') {
-      if (row < totalRows - 1) { e.preventDefault(); focusCell(row + 1, col); }
+      e.preventDefault();
+      goToNextRow(col);
     } else if (e.key === 'ArrowUp') {
       if (row > 0) { e.preventDefault(); focusCell(row - 1, col); }
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (row < totalRows - 1) focusCell(row + 1, col);
-      else focusCell(row, col); // stay di baris terakhir
+      goToNextRow(col);
     } else if (e.key === 'ArrowLeft' && atStart) {
       if (col > 0) { e.preventDefault(); focusCell(row, col - 1); }
     } else if (e.key === 'ArrowRight' && atEnd) {
       if (col < cols.length - 1) { e.preventDefault(); focusCell(row, col + 1); }
     } else if (e.key === 'Tab' && !e.shiftKey) {
-      // Tab → next cell (native browser behavior sudah OK karena
-      // urutan DOM sudah kiri→kanan; jangan intercept). Tapi kalau
-      // sudah di kolom terakhir, pindah ke row berikutnya kolom 0.
-      if (col === cols.length - 1 && row < totalRows - 1) {
+      // Tab dari kolom terakhir → wrap ke row berikutnya kolom 0.
+      // Kalau sudah row terakhir, auto-tambah row baru.
+      if (col === cols.length - 1) {
         e.preventDefault();
-        focusCell(row + 1, 0);
+        goToNextRow(0);
       }
     }
   }
