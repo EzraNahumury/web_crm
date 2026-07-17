@@ -843,9 +843,9 @@ export default function ApprovalFinancePage() {
                       Catatan Finance {isPending && <span className="text-slate-500 font-normal text-[11px]">(wajib jika menolak)</span>}
                     </label>
                     <textarea value={notes} onChange={e => setNotes(e.target.value)}
-                      rows={3} disabled={isDone}
+                      rows={3}
                       placeholder="Contoh: bukti TF blur, atau nominal tidak sesuai."
-                      className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 focus:border-blue-500/50 focus:outline-none rounded-lg px-3 py-2 text-sm disabled:opacity-70 disabled:cursor-not-allowed" />
+                      className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 focus:border-blue-500/50 focus:outline-none rounded-lg px-3 py-2 text-sm" />
                   </div>
 
                   {isDone && (
@@ -855,23 +855,36 @@ export default function ApprovalFinancePage() {
                   )}
                 </div>
 
-                <div className="px-6 py-4 border-t border-white/[0.06] flex items-center justify-end gap-2 shrink-0">
-                  <button onClick={closeDetail} disabled={saving}
-                    className="text-sm font-medium text-slate-400 hover:text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-                    Tutup
-                  </button>
-                  {isPending && (
-                    <>
-                      <button onClick={() => decide('REJECTED')} disabled={saving}
-                        className="text-sm font-medium text-rose-300 border border-rose-500/30 hover:bg-rose-500/10 px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-                        Tolak
-                      </button>
-                      <button onClick={() => decide('APPROVED')} disabled={saving}
-                        className="text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-                        {saving ? 'Menyimpan...' : 'Approve'}
-                      </button>
-                    </>
-                  )}
+                <div className="px-6 py-4 border-t border-white/[0.06] flex items-center justify-between gap-2 shrink-0 flex-wrap">
+                  <div className="text-[11px] text-slate-500">
+                    {isDone && (
+                      <>Status saat ini: <strong className={fs === 'APPROVED' ? 'text-emerald-300' : 'text-rose-300'}>
+                        {fs === 'APPROVED' ? 'Disetujui' : 'Ditolak'}
+                      </strong> — bisa diubah di bawah.</>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={closeDetail} disabled={saving}
+                      className="text-sm font-medium text-slate-400 hover:text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+                      Tutup
+                    </button>
+                    <button
+                      onClick={() => decide('REJECTED')}
+                      disabled={saving || fs === 'REJECTED'}
+                      title={fs === 'REJECTED' ? 'Status sudah Ditolak' : undefined}
+                      className="text-sm font-medium text-rose-300 border border-rose-500/30 hover:bg-rose-500/10 px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {fs === 'REJECTED' ? '✓ Sudah Ditolak' : 'Tolak'}
+                    </button>
+                    <button
+                      onClick={() => decide('APPROVED')}
+                      disabled={saving || fs === 'APPROVED'}
+                      title={fs === 'APPROVED' ? 'Status sudah Disetujui' : undefined}
+                      className="text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-emerald-800"
+                    >
+                      {saving ? 'Menyimpan...' : fs === 'APPROVED' ? '✓ Sudah Disetujui' : fs === 'REJECTED' ? 'Ubah ke Approve' : 'Approve'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
