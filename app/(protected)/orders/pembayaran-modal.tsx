@@ -215,6 +215,51 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setItemLines(rs => rs.map((r, i) => i === idx ? { ...r, [k]: v } : r));
   }
 
+  // Keyboard navigation antar cell di tabel Rincian Order.
+  // 3 kolom editable: nama (0), qty (1), harga (2).
+  // ArrowUp/Down → row -/+ 1 kolom sama.
+  // ArrowLeft/Right → pindah kolom kalau kursor di ujung teks.
+  // Enter → row + 1 kolom sama (mirip Excel).
+  function handleCellKey(row: number, col: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    const cols = ['nama', 'qty', 'harga'];
+    const focusCell = (r: number, c: number) => {
+      const id = `rincian-cell-${r}-${cols[c]}`;
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      if (el) {
+        el.focus();
+        // Pilih semua isi supaya user langsung bisa timpa. Combobox
+        // input diselect juga supaya konsisten.
+        setTimeout(() => { try { el.select(); } catch {} }, 0);
+      }
+    };
+    const totalRows = itemLines.length;
+    const target = e.target as HTMLInputElement;
+    const atStart = target.selectionStart === 0 && target.selectionEnd === 0;
+    const atEnd = target.selectionStart === target.value.length && target.selectionEnd === target.value.length;
+
+    if (e.key === 'ArrowDown') {
+      if (row < totalRows - 1) { e.preventDefault(); focusCell(row + 1, col); }
+    } else if (e.key === 'ArrowUp') {
+      if (row > 0) { e.preventDefault(); focusCell(row - 1, col); }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (row < totalRows - 1) focusCell(row + 1, col);
+      else focusCell(row, col); // stay di baris terakhir
+    } else if (e.key === 'ArrowLeft' && atStart) {
+      if (col > 0) { e.preventDefault(); focusCell(row, col - 1); }
+    } else if (e.key === 'ArrowRight' && atEnd) {
+      if (col < cols.length - 1) { e.preventDefault(); focusCell(row, col + 1); }
+    } else if (e.key === 'Tab' && !e.shiftKey) {
+      // Tab → next cell (native browser behavior sudah OK karena
+      // urutan DOM sudah kiri→kanan; jangan intercept). Tapi kalau
+      // sudah di kolom terakhir, pindah ke row berikutnya kolom 0.
+      if (col === cols.length - 1 && row < totalRows - 1) {
+        e.preventDefault();
+        focusCell(row + 1, 0);
+      }
+    }
+  }
+
   // Dropdown = handoff pool for CS Order. Only orders that
   //   • are still at status='SELLING' (haven't been promoted yet), and
   //   • have finance_status='APPROVED' (Finance verified the bukti TF)
@@ -677,6 +722,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                                 if (harga !== null) updateItemLine(idx, 'harga', harga);
                               }}
                               inputClassName={inputCls}
+                              inputId={`rincian-cell-${idx}-nama`}
+                              onKeyDown={e => handleCellKey(idx, 0, e)}
                             />
                             {!readOnly && itemLines.length > 1 && (
                               <button onClick={() => removeItemLine(idx)} title="Hapus"
@@ -686,6 +733,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                         </td>
                         <td className={cellCls}>
                           <input
+                            id={`rincian-cell-${idx}-qty`}
                             type="text"
                             inputMode="numeric"
                             value={line.qty || ''}
@@ -693,13 +741,18 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                               const digits = e.target.value.replace(/\D/g, '');
                               updateItemLine(idx, 'qty', digits ? Number(digits) : 0);
                             }}
+                            onKeyDown={e => handleCellKey(idx, 1, e)}
                             className={smInputCls} readOnly={readOnly} />
                         </td>
                         <td className={cellCls}>
                           <div className="flex items-center gap-1">
                             <span className="text-xs text-slate-500">Rp</span>
-                            <input type="text" value={line.harga ? fmtRpPlain(line.harga) : ''}
+                            <input
+                              id={`rincian-cell-${idx}-harga`}
+                              type="text"
+                              value={line.harga ? fmtRpPlain(line.harga) : ''}
                               onChange={e => updateItemLine(idx, 'harga', parseRp(e.target.value))}
+                              onKeyDown={e => handleCellKey(idx, 2, e)}
                               className={smInputCls} readOnly={readOnly} />
                           </div>
                         </td>
@@ -939,13 +992,15 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
    filter; klik pilihan → autofill nama + harga.
    ═════════════════════════════════════════════════════════════════ */
 function BarangCsCombobox({
-  value, options, onPick, readOnly, inputClassName,
+  value, options, onPick, readOnly, inputClassName, inputId, onKeyDown,
 }: {
   value: string;
   options: Row[];
   onPick: (nama: string, harga: number | null) => void;
   readOnly?: boolean;
   inputClassName?: string;
+  inputId?: string;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -974,6 +1029,7 @@ function BarangCsCombobox({
   return (
     <div ref={wrapRef} className="relative flex-1">
       <input
+        id={inputId}
         type="text"
         value={value}
         onChange={e => {
@@ -983,6 +1039,14 @@ function BarangCsCombobox({
           if (!readOnly && options.length > 0) setOpen(true);
         }}
         onFocus={() => { if (!readOnly && options.length > 0) setOpen(true); }}
+        onKeyDown={e => {
+          // Kalau tekan arrow up/down untuk navigasi antar cell, tutup
+          // dropdown supaya tidak menutupi cell tujuan.
+          if (['ArrowUp', 'ArrowDown', 'Enter'].includes(e.key)) {
+            setOpen(false);
+          }
+          onKeyDown?.(e);
+        }}
         placeholder={options.length > 0 ? 'Pilih / ketik nama barang' : 'Nama barang'}
         className={inputClassName}
         readOnly={readOnly}
