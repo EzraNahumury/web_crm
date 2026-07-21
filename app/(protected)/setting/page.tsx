@@ -29,7 +29,27 @@ interface UserRow {
   role_nama: string;
 }
 
-const MENU_ITEMS = ['Dashboard','CS Selling','Approval Finance','CS Order','Work Orders','Produksi','Monitoring Produksi','Approval Gudang','CRM Deadline Lock','CRM Finishing','Laporan','Stok','Settings','Master Data','Analisa'];
+// Urutan mengikuti ADMIN_NAV di app/(protected)/layout.tsx supaya konsisten
+// dengan sidebar. Tambahkan entry baru di sini + role_menu_access +
+// auth login route super admin array kalau menu baru ditambah.
+const MENU_ITEMS = [
+  'Dashboard',
+  'CS Selling',
+  'Antrian Design',
+  'Approval Finance',
+  'CS Order',
+  'Produksi',
+  'Work Orders',
+  'Monitoring Produksi',
+  'Approval Gudang',
+  'CRM Deadline Lock',
+  'CRM Finishing',
+  'Laporan',
+  'Stok',
+  'Settings',
+  'Master Data',
+  'Analisa',
+];
 
 export default function SettingPage() {
   const toast = useToast();
