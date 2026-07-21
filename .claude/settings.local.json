@@ -36,7 +36,26 @@
       "Bash(npx tsc *)",
       "Bash(tasklist)",
       "Bash(npx eslint *)",
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "Bash(C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe *)",
+      "Bash(git -C \"D:\\\\web_crm\" status)",
+      "Bash(git -C \"D:\\\\web_crm\" diff)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(awk *)",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -u root ayres_crm)",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -u root ayres_crm -e \"DESCRIBE wo_spesifikasi;\")",
+      "Bash(awk 'NR<2041 {print} NR==2041 {while\\(\\(getline line < \"/tmp/new_tabwo2.tsx\"\\) > 0\\) print line; close\\(\"/tmp/new_tabwo2.tsx\"\\)} NR>2426 {print}' \"app/\\(protected\\)/work-orders/[id]/page.tsx\")",
+      "Bash(mv /tmp/page.tsx.new \"app/\\(protected\\)/work-orders/[id]/page.tsx\")",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -uroot ayres_crm -e \"DESCRIBE wo_spesifikasi;\")",
+      "Bash(cat)",
+      "Bash(awk 'NR<=2477 {print} NR==2478 {while\\(\\(getline line < \"/tmp/wo34.tsx\"\\) > 0\\) print line; close\\(\"/tmp/wo34.tsx\"\\)}' \"app/\\(protected\\)/work-orders/[id]/page.tsx\")",
+      "Bash(mv /tmp/page.new \"app/\\(protected\\)/work-orders/[id]/page.tsx\")",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -uroot ayres_crm -e \"UPDATE wo_spesifikasi SET imported_file_pages = NULL WHERE imported_file IS NOT NULL; UPDATE wo_section_imports SET imported_file_pages = NULL WHERE imported_file IS NOT NULL;\")",
+      "Bash(\"/c/Program Files/LibreOffice/program/soffice.exe\" --version)",
+      "Bash(git check-ignore *)",
+      "Bash(node *)"
     ]
   }
 }

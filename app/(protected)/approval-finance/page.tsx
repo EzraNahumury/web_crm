@@ -237,16 +237,48 @@ export default function ApprovalFinancePage() {
         );
       } else {
         // Existing DP / Invoice review flow.
-        await dbUpdate('orders', Number(detail.id), {
+        // Deteksi apakah ini review DP Design awal (dari CS Selling)
+        // atau review Invoice (setelah bukti_uploaded=1). Kalau approve
+        // DP Design awal → order masuk Antrian Design (design_stage='AWAL').
+        // Kalau approve Invoice, jangan sentuh design_stage.
+        const buktiSudahUpload = Number(detail.bukti_uploaded) === 1;
+        const alreadyInAntrian = !!detail.design_stage;
+        const shouldEnterAntrianDesign =
+          fs === 'APPROVED' && !buktiSudahUpload && !alreadyInAntrian;
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updatePayload: Record<string, any> = {
           finance_status: fs,
           finance_approved_by: decidedBy,
           finance_approved_at: now,
           finance_notes: notes.trim() || null,
-        });
+        };
+        if (shouldEnterAntrianDesign) {
+          updatePayload.design_stage = 'AWAL';
+          updatePayload.design_awal_at = now;
+          updatePayload.design_stage_started_at = now;
+        }
+
+        try {
+          await dbUpdate('orders', Number(detail.id), updatePayload);
+        } catch (err) {
+          // Fallback: kolom design_stage mungkin belum ada (migration 039
+          // belum jalan). Retry tanpa field antrian.
+          console.warn('finance approve with design_stage failed, retrying:', err);
+          await dbUpdate('orders', Number(detail.id), {
+            finance_status: fs,
+            finance_approved_by: decidedBy,
+            finance_approved_at: now,
+            finance_notes: notes.trim() || null,
+          });
+        }
+
         toast.success(
           fs === 'APPROVED' ? 'Order Di-approve' : 'Order Ditolak',
           fs === 'APPROVED'
-            ? 'CS Order sudah bisa lanjut isi Rincian Order.'
+            ? (shouldEnterAntrianDesign
+                ? 'Order masuk Antrian Design. Selesai design → CS Order lanjut.'
+                : 'CS Order sudah bisa lanjut proses berikutnya.')
             : 'CS Selling menerima catatan penolakan.'
         );
       }

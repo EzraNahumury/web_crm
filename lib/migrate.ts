@@ -704,6 +704,26 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `bukti_notes` TEXT NULL",
     ],
   },
+  {
+    // Antrian Design: order yang sudah di-approve DP Design-nya oleh
+    // Finance masuk ke menu Antrian Design (Design Awal → Revisi 1-3 →
+    // Selesai). Baru setelah SELESAI baru muncul di dropdown Rincian
+    // Order (CS Order).
+    //
+    // design_stage: 'AWAL' | 'REVISI_1' | 'REVISI_2' | 'REVISI_3' |
+    //               'SELESAI' | NULL (legacy — skip antrian).
+    // design_awal_at: baseline SLA (saat Finance approve DP Design).
+    // design_stage_started_at: kapan pindah ke stage sekarang (untuk
+    //                          track waktu tiap stage individual).
+    // design_selesai_at: kapan design final di-mark selesai.
+    name: '039_orders_design_stage',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `design_stage` VARCHAR(20) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `design_awal_at` TIMESTAMP NULL",
+      "ALTER TABLE `orders` ADD COLUMN `design_stage_started_at` TIMESTAMP NULL",
+      "ALTER TABLE `orders` ADD COLUMN `design_selesai_at` TIMESTAMP NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

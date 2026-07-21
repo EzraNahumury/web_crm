@@ -274,14 +274,23 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // Dropdown = handoff pool for CS Order. Only orders that
   //   • are still at status='SELLING' (haven't been promoted yet), and
   //   • have finance_status='APPROVED' (Finance verified the bukti TF)
-  // show up here. That means CS Selling → Finance → CS Order is a
-  // linear pipeline: no bypass.
+  //   • design_stage IN (NULL, 'SELESAI') — legacy tanpa antrian design
+  //     tetap muncul, order baru wajib lewat Antrian Design dulu sampai
+  //     SELESAI barulah muncul di sini.
+  // show up here. That means CS Selling → Finance → Antrian Design →
+  // CS Order is a linear pipeline: no bypass.
   const orderPickerOptions = useMemo(
     () => orders
-      .filter(o =>
-        String(o.status || '').toUpperCase() === 'SELLING'
-        && String(o.finance_status || '').toUpperCase() === 'APPROVED'
-      )
+      .filter(o => {
+        if (String(o.status || '').toUpperCase() !== 'SELLING') return false;
+        if (String(o.finance_status || '').toUpperCase() !== 'APPROVED') return false;
+        // Design stage gate: kalau design_stage NULL (legacy pre-feature),
+        // biarkan lewat. Kalau ada value, wajib 'SELESAI' — order masih
+        // di antrian design nggak boleh masuk sini dulu.
+        const ds = String(o.design_stage || '').toUpperCase();
+        if (ds && ds !== 'SELESAI') return false;
+        return true;
+      })
       .sort((a, b) => Number(b.id) - Number(a.id))
       .map(o => ({
         id: o.id,
