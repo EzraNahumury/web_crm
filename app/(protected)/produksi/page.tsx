@@ -374,18 +374,24 @@ export default function ProduksiPage() {
   const tersediaQty = tersediaWos.reduce((sum, item) => sum + (item.wo?.jumlah || 0), 0);
 
   // Hitung WO yang lewat SLA di stage aktif (stage target atau final QC).
-  // Dipakai untuk chip counter merah di header antrian.
-  const tersediaLateCount = tersediaWos.reduce((count, item) => {
+  // Track sekaligus jumlah WO + total pcs supaya chip counter merah bisa
+  // menampilkan angka sesuai unit kapasitas stage (WO atau pcs).
+  const tersediaLate = tersediaWos.reduce((acc, item) => {
     const wo = item.wo;
-    if (!wo) return count;
+    if (!wo) return acc;
     const info = woTargets[Number(wo.id)];
-    if (!info) return count;
+    if (!info) return acc;
     const stageT = info.targets?.[activeStage];
     const finalT = info.targetSelesai;
     const stageLate = stageT ? classifyLate(stageT, todayISO) === 'terlambat' : false;
     const finalLate = finalT ? classifyLate(finalT, todayISO) === 'terlambat' : false;
-    return count + (stageLate || finalLate ? 1 : 0);
-  }, 0);
+    if (stageLate || finalLate) {
+      acc.wo += 1;
+      acc.pcs += Number(wo.jumlah) || 0;
+    }
+    return acc;
+  }, { wo: 0, pcs: 0 });
+  const tersediaLateCount = tersediaLate.wo;
 
   // Gate for Proofing → Approval WO: the WO must be confirmed (details
   // filled in via Work Orders menu) before the customer flow can proceed
@@ -915,22 +921,36 @@ export default function ProduksiPage() {
                 )}
               </div>
             </div>
-            {tersediaLateCount > 0 && (
-              <div
-                title="Jumlah WO yang sudah lewat target SLA (stage aktif atau QC Final). Cek chip merah 'Terlambat SLA' / 'Lewat Deadline' di daftar antrian."
-                className="flex items-center gap-2 shrink-0 bg-red-500/[0.12] border border-red-500/40 rounded-xl px-3 py-2 shadow-lg shadow-red-500/10"
-              >
-                <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 grid place-items-center text-red-200">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                  </svg>
+            {tersediaLateCount > 0 && (() => {
+              // Tampilkan jumlah pcs kalau stage aktif punya kapasitas
+              // per pcs (Printing Layout ke bawah). Stage per-WO (Proofing)
+              // atau tanpa limit → tampilkan WO saja.
+              const cap = STAGE_CAPACITY[activeStage];
+              const showPcs = cap?.unit === 'pcs';
+              return (
+                <div
+                  title={`Jumlah WO yang sudah lewat target SLA (stage aktif atau QC Final). ${showPcs ? `Total ${tersediaLate.pcs} pcs.` : ''} Cek chip merah 'Terlambat SLA' / 'Lewat Deadline' di daftar antrian.`}
+                  className="flex items-center gap-2 shrink-0 bg-red-500/[0.12] border border-red-500/40 rounded-xl px-3 py-2 shadow-lg shadow-red-500/10"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 grid place-items-center text-red-200">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-red-300 uppercase tracking-widest">Terlambat SLA</p>
+                    <p className="text-lg font-bold text-white leading-tight tabular-nums">
+                      {tersediaLateCount} WO
+                      {showPcs && (
+                        <span className="text-[11px] font-medium text-red-200 ml-1.5">
+                          · {tersediaLate.pcs} pcs
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[10px] font-bold text-red-300 uppercase tracking-widest">Terlambat SLA</p>
-                  <p className="text-lg font-bold text-white leading-tight tabular-nums">{tersediaLateCount} WO</p>
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
           {/* Capacity meter — beban antrian vs kapasitas harian.
               Unit 'wo' untuk Proofing (per WO), 'pcs' untuk stage produksi
