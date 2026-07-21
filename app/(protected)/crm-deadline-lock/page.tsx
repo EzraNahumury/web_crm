@@ -107,7 +107,7 @@ export default function CrmDeadlineLockPage() {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="space-y-4">
           {[1, 2, 3, 4].map(i => <div key={i} className="h-72 bg-white/[0.03] rounded-xl animate-pulse" />)}
         </div>
       ) : data && data.groups.length === 0 ? (
@@ -117,7 +117,7 @@ export default function CrmDeadlineLockPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="space-y-4">
           {data?.groups.map(group => (
             <BoardTable key={group.date} group={group} />
           ))}
@@ -136,29 +136,19 @@ function BoardTable({ group }: { group: Group }) {
         <p className="text-sm font-bold" title={fmtDateShort(group.date)}>{fmtDayYear(group.date)}</p>
       </div>
 
-      {/* Table — no horizontal scroll. Semua kolom fluid sesuai lebar
-          grid parent, dengan truncate + tooltip untuk konten panjang. */}
-      <table className="w-full text-xs table-fixed">
-        <colgroup>
-          <col style={{ width: '7%' }} />
-          <col style={{ width: '22%' }} />
-          <col style={{ width: '7%' }} />
-          <col style={{ width: '18%' }} />
-          <col style={{ width: '15%' }} />
-          <col style={{ width: '10%' }} />
-          <col style={{ width: '11%' }} />
-          <col style={{ width: '10%' }} />
-        </colgroup>
+      {/* Table full-width tanpa scroll horizontal. Setiap tabel dapat
+          seluruh lebar halaman jadi semua kolom kelihatan langsung. */}
+      <table className="w-full text-sm">
         <thead>
           <tr className="bg-cyan-500/90 text-white">
-            <Th className="text-center">NO</Th>
+            <Th className="text-center w-14">NO</Th>
             <Th>CUST</Th>
-            <Th className="text-center">QTY</Th>
+            <Th className="text-center w-20">QTY</Th>
             <Th>PAKET</Th>
             <Th>BONUS</Th>
             <Th>KET</Th>
-            <Th className="text-center">DL</Th>
-            <Th className="text-center">STTS</Th>
+            <Th className="text-center w-32">DL</Th>
+            <Th className="text-center w-32">STTS</Th>
           </tr>
         </thead>
         <tbody>
@@ -171,16 +161,16 @@ function BoardTable({ group }: { group: Group }) {
             return (
             <tr key={o.no_order + i} className={`border-b border-white/[0.04] transition-colors ${rowTint}`}>
               <Td className="text-center text-slate-400">{i + 1}</Td>
-              <Td className="text-white font-medium truncate" title={o.cust}>{o.cust || '-'}</Td>
+              <Td className="text-white font-medium">{o.cust || '-'}</Td>
               <Td className="text-center text-white font-semibold tabular-nums">{o.qty || '-'}</Td>
-              <Td className="text-slate-300 truncate" title={o.paket}>{o.paket}</Td>
-              <Td className="text-slate-400 truncate" title={o.bonus}>{o.bonus || '-'}</Td>
-              <Td className="text-slate-500 truncate" title={o.ket}>{o.ket || '-'}</Td>
-              <Td className="text-center whitespace-nowrap font-semibold text-amber-400 truncate" title={o.pilihan_paket}>
+              <Td className="text-slate-300">{o.paket}</Td>
+              <Td className="text-slate-400">{o.bonus || '-'}</Td>
+              <Td className="text-slate-500">{o.ket || '-'}</Td>
+              <Td className="text-center whitespace-nowrap font-semibold text-amber-400" title={o.pilihan_paket}>
                 {o.deadline_lock ? fmtDateShort(o.deadline_lock) : '-'}
               </Td>
               <Td className="text-center">
-                <span className="text-[9px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
                   {o.stts}
                 </span>
               </Td>
