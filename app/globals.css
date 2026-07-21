@@ -112,6 +112,33 @@ select option {
 [data-theme="light"] .text-zinc-500 { color: #64748b !important; }
 [data-theme="light"] .text-zinc-600 { color: #94a3b8 !important; }
 
+/* Semantic color scales (red/amber/emerald) — light-mode shades stay
+   invisible on light backgrounds because they're already light in the
+   default Tailwind palette. Invert them to darker shades so kartu
+   'Terlambat SLA' etc. tetap terbaca di mode terang. */
+[data-theme="light"] .text-red-100 { color: #7f1d1d !important; }
+[data-theme="light"] .text-red-200 { color: #991b1b !important; }
+[data-theme="light"] .text-red-300 { color: #b91c1c !important; }
+[data-theme="light"] .text-amber-100 { color: #78350f !important; }
+[data-theme="light"] .text-amber-200 { color: #92400e !important; }
+[data-theme="light"] .text-amber-300 { color: #b45309 !important; }
+[data-theme="light"] .text-emerald-100 { color: #064e3b !important; }
+[data-theme="light"] .text-emerald-200 { color: #065f46 !important; }
+[data-theme="light"] .text-emerald-300 { color: #047857 !important; }
+[data-theme="light"] .text-orange-100 { color: #7c2d12 !important; }
+[data-theme="light"] .text-orange-200 { color: #9a3412 !important; }
+[data-theme="light"] .text-orange-300 { color: #c2410c !important; }
+[data-theme="light"] .text-blue-100 { color: #1e3a8a !important; }
+[data-theme="light"] .text-blue-200 { color: #1e40af !important; }
+[data-theme="light"] .text-blue-300 { color: #1d4ed8 !important; }
+[data-theme="light"] .text-fuchsia-100 { color: #701a75 !important; }
+[data-theme="light"] .text-fuchsia-200 { color: #86198f !important; }
+[data-theme="light"] .text-fuchsia-300 { color: #a21caf !important; }
+[data-theme="light"] .text-cyan-100 { color: #164e63 !important; }
+[data-theme="light"] .text-cyan-200 { color: #155e75 !important; }
+[data-theme="light"] .text-cyan-300 { color: #0e7490 !important; }
+[data-theme="light"] .text-slate-100 { color: #0f172a !important; }
+
 /* Translucent white text — invert to translucent dark */
 [data-theme="light"] .text-white\/90 { color: rgba(15, 23, 42, 0.92) !important; }
 [data-theme="light"] .text-white\/80 { color: rgba(15, 23, 42, 0.85) !important; }
