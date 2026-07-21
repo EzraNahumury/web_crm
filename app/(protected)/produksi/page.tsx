@@ -462,8 +462,8 @@ export default function ProduksiPage() {
       toast.error('Tipe File Tidak Didukung', 'Hanya gambar (PNG/JPG) atau PDF yang bisa diupload sebagai bukti pelunasan.');
       return;
     }
-    if (f.size > 5 * 1024 * 1024) {
-      toast.error('File Terlalu Besar', 'Ukuran maksimal 5 MB. Kompres foto TF-nya dulu.');
+    if (f.size > 50 * 1024 * 1024) {
+      toast.error('File Terlalu Besar', 'Ukuran maksimal 50 MB. Kompres foto TF-nya dulu.');
       return;
     }
     setPelunasanUploading(true);
@@ -1322,7 +1322,7 @@ export default function ProduksiPage() {
                         <span className={`text-sm ${pelunasanDragOver ? 'text-blue-300' : 'text-slate-300'}`}>
                           {pelunasanDragOver ? 'Lepaskan file di sini' : 'Klik atau drop file untuk upload'}
                         </span>
-                        <span className="text-[11px] text-slate-500">PNG, JPG, PDF · max 5 MB · drag dari WhatsApp / folder OK</span>
+                        <span className="text-[11px] text-slate-500">PNG, JPG, PDF · max 50 MB · drag dari WhatsApp / folder OK</span>
                       </>
                     )}
                     <input

@@ -289,8 +289,8 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
       toast.error('Tipe File Tidak Didukung', 'Hanya gambar (PNG/JPG) atau PDF yang bisa diupload sebagai bukti TF.');
       return;
     }
-    if (f.size > 5 * 1024 * 1024) {
-      toast.error('File Terlalu Besar', 'Ukuran maksimal 5 MB. Kompres foto TF-nya dulu.');
+    if (f.size > 50 * 1024 * 1024) {
+      toast.error('File Terlalu Besar', 'Ukuran maksimal 50 MB. Kompres foto TF-nya dulu.');
       return;
     }
     // Upload to the persistent UPLOAD_DIR (survives redeploys) via the
@@ -764,7 +764,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
                     <span className={`text-xs ${dragOver ? 'text-blue-300' : 'text-slate-400'}`}>
                       {dragOver ? 'Lepaskan file di sini' : 'Klik atau drop file untuk upload'}
                     </span>
-                    <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 5 MB · drag dari WhatsApp / folder OK</span>
+                    <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 50 MB · drag dari WhatsApp / folder OK</span>
                   </>
                 )}
                 <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChange} disabled={uploading} />

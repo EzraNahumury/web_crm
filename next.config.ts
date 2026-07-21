@@ -1,11 +1,12 @@
 import type { NextConfig } from "next";
 
-// Allow larger request bodies for spec file imports (Excel / PDF up to 50 MB).
-// In Next.js 16.x the body-size limit on the dev/server proxy is read from
-// `experimental.proxyClientMaxBodySize` — the error message and public docs
-// still reference `middlewareClientMaxBodySize`, but that key is unused; the
-// runtime check is in next-server.js against the experimental key.
-const LARGE_BODY = '80mb';
+// Allow larger request bodies untuk import spec Excel/PDF + bukti TF
+// base64 saat /api/upload fallback. Di-bump ke 200 MB supaya kasus
+// foto TF resolusi tinggi (10+ MB base64) juga aman lewat proxy.
+// Di Next.js 16.x, key yang dibaca proxy dev server adalah
+// `experimental.proxyClientMaxBodySize` (bukan `middlewareClientMaxBodySize`
+// yang sering muncul di error message — key tersebut sudah tidak dipakai).
+const LARGE_BODY = '200mb';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nextConfig: NextConfig & Record<string, any> = {

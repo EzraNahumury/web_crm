@@ -151,8 +151,8 @@ export default function BuktiPembayaranPage() {
       toast.error('Tipe File Tidak Didukung', 'Hanya gambar (PNG/JPG) atau PDF yang bisa diupload sebagai bukti TF.');
       return;
     }
-    if (f.size > 5 * 1024 * 1024) {
-      toast.error('File Terlalu Besar', 'Ukuran maksimal 5 MB. Kompres foto TF-nya dulu.');
+    if (f.size > 50 * 1024 * 1024) {
+      toast.error('File Terlalu Besar', 'Ukuran maksimal 50 MB. Kompres foto TF-nya dulu.');
       return;
     }
     // Upload immediately so we already have a URL by the time user
@@ -529,7 +529,7 @@ export default function BuktiPembayaranPage() {
                       <span className={`text-xs ${isDragging ? 'text-blue-300' : 'text-slate-400'}`}>
                         {isDragging ? 'Lepaskan file di sini' : 'Klik atau drop file untuk upload'}
                       </span>
-                      <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 5 MB · drag dari WhatsApp / folder OK</span>
+                      <span className="text-[10px] text-slate-500">PNG, JPG, PDF · max 50 MB · drag dari WhatsApp / folder OK</span>
                       <input
                         ref={el => { inputRefs.current[r.paymentId] = el; }}
                         type="file"
