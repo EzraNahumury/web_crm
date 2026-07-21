@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dbGet, dbUpdate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import {
@@ -118,6 +118,50 @@ export default function AntrianDesignPage() {
 
   const todayIso = todayIsoLocal();
 
+  // Kumpulkan kartu yang terlambat SLA (baik stage aktif maupun final).
+  // Skip stage SELESAI karena sudah tidak butuh warning lagi.
+  const lateSummary = useMemo(() => {
+    let terlambat = 0;
+    let hariH = 0;
+    for (const o of antrianOrders) {
+      const stage = o.design_stage as DesignStage;
+      if (stage === 'SELESAI') continue;
+      const baseline = String(o.design_awal_at || '').slice(0, 10);
+      if (!baseline) continue;
+      const targets = computeDesignStageTargets(baseline, holidays);
+      const tStage = targets[stage];
+      const tFinal = targets['REVISI_3'];
+      const stageLate = tStage ? classifyLateDesign(tStage, todayIso) : 'aman';
+      const finalLate = tFinal ? classifyLateDesign(tFinal, todayIso) : 'aman';
+      if (finalLate === 'terlambat' || stageLate === 'terlambat') terlambat++;
+      else if (finalLate === 'warning' || stageLate === 'warning') hariH++;
+    }
+    return { terlambat, hariH };
+  }, [antrianOrders, holidays, todayIso]);
+
+  // Notifikasi toast satu kali per session kalau ada yang terlambat pas
+  // page pertama kali load. `notifiedRef` mencegah spam saat refetch.
+  const notifiedRef = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    if (notifiedRef.current) return;
+    if (lateSummary.terlambat > 0) {
+      toast.warning(
+        `${lateSummary.terlambat} Order Terlambat SLA`,
+        'Ada order yang sudah lewat target SLA — cek chip merah di daftar antrian.',
+      );
+      notifiedRef.current = true;
+    } else if (lateSummary.hariH > 0) {
+      toast.info?.(
+        `${lateSummary.hariH} Order Hari-H`,
+        'Hari ini adalah deadline SLA — segera lanjut proses design.',
+      );
+      notifiedRef.current = true;
+    }
+    // toast dependency intentionally omitted supaya tidak re-fire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, lateSummary.terlambat, lateSummary.hariH]);
+
   async function advanceToRevisi(order: Row) {
     const cur = order.design_stage as DesignStage;
     const next = nextRevisiStage(cur);
@@ -179,13 +223,39 @@ export default function AntrianDesignPage() {
               </p>
             </div>
           </div>
-          <div className="hidden md:flex items-center gap-2 shrink-0 bg-[#111827] border border-white/10 rounded-xl px-4 py-2.5">
-            <svg className="w-4 h-4 text-fuchsia-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-              <p className="text-[10px] font-semibold text-fuchsia-300/70 uppercase tracking-widest">Total SLA</p>
-              <p className="text-sm font-bold text-white leading-tight">{totalDurasiDesign()} hari kerja</p>
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {lateSummary.terlambat > 0 && (
+              <div className="flex items-center gap-2 bg-red-500/[0.12] border border-red-500/40 rounded-xl px-3 py-2 shadow-lg shadow-red-500/10">
+                <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 grid place-items-center text-red-200">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-red-300 uppercase tracking-widest">Terlambat SLA</p>
+                  <p className="text-lg font-bold text-white leading-tight tabular-nums">{lateSummary.terlambat} order</p>
+                </div>
+              </div>
+            )}
+            {lateSummary.hariH > 0 && (
+              <div className="flex items-center gap-2 bg-amber-500/[0.10] border border-amber-500/40 rounded-xl px-3 py-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 grid place-items-center text-amber-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-amber-300 uppercase tracking-widest">Hari-H</p>
+                  <p className="text-lg font-bold text-white leading-tight tabular-nums">{lateSummary.hariH} order</p>
+                </div>
+              </div>
+            )}
+            <div className="hidden md:flex items-center gap-2 bg-[#111827] border border-white/10 rounded-xl px-4 py-2.5">
+              <svg className="w-4 h-4 text-fuchsia-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p className="text-[10px] font-semibold text-fuchsia-300/70 uppercase tracking-widest">Total SLA</p>
+                <p className="text-sm font-bold text-white leading-tight">{totalDurasiDesign()} hari kerja</p>
+              </div>
             </div>
           </div>
         </div>
