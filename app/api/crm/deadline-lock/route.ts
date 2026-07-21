@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { computeDeadlineLock, hasJaket } from '@/lib/business-days';
+import { HIDE_ORDERS_BEFORE } from '@/lib/data-cutoff';
 
 // GET /api/crm/deadline-lock?month=YYYY-MM
 //
@@ -63,14 +64,19 @@ export async function GET(req: NextRequest) {
     const lastDayNum = new Date(year, monthNum, 0).getDate();
     const lastDay = `${yearStr}-${monthStr}-${String(lastDayNum).padStart(2, '0')}`;
 
+    // Apply cutoff (lib/data-cutoff.ts) supaya konsisten dengan CS Order,
+    // Produksi, Work Orders, Monitoring, dan Dashboard. Order dengan
+    // tanggal_order sebelum cutoff di-skip. Order tanpa tanggal_order
+    // dianggap tetap tampil (fallback aman).
     const orders = await query<OrderRow>(
       `SELECT id, no_order, customer_nama, pilihan_paket, deadline_lock,
               tanggal_acc_proofing, keterangan
          FROM orders
         WHERE tanggal_acc_proofing IS NOT NULL
           AND tanggal_acc_proofing BETWEEN ? AND ?
+          AND (tanggal_order IS NULL OR tanggal_order >= ?)
         ORDER BY tanggal_acc_proofing ASC, id ASC`,
-      [firstDay, lastDay]
+      [firstDay, lastDay, HIDE_ORDERS_BEFORE]
     );
 
     // No orders → return empty groups quickly.

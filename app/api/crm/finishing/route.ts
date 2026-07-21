@@ -6,6 +6,7 @@ import {
   hasJaket,
   subtractBusinessDays,
 } from '@/lib/business-days';
+import { HIDE_ORDERS_BEFORE } from '@/lib/data-cutoff';
 
 // GET /api/crm/finishing?date=YYYY-MM-DD
 // Returns every uncompleted order whose deadline_lock falls in the week
@@ -71,11 +72,14 @@ export async function GET(req: NextRequest) {
 
     const { start: weekStart, end: weekEnd } = weekBounds(dateParam);
 
+    // Apply cutoff (lib/data-cutoff.ts) supaya konsisten dengan menu lain.
     const orders = await query<OrderRow>(
       `SELECT id, no_order, customer_nama, nama_tim, pilihan_paket,
               tanggal_acc_proofing, deadline_lock
          FROM orders
-        WHERE (tanggal_acc_proofing IS NOT NULL OR deadline_lock IS NOT NULL)`
+        WHERE (tanggal_acc_proofing IS NOT NULL OR deadline_lock IS NOT NULL)
+          AND (tanggal_order IS NULL OR tanggal_order >= ?)`,
+      [HIDE_ORDERS_BEFORE]
     );
 
     if (orders.length === 0) {

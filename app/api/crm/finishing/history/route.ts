@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { HIDE_ORDERS_BEFORE } from '@/lib/data-cutoff';
 
 // GET /api/crm/finishing/history?month=YYYY-MM
 // Returns every crm_finishing row that was checked off in the given month,
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
     const lastDayNum = new Date(year, monthNum, 0).getDate();
     const last = `${yearStr}-${monthStr}-${String(lastDayNum).padStart(2, '0')} 23:59:59`;
 
+    // Apply cutoff (lib/data-cutoff.ts) supaya konsisten dengan menu lain.
     const rows = await query<HistRow>(
       `SELECT f.id, f.order_id, f.keterangan, f.completed_at,
               o.no_order, o.customer_nama, o.nama_tim, o.pilihan_paket
@@ -50,8 +52,9 @@ export async function GET(req: NextRequest) {
          JOIN orders o ON o.id = f.order_id
         WHERE f.completed_at IS NOT NULL
           AND f.completed_at BETWEEN ? AND ?
+          AND (o.tanggal_order IS NULL OR o.tanggal_order >= ?)
         ORDER BY f.completed_at DESC`,
-      [first, last]
+      [first, last, HIDE_ORDERS_BEFORE]
     );
 
     if (rows.length === 0) {
