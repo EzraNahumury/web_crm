@@ -107,7 +107,7 @@ export default function CrmDeadlineLockPage() {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {[1, 2, 3, 4].map(i => <div key={i} className="h-72 bg-white/[0.03] rounded-xl animate-pulse" />)}
         </div>
       ) : data && data.groups.length === 0 ? (
@@ -117,7 +117,7 @@ export default function CrmDeadlineLockPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {data?.groups.map(group => (
             <BoardTable key={group.date} group={group} />
           ))}
@@ -136,63 +136,70 @@ function BoardTable({ group }: { group: Group }) {
         <p className="text-sm font-bold" title={fmtDateShort(group.date)}>{fmtDayYear(group.date)}</p>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="bg-cyan-500/90 text-white">
-              <Th className="w-[7%] text-center">NO</Th>
-              <Th className="w-[24%]">CUST</Th>
-              <Th className="w-[7%] text-center">QTY</Th>
-              <Th className="w-[16%]">PAKET</Th>
-              <Th className="w-[18%]">BONUS</Th>
-              <Th className="w-[8%]">KET</Th>
-              <Th className="w-[10%] text-center">DL</Th>
-              <Th className="w-[10%] text-center">STTS</Th>
+      {/* Table — no horizontal scroll. Semua kolom fluid sesuai lebar
+          grid parent, dengan truncate + tooltip untuk konten panjang. */}
+      <table className="w-full text-xs table-fixed">
+        <colgroup>
+          <col style={{ width: '7%' }} />
+          <col style={{ width: '22%' }} />
+          <col style={{ width: '7%' }} />
+          <col style={{ width: '18%' }} />
+          <col style={{ width: '15%' }} />
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '11%' }} />
+          <col style={{ width: '10%' }} />
+        </colgroup>
+        <thead>
+          <tr className="bg-cyan-500/90 text-white">
+            <Th className="text-center">NO</Th>
+            <Th>CUST</Th>
+            <Th className="text-center">QTY</Th>
+            <Th>PAKET</Th>
+            <Th>BONUS</Th>
+            <Th>KET</Th>
+            <Th className="text-center">DL</Th>
+            <Th className="text-center">STTS</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {group.orders.map((o, i) => {
+            const kind = classifyLayanan(o.pilihan_paket);
+            const rowTint =
+              kind === 'prioritas' ? 'bg-orange-500/[0.10] hover:bg-orange-500/[0.14]' :
+              kind === 'express'   ? 'bg-red-500/[0.10] hover:bg-red-500/[0.14]' :
+              'hover:bg-white/[0.02]';
+            return (
+            <tr key={o.no_order + i} className={`border-b border-white/[0.04] transition-colors ${rowTint}`}>
+              <Td className="text-center text-slate-400">{i + 1}</Td>
+              <Td className="text-white font-medium truncate" title={o.cust}>{o.cust || '-'}</Td>
+              <Td className="text-center text-white font-semibold tabular-nums">{o.qty || '-'}</Td>
+              <Td className="text-slate-300 truncate" title={o.paket}>{o.paket}</Td>
+              <Td className="text-slate-400 truncate" title={o.bonus}>{o.bonus || '-'}</Td>
+              <Td className="text-slate-500 truncate" title={o.ket}>{o.ket || '-'}</Td>
+              <Td className="text-center whitespace-nowrap font-semibold text-amber-400 truncate" title={o.pilihan_paket}>
+                {o.deadline_lock ? fmtDateShort(o.deadline_lock) : '-'}
+              </Td>
+              <Td className="text-center">
+                <span className="text-[9px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                  {o.stts}
+                </span>
+              </Td>
             </tr>
-          </thead>
-          <tbody>
-            {group.orders.map((o, i) => {
-              // Same tint palette as Orders / CRM Finishing:
-              // Prioritas = orange, Express = red, Reguler/others = default.
-              const kind = classifyLayanan(o.pilihan_paket);
-              const rowTint =
-                kind === 'prioritas' ? 'bg-orange-500/[0.10] hover:bg-orange-500/[0.14]' :
-                kind === 'express'   ? 'bg-red-500/[0.10] hover:bg-red-500/[0.14]' :
-                'hover:bg-white/[0.02]';
-              return (
-              <tr key={o.no_order + i} className={`border-b border-white/[0.04] transition-colors ${rowTint}`}>
-                <Td className="text-center text-slate-400">{i + 1}</Td>
-                <Td className="text-white font-medium">{o.cust || '-'}</Td>
-                <Td className="text-center text-white font-semibold tabular-nums">{o.qty || '-'}</Td>
-                <Td className="text-slate-300 truncate max-w-[180px]" title={o.paket}>{o.paket}</Td>
-                <Td className="text-slate-400 truncate max-w-[200px]" title={o.bonus}>{o.bonus || '-'}</Td>
-                <Td className="text-slate-500 truncate max-w-[100px]" title={o.ket}>{o.ket || '-'}</Td>
-                <Td className="text-center whitespace-nowrap font-semibold text-amber-400" title={o.pilihan_paket}>
-                  {o.deadline_lock ? fmtDateShort(o.deadline_lock) : '-'}
-                </Td>
-                <Td className="text-center">
-                  <span className="text-[9px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
-                    {o.stts}
-                  </span>
-                </Td>
-              </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr className="border-t-2 border-white/[0.15] bg-white/[0.04]">
-              <td className="px-2 py-2 text-right text-[11px] font-bold text-slate-300 uppercase tracking-wider" colSpan={2}>
-                Total QTY
-              </td>
-              <td className="px-2 py-2 text-center text-sm font-bold text-white tabular-nums">
-                {totalQty}
-              </td>
-              <td className="px-2 py-2" colSpan={5}>&nbsp;</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-white/[0.15] bg-white/[0.04]">
+            <td className="px-2 py-2 text-right text-[11px] font-bold text-slate-300 uppercase tracking-wider" colSpan={2}>
+              Total QTY
+            </td>
+            <td className="px-2 py-2 text-center text-sm font-bold text-white tabular-nums">
+              {totalQty}
+            </td>
+            <td className="px-2 py-2" colSpan={5}>&nbsp;</td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }
