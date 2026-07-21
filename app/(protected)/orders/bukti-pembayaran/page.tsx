@@ -4,6 +4,7 @@ import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
 import { sha256Hex } from '@/lib/hash';
+import { buildAksesorisSet, sumQtyExcludingAksesoris } from '@/lib/qty-aksesoris';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -284,22 +285,11 @@ export default function BuktiPembayaranPage() {
           const orderItems = await dbGet('order_items').catch(() => []);
           const rowsForOrder = (orderItems as Row[]).filter(it => Number(it.order_id) === orderId);
           const paketNames = rowsForOrder.map(it => String(it.paket_nama || '')).filter(Boolean).join(', ') || '-';
-          // Filter aksesoris waktu hitung totalQty untuk work_orders.jumlah.
-          // Aksesoris = barang di master Barang CS yang hitung_qty=0 (mis.
-          // tambahan XL, custom label). Match by name (case-insensitive).
-          // Fallback: kalau barang_cs tidak bisa di-fetch, hitung semua
-          // supaya alur tidak break.
+          // Filter aksesoris waktu hitung totalQty untuk work_orders.jumlah
+          // (lihat lib/qty-aksesoris.ts).
           const barangCsAll = await dbGet('barang_cs').catch(() => []);
-          const aksesorisSet = new Set(
-            (barangCsAll as Row[])
-              .filter(b => Number(b.hitung_qty) === 0)
-              .map(b => String(b.nama || '').trim().toLowerCase())
-          );
-          const totalQty = rowsForOrder.reduce((s, it) => {
-            const nama = String(it.paket_nama || '').trim().toLowerCase();
-            if (aksesorisSet.has(nama)) return s; // skip aksesoris
-            return s + (Number(it.qty) || 0);
-          }, 0);
+          const aksesorisSet = buildAksesorisSet(barangCsAll as Row[]);
+          const totalQty = sumQtyExcludingAksesoris(rowsForOrder, aksesorisSet);
           // work_orders.deadline NOT NULL di base schema. Kasih placeholder
           // +7 hari; admin nanti overwrite via menu Work Orders sesuai
           // jadwal produksi sebenarnya.

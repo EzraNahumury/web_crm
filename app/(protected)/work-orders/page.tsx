@@ -8,6 +8,7 @@ import { normBagian } from '@/lib/utils';
 import { Pagination, paginate } from '@/lib/pagination';
 import { sha256Hex } from '@/lib/hash';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
+import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -74,22 +75,29 @@ export default function WorkOrdersPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      const [wos, orders, items] = await Promise.all([
+      const [wos, orders, items, barangCs] = await Promise.all([
         dbGet('work_orders'),
         dbGet('orders'),
         dbGet('order_items'),
+        dbGet('barang_cs').catch(() => []),
       ]);
+      const aksesorisSet = buildAksesorisSet(barangCs as Row[]);
       // Index orders by id
       const orderMap: Record<string, Row> = {};
       for (const o of orders) orderMap[String(o.id)] = o;
-      // Group items by order_id
+      // Group items by order_id. Aksesoris di-skip dari qty tapi tetap
+      // masuk paket names untuk display (biar user tetap lihat item
+      // aksesoris di kolom PAKET).
       const itemsByOrder: Record<string, { paket: string[]; bahan: string[]; qty: number }> = {};
       for (const it of items) {
         const key = String(it.order_id);
         if (!itemsByOrder[key]) itemsByOrder[key] = { paket: [], bahan: [], qty: 0 };
         if (it.paket_nama) itemsByOrder[key].paket.push(String(it.paket_nama));
         if (it.bahan_kain) itemsByOrder[key].bahan.push(String(it.bahan_kain));
-        itemsByOrder[key].qty += Number(it.qty) || 0;
+        const nama = String(it.paket_nama || '').trim().toLowerCase();
+        if (!aksesorisSet.has(nama)) {
+          itemsByOrder[key].qty += Number(it.qty) || 0;
+        }
       }
       // Merge real-time data from orders + order_items
       const merged = wos

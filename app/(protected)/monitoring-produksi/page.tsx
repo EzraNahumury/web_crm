@@ -4,6 +4,7 @@ import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { classifyLayanan, type LayananKind } from '@/lib/business-days';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
+import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -80,13 +81,15 @@ export default function MonitoringProduksiPage() {
   async function load() {
     setLoading(true);
     try {
-      const [orders, items, wos, wps, stages] = await Promise.all([
+      const [orders, items, wos, wps, stages, barangCs] = await Promise.all([
         dbGet('orders'),
         dbGet('order_items'),
         dbGet('work_orders').catch(() => []),
         dbGet('wo_progress').catch(() => []),
         dbGet('production_stages').catch(() => []),
+        dbGet('barang_cs').catch(() => []),
       ]);
+      const aksesorisSet = buildAksesorisSet(barangCs as Row[]);
       let mps = await dbGet('monitoring_produksi');
 
       // Ambil id stage 'Approval Design'. Kalau tidak ditemukan (schema
@@ -134,14 +137,19 @@ export default function MonitoringProduksiPage() {
         mps = await dbGet('monitoring_produksi');
       }
 
-      // Index orders + aggregate qty/paket from order_items
+      // Index orders + aggregate qty/paket from order_items.
+      // Aksesoris di-skip dari sum qty (barang_cs.hitung_qty=0) tapi
+      // tetap masuk paketByOrder untuk display nama.
       const orderMap: Record<string, Row> = {};
       for (const o of orders) orderMap[String(o.id)] = o;
       const qtyByOrder: Record<string, number> = {};
       const paketByOrder: Record<string, string[]> = {};
       for (const it of items) {
         const k = String(it.order_id);
-        qtyByOrder[k] = (qtyByOrder[k] || 0) + (Number(it.qty) || 0);
+        const nama = String(it.paket_nama || '').trim().toLowerCase();
+        if (!aksesorisSet.has(nama)) {
+          qtyByOrder[k] = (qtyByOrder[k] || 0) + (Number(it.qty) || 0);
+        }
         if (it.paket_nama) (paketByOrder[k] ||= []).push(String(it.paket_nama));
       }
 

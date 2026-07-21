@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { dbGet } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
+import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -22,11 +23,13 @@ export default function HistoryMonitoringPage() {
   async function load() {
     setLoading(true);
     try {
-      const [mps, orders, items] = await Promise.all([
+      const [mps, orders, items, barangCs] = await Promise.all([
         dbGet('monitoring_produksi', undefined, { board: 'history' }),
         dbGet('orders'),
         dbGet('order_items'),
+        dbGet('barang_cs').catch(() => []),
       ]);
+      const aksesorisSet = buildAksesorisSet(barangCs as Row[]);
 
       const orderMap: Record<string, Row> = {};
       for (const o of orders) orderMap[String(o.id)] = o;
@@ -34,7 +37,10 @@ export default function HistoryMonitoringPage() {
       const paketByOrder: Record<string, string[]> = {};
       for (const it of items) {
         const k = String(it.order_id);
-        qtyByOrder[k] = (qtyByOrder[k] || 0) + (Number(it.qty) || 0);
+        const nama = String(it.paket_nama || '').trim().toLowerCase();
+        if (!aksesorisSet.has(nama)) {
+          qtyByOrder[k] = (qtyByOrder[k] || 0) + (Number(it.qty) || 0);
+        }
         if (it.paket_nama) (paketByOrder[k] ||= []).push(String(it.paket_nama));
       }
 
