@@ -17,18 +17,18 @@ export const STAGE_DURATIONS: Record<string, number> = {
   'Approval Design': 0,        // baseline — hari H
   'Approval Pattern': 1,
   'Proofing': 1,
-  'Approval WO': 0,            // gate admin, tidak masuk hitungan produksi
-  'Printing Layout': 2,
+  'Approval WO': 1,
+  'Printing Layout': 1,        // ← start of production SLA proper
   'Approval Layout': 1,
   'Printing Process': 1,
   'Sublim Press': 1,
   'Fabric Cutting': 1,
   'QC Panel Process': 1,
   'Sewing': 3,
-  'QC Jersey': 0,              // same-day dengan Sewing
-  'Steam Jersey': 0,           // same-day dengan Sewing
-  'Finishing': 2,
-  'QC Final dan Packing': 0,   // same-day dengan Finishing
+  'QC Jersey': 1,              // pasangan QC Jersey + Steam Jersey = +1 hari
+  'Steam Jersey': 0,           // same-day dengan QC Jersey
+  'Finishing': 1,
+  'QC Final dan Packing': 1,   // QC & Packing dilakukan pada hari yang sama = +1
 };
 
 // Urutan resmi produksi yang dihitung untuk target selesai. Waiting
