@@ -724,6 +724,20 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `design_selesai_at` TIMESTAMP NULL",
     ],
   },
+  {
+    // Auto-grant 'Antrian Design' menu access ke setiap role yang sudah
+    // punya 'CS Selling'. Tanpa ini, user existing yang menuAccess-nya
+    // eksplisit di-set di role_menu_access tidak akan lihat menu baru
+    // di sidebar meski secara logic sudah eligible.
+    // Super admin tidak butuh row di role_menu_access — dia bypass via
+    // is_super_admin flag di route auth.
+    name: '040_grant_antrian_design',
+    up: [
+      "INSERT IGNORE INTO `role_menu_access` (`role_id`, `menu_name`) " +
+        "SELECT DISTINCT `role_id`, 'Antrian Design' FROM `role_menu_access` " +
+        "WHERE `menu_name` = 'CS Selling'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
