@@ -738,6 +738,16 @@ const MIGRATIONS: Migration[] = [
         "WHERE `menu_name` = 'CS Selling'",
     ],
   },
+  {
+    // Barang CS hitung_qty: apakah barang ini masuk ke jumlah qty utama
+    // (default 1 = ya) atau cuma aksesoris/pelengkap (0). Dipakai waktu
+    // auto-create shadow WO — totalQty di work_orders.jumlah tidak boleh
+    // ikut-menghitung aksesoris supaya kapasitas produksi akurat.
+    name: '041_barang_cs_hitung_qty',
+    up: [
+      "ALTER TABLE `barang_cs` ADD COLUMN `hitung_qty` TINYINT(1) NOT NULL DEFAULT 1",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

@@ -336,6 +336,24 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
               className={inputCls}
             />
           </div>
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.hitung_qty === undefined ? true : Number(form.hitung_qty) === 1}
+                onChange={e => set('hitung_qty', e.target.checked ? 1 : 0)}
+                className="w-4 h-4 mt-0.5 rounded border-white/20 bg-[#0d1117] text-blue-500 focus:ring-blue-500/40"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-white">Masuk hitungan qty</p>
+                <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                  Centang kalau barang ini dihitung sebagai qty utama (mis. jersey, baju).
+                  Uncheck kalau cuma <strong className="text-slate-300">aksesoris / pelengkap</strong> yang
+                  tidak masuk hitungan qty produksi (mis. tambahan XL, custom label, sablon extra).
+                </p>
+              </div>
+            </label>
+          </div>
         </>}
         {tab === 'bank' && <>
           <Field label="Nama Bank *" value={form.nama} onChange={v => set('nama', v)} placeholder="e.g., BCA" />
@@ -572,15 +590,33 @@ function TableBarangCs({ rows, onEdit, onDelete }: { rows: Row[]; onEdit: (r: Ro
     <table className="w-full"><thead><tr className="border-b border-white/[0.06]">
       <th className="text-[11px] text-slate-500 font-medium text-left px-5 py-3.5 uppercase tracking-wider">NAMA BARANG</th>
       <th className="text-[11px] text-slate-500 font-medium text-right px-5 py-3.5 uppercase tracking-wider">HARGA</th>
+      <th className="text-[11px] text-slate-500 font-medium text-center px-5 py-3.5 uppercase tracking-wider">Masuk Qty</th>
       <th className="text-[11px] text-slate-500 font-medium text-right px-5 py-3.5 uppercase tracking-wider">AKSI</th>
     </tr></thead><tbody>
-      {rows.length === 0 ? <EmptyState label="barang CS" /> : rows.map(r => (
-        <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-          <td className="px-5 py-4 text-sm font-medium text-white">{r.nama}</td>
-          <td className="px-5 py-4 text-sm text-slate-300 text-right tabular-nums">Rp {fmtIdr(Number(r.harga))}</td>
-          <td className="px-5 py-4 text-right"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
-        </tr>
-      ))}
+      {rows.length === 0 ? <EmptyState label="barang CS" /> : rows.map(r => {
+        // Default treatment: kalau kolom hitung_qty belum ada di DB row
+        // (belum migrate), anggap 1 supaya tidak bikin panik.
+        const masukQty = r.hitung_qty === undefined || r.hitung_qty === null ? 1 : Number(r.hitung_qty);
+        return (
+          <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+            <td className="px-5 py-4 text-sm font-medium text-white">{r.nama}</td>
+            <td className="px-5 py-4 text-sm text-slate-300 text-right tabular-nums">Rp {fmtIdr(Number(r.harga))}</td>
+            <td className="px-5 py-4 text-center">
+              {masukQty === 1 ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                  Ya
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-500/30 text-amber-300 bg-amber-500/10">
+                  Aksesoris
+                </span>
+              )}
+            </td>
+            <td className="px-5 py-4 text-right"><ActionBtns onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} /></td>
+          </tr>
+        );
+      })}
     </tbody></table>
   );
 }
