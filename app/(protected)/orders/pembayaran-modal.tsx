@@ -618,15 +618,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
               ) : (
                 <>
                   <label className="text-xs font-medium text-slate-600 shrink-0">Order:</label>
-                  <select value={pickedOrderId} onChange={e => setPickedOrderId(e.target.value)}
-                    className="flex-1 max-w-xs bg-white border border-slate-300 text-slate-900 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
-                    <option value="">— Pilih order —</option>
-                    {orderPickerOptions.map(o => (
-                      <option key={o.id} value={o.id}>
-                        {o.label} {o.status === 'SELLING' ? '(dari CS Selling)' : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex-1 max-w-xs">
+                    <OrderPickerSearch
+                      value={pickedOrderId}
+                      options={orderPickerOptions}
+                      onChange={setPickedOrderId}
+                    />
+                  </div>
                 </>
               )}
             </div>
@@ -1093,6 +1091,146 @@ function BarangCsCombobox({
               <span className="text-xs text-slate-500 tabular-nums shrink-0">Rp {fmt(Number(b.harga))}</span>
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═════════════════════════════════════════════════════════════════
+   OrderPickerSearch — combobox searchable untuk 'Pilih Order' di
+   header modal Rincian Order. Menggantikan native <select> yang
+   susah dipakai kalau daftar order banyak. Pola sama dengan
+   BarangCsCombobox: ketik untuk filter, klik untuk pilih.
+   ═════════════════════════════════════════════════════════════════ */
+
+function OrderPickerSearch({
+  value, options, onChange,
+}: {
+  value: string;
+  options: { id: number | string; label: string; status: string }[];
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Label dari opsi yang saat ini terpilih.
+  const selected = useMemo(
+    () => options.find(o => String(o.id) === String(value)) || null,
+    [options, value],
+  );
+
+  // Filter opsi berdasarkan query. Case-insensitive, cocok terhadap
+  // seluruh label (No Order + nama customer).
+  const filtered = useMemo(() => {
+    const ql = q.trim().toLowerCase();
+    if (!ql) return options;
+    return options.filter(o => o.label.toLowerCase().includes(ql));
+  }, [options, q]);
+
+  // Close saat klik di luar
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQ('');
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  // Focus input saat dropdown dibuka.
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 0);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between gap-2 bg-white border border-slate-300 text-slate-900 text-sm rounded px-3 py-1.5 hover:border-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
+      >
+        <span className={`truncate text-left flex-1 ${selected ? 'text-slate-900' : 'text-slate-500'}`}>
+          {selected
+            ? `${selected.label}${selected.status === 'SELLING' ? ' (dari CS Selling)' : ''}`
+            : '— Pilih order —'}
+        </span>
+        <svg className={`w-4 h-4 text-slate-500 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-md border border-slate-200 bg-white shadow-lg overflow-hidden">
+          {/* Search input */}
+          <div className="relative border-b border-slate-100">
+            <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              ref={inputRef}
+              type="text"
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="Cari No Order atau nama customer..."
+              className="w-full pl-9 pr-3 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none"
+            />
+          </div>
+
+          {/* Options list */}
+          <div className="max-h-64 overflow-y-auto">
+            {/* Opsi 'clear' — untuk mengosongkan pilihan */}
+            {value && (
+              <button
+                type="button"
+                onMouseDown={e => {
+                  e.preventDefault();
+                  onChange('');
+                  setOpen(false);
+                  setQ('');
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-slate-500 hover:bg-slate-50 border-b border-slate-100 italic"
+              >
+                — Kosongkan pilihan —
+              </button>
+            )}
+            {filtered.length === 0 ? (
+              <div className="px-3 py-6 text-center text-xs text-slate-500">
+                Tidak ada order yang cocok dengan &quot;{q}&quot;.
+              </div>
+            ) : (
+              filtered.map(o => {
+                const isSelected = String(o.id) === String(value);
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onMouseDown={e => {
+                      e.preventDefault();
+                      onChange(String(o.id));
+                      setOpen(false);
+                      setQ('');
+                    }}
+                    className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors border-b border-slate-100 last:border-b-0 ${
+                      isSelected ? 'bg-blue-50 text-blue-900' : 'text-slate-800 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="text-sm font-medium truncate flex-1">{o.label}</span>
+                    {o.status === 'SELLING' && (
+                      <span className="text-[10px] font-medium text-fuchsia-700 bg-fuchsia-100 border border-fuchsia-200 px-1.5 py-0.5 rounded shrink-0">
+                        CS Selling
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
     </div>
