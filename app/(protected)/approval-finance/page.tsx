@@ -27,6 +27,7 @@ export default function ApprovalFinancePage() {
   const { user } = useAuth();
   const toast = useToast();
   const [filter, setFilter] = useState<Filter>('PENDING');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Row[]>([]);
   const [payments, setPayments] = useState<Row[]>([]);
@@ -100,14 +101,21 @@ export default function ApprovalFinancePage() {
   }
 
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return scoped.filter(o => {
       const rs = reviewStatus(o);
-      if (filter === 'PENDING') return rs === '' || rs === 'PENDING';
-      if (filter === 'APPROVED') return rs === 'APPROVED';
-      if (filter === 'REJECTED') return rs === 'REJECTED';
+      if (filter === 'PENDING' && !(rs === '' || rs === 'PENDING')) return false;
+      if (filter === 'APPROVED' && rs !== 'APPROVED') return false;
+      if (filter === 'REJECTED' && rs !== 'REJECTED') return false;
+      if (q) {
+        const hay =
+          `${String(o.no_order || '')} ${String(o.customer_nama || '')} ${String(o.customer_phone || '')}`
+            .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
     }).sort((a: Row, b: Row) => Number(b.id) - Number(a.id));
-  }, [scoped, filter]);
+  }, [scoped, filter, search]);
 
   const counts = useMemo(() => {
     return {
@@ -346,6 +354,35 @@ export default function ApprovalFinancePage() {
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* Search bar — filter di dalam tab aktif. Match No Order,
+          customer, dan no HP. Berlaku untuk semua 4 tab. */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3">
+        <div className="relative">
+          <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Cari No Order, nama customer, atau nomor HP..."
+            className="w-full bg-transparent text-white placeholder-slate-500 pl-10 pr-10 py-2.5 text-sm focus:outline-none"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              title="Clear"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1.5"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
