@@ -83,7 +83,7 @@ async function generateOrderPDF(orders: Order[], type: 'weekly' | 'monthly', par
     columns: [
       { header: 'NO', dataKey: 'no' },{ header: 'CUSTOMER', dataKey: 'customer' },{ header: 'QTY', dataKey: 'qty' },
       { header: 'PAKET', dataKey: 'paket' },{ header: 'KETERANGAN', dataKey: 'ket' },{ header: 'BAHAN', dataKey: 'bahan' },
-      { header: 'DP DESAIN', dataKey: 'dp' },{ header: 'DL CUST & PRODUKSI', dataKey: 'dl' },{ header: 'NO WORK ORDER', dataKey: 'wo' },
+      { header: 'TGL DP DESIGN', dataKey: 'dp' },{ header: 'DL CUST & PRODUKSI', dataKey: 'dl' },{ header: 'NO WORK ORDER', dataKey: 'wo' },
       { header: 'PROOFING', dataKey: 'p1' },{ header: 'WAITINGLIST', dataKey: 'p2' },{ header: 'PRINT', dataKey: 'p3' },
       { header: 'PRES', dataKey: 'p4' },{ header: 'CUT FABRIC', dataKey: 'p5' },{ header: 'JAHIT', dataKey: 'p6' },
       { header: 'QC JAHIT DAN STEAM', dataKey: 'p7' },{ header: 'FINISHING', dataKey: 'p8' },{ header: 'PENGIRIMAN', dataKey: 'p9' },
@@ -406,7 +406,7 @@ export default function OrdersPage() {
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">No</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Customer</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl ACC Proofing</th>
-                <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">DP Desain</th>
+                <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl DP Design</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl Selesai</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Progress</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Status</th>
