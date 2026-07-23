@@ -54,6 +54,7 @@ export default function AntrianDesignPage() {
   const [activeTab, setActiveTab] = useState<DesignStage>('AWAL');
   const [busyId, setBusyId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  const [globalSearch, setGlobalSearch] = useState('');
 
   useEffect(() => { setSearch(''); }, [activeTab]);
 
@@ -94,27 +95,57 @@ export default function AntrianDesignPage() {
     });
   }, [orders]);
 
-  // Group by stage untuk badge count di tab.
+  // 2 layer search:
+  //   • globalSearch (di tab bar) → filter antrianOrders across all stages.
+  //     Hasil populate stageCounts + jadi base activeOrders.
+  //   • search (per-stage, di antrian section) → filter tambahan dalam
+  //     stage aktif.
+  const antrianFiltered = useMemo(() => {
+    const q = globalSearch.trim().toLowerCase();
+    if (!q) return antrianOrders;
+    return antrianOrders.filter(o =>
+      String(o.customer_nama || '').toLowerCase().includes(q)
+      || String(o.no_order || '').toLowerCase().includes(q)
+    );
+  }, [antrianOrders, globalSearch]);
+
+  // Group by stage untuk badge count di tab (pakai hasil filter global).
   const stageCounts = useMemo(() => {
     const c: Record<DesignStage, number> = {
       AWAL: 0, REVISI_1: 0, REVISI_2: 0, REVISI_3: 0, SELESAI: 0,
     };
-    for (const o of antrianOrders) {
+    for (const o of antrianFiltered) {
       const s = o.design_stage as DesignStage;
       if (s in c) c[s]++;
     }
     return c;
-  }, [antrianOrders]);
+  }, [antrianFiltered]);
 
   const activeOrders = useMemo(() => {
-    const list = antrianOrders.filter(o => String(o.design_stage) === activeTab);
+    const list = antrianFiltered.filter(o => String(o.design_stage) === activeTab);
     const q = search.trim().toLowerCase();
     if (!q) return list;
     return list.filter(o =>
       String(o.customer_nama || '').toLowerCase().includes(q)
       || String(o.no_order || '').toLowerCase().includes(q)
     );
-  }, [antrianOrders, activeTab, search]);
+  }, [antrianFiltered, activeTab, search]);
+
+  // Auto-jump ke stage pertama yang punya match kalau global search
+  // baru diketik dan tab aktif kosong. UX: ketik → langsung ke step
+  // yang benar.
+  const globalSearchRef = useRef(globalSearch);
+  useEffect(() => {
+    const prev = globalSearchRef.current;
+    globalSearchRef.current = globalSearch;
+    if (!globalSearch.trim()) return;
+    if (prev.trim() === globalSearch.trim()) return;
+    if (stageCounts[activeTab] === 0) {
+      const firstWithMatch = DESIGN_STAGE_ORDER.find(s => stageCounts[s] > 0);
+      if (firstWithMatch) setActiveTab(firstWithMatch);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalSearch, stageCounts]);
 
   const todayIso = todayIsoLocal();
 
@@ -279,9 +310,11 @@ export default function AntrianDesignPage() {
         </div>
       </div>
 
-      {/* Stage Tabs */}
-      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-x-auto">
-        <div className="flex gap-0 min-w-max px-2 py-2">
+      {/* Stage Tabs + Global Search — global search di kanan filter
+          semua stage sekaligus. Badge count di tiap tab otomatis
+          update sesuai hasil pencarian. */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-2 flex items-stretch gap-2 flex-wrap">
+        <div className="flex gap-0 flex-1 min-w-0 overflow-x-auto">
           {DESIGN_STAGE_ORDER.map(stage => {
             const count = stageCounts[stage];
             const isActiveTab = activeTab === stage;
@@ -301,6 +334,31 @@ export default function AntrianDesignPage() {
               </button>
             );
           })}
+        </div>
+        <div className="relative w-full sm:w-[280px] shrink-0">
+          <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          <input
+            type="text"
+            value={globalSearch}
+            onChange={e => setGlobalSearch(e.target.value)}
+            placeholder="Cari di semua step..."
+            title="Filter semua stage sekaligus"
+            className="w-full h-full bg-[#0d1117] border border-white/10 text-white text-sm placeholder-slate-500 rounded-xl pl-9 pr-8 py-2.5 focus:outline-none focus:border-fuchsia-500/40"
+          />
+          {globalSearch && (
+            <button
+              type="button"
+              onClick={() => setGlobalSearch('')}
+              title="Clear"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
