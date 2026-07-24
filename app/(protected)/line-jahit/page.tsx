@@ -416,18 +416,18 @@ export default function LineJahitPage() {
           </div>
 
           <table className="w-full min-w-[720px] text-sm border-collapse">
-              <thead>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 40 }}>
                 <tr className="text-slate-800">
-                  <th rowSpan={3} className="sticky top-14 z-40 bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-24 align-middle">TANGGAL</th>
-                  <th rowSpan={3} className="sticky top-14 z-40 bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold align-middle">CUSTOMER</th>
-                  <th colSpan={paketCount * 2} className="sticky top-14 z-40 bg-orange-100 border border-slate-300 px-2 py-2 text-center font-bold">PAKET</th>
-                  <th rowSpan={3} className="sticky top-14 z-40 bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-20 align-middle"></th>
+                  <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-24 align-middle">TANGGAL</th>
+                  <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold align-middle">CUSTOMER</th>
+                  <th colSpan={paketCount * 2} className="bg-orange-100 border border-slate-300 px-2 py-2 text-center font-bold">PAKET</th>
+                  <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-20 align-middle"></th>
                 </tr>
                 <tr className="text-slate-800">
                   {paketList.map(p => {
                     const c = paketColor(p.urutan);
                     return (
-                      <th key={p.id} colSpan={2} className={`sticky top-[92px] z-40 ${c.tableHead} border border-slate-300 px-2 py-1.5 text-center font-semibold group`}>
+                      <th key={p.id} colSpan={2} className={`${c.tableHead} border border-slate-300 px-2 py-1.5 text-center font-semibold relative`}>
                         <span>{p.nama}</span>
                         <button
                           type="button"
@@ -447,8 +447,8 @@ export default function LineJahitPage() {
                   {paketList.flatMap(p => {
                     const c = paketColor(p.urutan);
                     return [
-                      <th key={`${p.id}-a`} className={`sticky top-[125px] z-40 ${c.tableSub} border border-slate-300 px-1.5 py-1 text-center font-medium w-16`}>ATASAN</th>,
-                      <th key={`${p.id}-c`} className={`sticky top-[125px] z-40 ${c.tableSub} border border-slate-300 px-1.5 py-1 text-center font-medium w-16`}>CELANA</th>,
+                      <th key={`${p.id}-a`} className={`${c.tableSub} border border-slate-300 px-1.5 py-1 text-center font-medium w-16`}>ATASAN</th>,
+                      <th key={`${p.id}-c`} className={`${c.tableSub} border border-slate-300 px-1.5 py-1 text-center font-medium w-16`}>CELANA</th>,
                     ];
                   })}
                 </tr>
@@ -543,7 +543,7 @@ export default function LineJahitPage() {
         </div>
 
         {/* Sidebar kanan: form Kedatangan (sticky) + history bulan aktif */}
-        <div className="space-y-4 xl:sticky xl:top-14 xl:self-start">
+        <div className="space-y-4 xl:sticky xl:top-0 xl:self-start">
           <KedatanganPenjahitForm defaultMonth={month} onSubmitted={fetchAll} />
           <AttendanceHistoryPanel
             monthLabel={monthLabel}
