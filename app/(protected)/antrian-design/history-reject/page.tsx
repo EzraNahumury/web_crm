@@ -85,10 +85,21 @@ export default function HistoryRejectPage() {
     if (!yes) return;
     setBusyId(Number(order.id));
     try {
-      await dbUpdate('orders', Number(order.id), {
-        design_stage: 'AWAL',
-        design_rejected_at: null,
-      });
+      // Clear kolom reject supaya History Reject bersih dari data lama
+      // kalau order sampai di-reject lagi nanti.
+      try {
+        await dbUpdate('orders', Number(order.id), {
+          design_stage: 'AWAL',
+          design_rejected_at: null,
+          design_reject_reason: null,
+        });
+      } catch (err) {
+        console.warn('restore with reason clear failed, retrying without:', err);
+        await dbUpdate('orders', Number(order.id), {
+          design_stage: 'AWAL',
+          design_rejected_at: null,
+        });
+      }
       toast.success('Order Dikembalikan', `${order.customer_nama || order.no_order} kembali ke Design Awal.`);
       await fetchData();
     } catch (e) { toast.error('Gagal', String(e)); }
@@ -156,14 +167,14 @@ export default function HistoryRejectPage() {
                 <th className="text-left px-4 py-3.5">Customer</th>
                 <th className="text-left px-4 py-3.5">Leads</th>
                 <th className="text-left px-4 py-3.5">No HP</th>
-                <th className="text-left px-4 py-3.5">Tgl Order</th>
                 <th className="text-left px-4 py-3.5">Tgl Reject</th>
+                <th className="text-left px-4 py-3.5">Alasan</th>
                 <th className="text-right px-4 py-3.5">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {rejected.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-16 text-center">
+                <tr><td colSpan={7} className="px-4 py-16 text-center" data-colspan-note="7 = No Order, Customer, Leads, No HP, Tgl Reject, Alasan, Aksi">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-500/15 to-transparent border border-rose-500/20 grid place-items-center">
                       <svg className="w-6 h-6 text-rose-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -187,8 +198,19 @@ export default function HistoryRejectPage() {
                   </td>
                   <td className="px-4 py-3.5 text-sm text-slate-300">{leadById[Number(o.lead_id)] || '-'}</td>
                   <td className="px-4 py-3.5 text-sm text-slate-400 tabular-nums">{o.customer_phone || '-'}</td>
-                  <td className="px-4 py-3.5 text-sm text-slate-400 tabular-nums">{fmtDateLabel(o.tanggal_order)}</td>
                   <td className="px-4 py-3.5 text-sm text-rose-300 font-medium tabular-nums">{fmtDateTime(o.design_rejected_at)}</td>
+                  <td className="px-4 py-3.5 text-sm text-slate-300 max-w-[280px]">
+                    {o.design_reject_reason ? (
+                      <span
+                        className="line-clamp-2 leading-snug whitespace-pre-wrap"
+                        title={String(o.design_reject_reason)}
+                      >
+                        {String(o.design_reject_reason)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 italic">-</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3.5">
                     <div className="flex items-center justify-end">
                       <button

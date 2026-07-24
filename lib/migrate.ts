@@ -762,6 +762,15 @@ const MIGRATIONS: Migration[] = [
     ],
   },
   {
+    // Alasan reject — wajib diisi CS Design lewat modal batalkan.
+    // Ditampilkan di tabel History Reject supaya bisa audit kenapa
+    // customer batal.
+    name: '044_orders_design_reject_reason',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `design_reject_reason` TEXT NULL",
+    ],
+  },
+  {
     // Auto-grant menu 'Antrian Design' juga cover sub-menu History
     // Reject — pakai satu key menu supaya sidebar filter tidak perlu
     // 2 entry per role.

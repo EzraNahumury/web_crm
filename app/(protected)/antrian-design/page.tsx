@@ -55,6 +55,9 @@ export default function AntrianDesignPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [globalSearch, setGlobalSearch] = useState('');
+  // Order yang mau di-reject (buka modal). null = modal ditutup.
+  const [rejectingOrder, setRejectingOrder] = useState<Row | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   useEffect(() => { setSearch(''); }, [activeTab]);
 
@@ -245,22 +248,47 @@ export default function AntrianDesignPage() {
     setBusyId(null);
   }
 
-  async function rejectOrder(order: Row) {
-    const yes = await toast.confirm({
-      title: 'Batalkan Pesanan?',
-      message: `${order.customer_nama || order.no_order} akan dipindah ke History Reject dan tidak bisa lanjut ke CS Order.`,
-      type: 'danger',
-      confirmText: 'Ya, Batalkan',
-    });
-    if (!yes) return;
-    setBusyId(Number(order.id));
+  // Klik tombol Batalkan → buka modal reject (isi alasan wajib).
+  function openRejectModal(order: Row) {
+    setRejectingOrder(order);
+    setRejectReason('');
+  }
+
+  function closeRejectModal() {
+    if (busyId != null) return; // sedang submit, jangan tutup
+    setRejectingOrder(null);
+    setRejectReason('');
+  }
+
+  // Submit reject setelah alasan diisi.
+  async function submitReject() {
+    if (!rejectingOrder) return;
+    const reason = rejectReason.trim();
+    if (reason.length < 3) {
+      toast.warning('Alasan Wajib', 'Isi alasan minimal 3 karakter untuk melanjutkan.');
+      return;
+    }
+    // Fallback: kalau kolom design_reject_reason belum ada (migration 044
+    // belum jalan), retry tanpa field itu supaya alur tidak break.
+    setBusyId(Number(rejectingOrder.id));
     try {
       const now = nowSql();
-      await dbUpdate('orders', Number(order.id), {
-        design_stage: 'REJECTED',
-        design_rejected_at: now,
-      });
-      toast.success('Pesanan Dibatalkan', `${order.customer_nama || order.no_order} pindah ke History Reject.`);
+      try {
+        await dbUpdate('orders', Number(rejectingOrder.id), {
+          design_stage: 'REJECTED',
+          design_rejected_at: now,
+          design_reject_reason: reason,
+        });
+      } catch (err) {
+        console.warn('reject with reason failed, retrying without:', err);
+        await dbUpdate('orders', Number(rejectingOrder.id), {
+          design_stage: 'REJECTED',
+          design_rejected_at: now,
+        });
+      }
+      toast.success('Pesanan Dibatalkan', `${rejectingOrder.customer_nama || rejectingOrder.no_order} pindah ke History Reject.`);
+      setRejectingOrder(null);
+      setRejectReason('');
       await fetchData();
     } catch (e) { toast.error('Gagal', String(e)); }
     setBusyId(null);
@@ -469,11 +497,101 @@ export default function AntrianDesignPage() {
                 busy={busyId === Number(o.id)}
                 onRevisi={() => advanceToRevisi(o)}
                 onSelesai={() => finalize(o)}
-                onReject={() => rejectOrder(o)}
+                onReject={() => openRejectModal(o)}
               />
             ))}
           </div>
         )}
+      </div>
+
+      {rejectingOrder && (
+        <RejectReasonModal
+          order={rejectingOrder}
+          reason={rejectReason}
+          setReason={setRejectReason}
+          saving={busyId === Number(rejectingOrder.id)}
+          onCancel={closeRejectModal}
+          onSubmit={submitReject}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   RejectReasonModal — dialog untuk isi alasan batal pemesanan.
+   Wajib min 3 karakter sebelum submit.
+   ───────────────────────────────────────────────────────────────────── */
+function RejectReasonModal({
+  order, reason, setReason, saving, onCancel, onSubmit,
+}: {
+  order: Row;
+  reason: string;
+  setReason: (v: string) => void;
+  saving: boolean;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={saving ? undefined : onCancel} />
+      <div className="relative bg-[#1a1f35] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-toast-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-gradient-to-r from-rose-500/[0.10] to-transparent">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/25 grid place-items-center">
+              <svg className="w-5 h-5 text-rose-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Batalkan Pesanan</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {order.no_order} · <strong className="text-slate-300">{order.customer_nama || '-'}</strong>
+              </p>
+            </div>
+          </div>
+          <button onClick={onCancel} disabled={saving} className="text-slate-500 hover:text-white transition-colors p-1.5 hover:bg-white/[0.05] rounded-lg disabled:opacity-50">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="text-sm text-slate-300 bg-rose-500/[0.06] border border-rose-500/20 rounded-lg px-4 py-3">
+            Order akan dipindah ke <strong className="text-white">History Reject</strong> dan tidak bisa lanjut ke CS Order.
+            Bisa dikembalikan lagi ke antrian kalau customer berubah pikiran.
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-white mb-1.5">
+              Alasan <span className="text-rose-400">*</span>
+            </label>
+            <textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              rows={5}
+              autoFocus
+              placeholder="Contoh: Customer batal karena harga, pindah vendor, tidak jadi ambil, dll."
+              className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-rose-500/40 resize-none"
+              disabled={saving}
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Wajib diisi minimal 3 karakter. Alasan disimpan di History Reject untuk audit.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/[0.06] bg-white/[0.015]">
+          <button onClick={onCancel} disabled={saving}
+            className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors disabled:opacity-50">
+            Batal
+          </button>
+          <button onClick={onSubmit} disabled={saving || reason.trim().length < 3}
+            className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-rose-500/20">
+            {saving ? 'Menyimpan...' : 'Submit Reject'}
+          </button>
+        </div>
       </div>
     </div>
   );
