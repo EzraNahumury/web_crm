@@ -49,6 +49,9 @@ export default function LineJahitPage() {
   const [newCustomer, setNewCustomer] = useState('');
   const [newQty, setNewQty] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  // Row yang lagi di-edit lewat modal. null = modal tertutup.
+  const [editingRow, setEditingRow] = useState<LineJahitRow | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -135,6 +138,26 @@ export default function LineJahitPage() {
     } catch (e) { toast.error('Gagal Update', String(e)); }
   }
 
+  async function saveEditRow(updated: LineJahitRow) {
+    setEditSaving(true);
+    try {
+      await dbUpdate('line_jahit', updated.id, {
+        tanggal: updated.tanggal,
+        customer: updated.customer,
+        standar_atasan: updated.standar_atasan,
+        standar_celana: updated.standar_celana,
+        klasik_atasan: updated.klasik_atasan,
+        klasik_celana: updated.klasik_celana,
+        pro_atasan: updated.pro_atasan,
+        pro_celana: updated.pro_celana,
+      });
+      setEditingRow(null);
+      await fetchAll();
+      toast.success('Baris Diperbarui', `${updated.customer} berhasil diupdate.`);
+    } catch (e) { toast.error('Gagal Update', String(e)); }
+    setEditSaving(false);
+  }
+
   async function deleteRow(id: number, customer: string) {
     const yes = await toast.confirm({
       title: 'Hapus Row?',
@@ -213,7 +236,7 @@ export default function LineJahitPage() {
                   <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-24 align-middle">TANGGAL</th>
                   <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold align-middle">CUSTOMER</th>
                   <th colSpan={6} className="bg-orange-100 border border-slate-300 px-2 py-2 text-center font-bold">PAKET</th>
-                  <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-12 align-middle"></th>
+                  <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-20 align-middle"></th>
                 </tr>
                 <tr className="text-slate-800">
                   <th colSpan={2} className="bg-yellow-100 border border-slate-300 px-2 py-1.5 text-center font-semibold">STANDAR</th>
@@ -263,16 +286,27 @@ export default function LineJahitPage() {
                             />
                           </td>
                         ))}
-                        <td className="border border-slate-300 px-2 py-1 text-center">
-                          <button
-                            onClick={() => deleteRow(r.id, r.customer)}
-                            className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50"
-                            title="Hapus baris"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                            </svg>
-                          </button>
+                        <td className="border border-slate-300 px-1 py-1 text-center">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <button
+                              onClick={() => setEditingRow(r)}
+                              className="text-amber-600 hover:text-amber-800 p-1 rounded hover:bg-amber-50"
+                              title="Edit baris"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => deleteRow(r.id, r.customer)}
+                              className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50"
+                              title="Hapus baris"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -430,6 +464,145 @@ export default function LineJahitPage() {
           </div>
         </div>
       </div>
+
+      {editingRow && (
+        <EditRowModal
+          row={editingRow}
+          saving={editSaving}
+          onCancel={() => setEditingRow(null)}
+          onSave={saveEditRow}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   EditRowModal — dialog untuk edit baris Line Jahit yang sudah ada.
+   Pre-fill semua field (tanggal, customer, 6 qty) supaya user tinggal
+   ubah nilai yang perlu.
+   ───────────────────────────────────────────────────────────────────── */
+function EditRowModal({
+  row, saving, onCancel, onSave,
+}: {
+  row: LineJahitRow;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (updated: LineJahitRow) => void;
+}) {
+  const [tanggal, setTanggal] = useState(String(row.tanggal).slice(0, 10));
+  const [customer, setCustomer] = useState(row.customer);
+  const [qty, setQty] = useState({
+    standar_atasan: String(row.standar_atasan || ''),
+    standar_celana: String(row.standar_celana || ''),
+    klasik_atasan: String(row.klasik_atasan || ''),
+    klasik_celana: String(row.klasik_celana || ''),
+    pro_atasan: String(row.pro_atasan || ''),
+    pro_celana: String(row.pro_celana || ''),
+  });
+
+  function handleSubmit() {
+    if (!tanggal || !customer.trim()) return;
+    onSave({
+      ...row,
+      tanggal,
+      customer: customer.trim(),
+      standar_atasan: Number(qty.standar_atasan) || 0,
+      standar_celana: Number(qty.standar_celana) || 0,
+      klasik_atasan: Number(qty.klasik_atasan) || 0,
+      klasik_celana: Number(qty.klasik_celana) || 0,
+      pro_atasan: Number(qty.pro_atasan) || 0,
+      pro_celana: Number(qty.pro_celana) || 0,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={saving ? undefined : onCancel} />
+      <div className="relative bg-[#1a1f35] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-toast-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-gradient-to-r from-amber-500/[0.10] to-transparent">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/25 grid place-items-center">
+              <svg className="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Edit Baris</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Ubah tanggal, customer, atau qty per paket.</p>
+            </div>
+          </div>
+          <button onClick={onCancel} disabled={saving} className="text-slate-500 hover:text-white transition-colors p-1.5 hover:bg-white/[0.05] rounded-lg disabled:opacity-50">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {/* Info: tanggal + customer */}
+          <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tanggal *</label>
+              <input
+                type="date"
+                value={tanggal}
+                onChange={e => setTanggal(e.target.value)}
+                className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500/40 date-input"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Customer *</label>
+              <input
+                type="text"
+                value={customer}
+                onChange={e => setCustomer(e.target.value)}
+                placeholder="Nama customer..."
+                className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500/40"
+              />
+            </div>
+          </div>
+
+          {/* Qty per paket */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <QtyBlock
+              title="STANDAR"
+              accent="yellow"
+              atasan={qty.standar_atasan}
+              celana={qty.standar_celana}
+              onAtasan={v => setQty(p => ({ ...p, standar_atasan: v }))}
+              onCelana={v => setQty(p => ({ ...p, standar_celana: v }))}
+            />
+            <QtyBlock
+              title="KLASIK"
+              accent="blue"
+              atasan={qty.klasik_atasan}
+              celana={qty.klasik_celana}
+              onAtasan={v => setQty(p => ({ ...p, klasik_atasan: v }))}
+              onCelana={v => setQty(p => ({ ...p, klasik_celana: v }))}
+            />
+            <QtyBlock
+              title="PRO"
+              accent="pink"
+              atasan={qty.pro_atasan}
+              celana={qty.pro_celana}
+              onAtasan={v => setQty(p => ({ ...p, pro_atasan: v }))}
+              onCelana={v => setQty(p => ({ ...p, pro_celana: v }))}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/[0.06] bg-white/[0.015]">
+          <button onClick={onCancel} disabled={saving}
+            className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors disabled:opacity-50">
+            Batal
+          </button>
+          <button onClick={handleSubmit} disabled={saving || !tanggal || !customer.trim()}
+            className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-amber-500/20">
+            {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -445,11 +618,11 @@ function QtyCell({ value, onCommit }: { value: number; onCommit: (val: number) =
   if (editing) {
     return (
       <input
-        type="number"
-        min="0"
+        type="text"
+        inputMode="numeric"
         autoFocus
         value={local}
-        onChange={e => setLocal(e.target.value)}
+        onChange={e => setLocal(e.target.value.replace(/\D/g, ''))}
         onBlur={() => {
           setEditing(false);
           const n = Number(local) || 0;
@@ -499,10 +672,10 @@ function QtyBlock({
         <label className="block">
           <span className="block text-[10px] font-medium text-slate-500 mb-1 text-center">Atasan</span>
           <input
-            type="number"
-            min="0"
+            type="text"
+            inputMode="numeric"
             value={atasan}
-            onChange={e => onAtasan(e.target.value)}
+            onChange={e => onAtasan(e.target.value.replace(/\D/g, ''))}
             placeholder="0"
             className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none ${cls.ring} text-center tabular-nums`}
           />
@@ -510,10 +683,10 @@ function QtyBlock({
         <label className="block">
           <span className="block text-[10px] font-medium text-slate-500 mb-1 text-center">Celana</span>
           <input
-            type="number"
-            min="0"
+            type="text"
+            inputMode="numeric"
             value={celana}
-            onChange={e => onCelana(e.target.value)}
+            onChange={e => onCelana(e.target.value.replace(/\D/g, ''))}
             placeholder="0"
             className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none ${cls.ring} text-center tabular-nums`}
           />
