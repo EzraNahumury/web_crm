@@ -230,6 +230,26 @@ export default function LineJahitPage() {
     toast.success('Paket Ditambahkan', 'Header baru muncul di tabel.');
   }
 
+  async function handleDeletePaket(p: Paket) {
+    const yes = await toast.confirm({
+      title: `Hapus paket "${p.nama}"?`,
+      message: `Kolom ${p.kolom_prefix}_atasan dan ${p.kolom_prefix}_celana akan dihapus permanen dari database. Semua qty ${p.nama} di seluruh baris akan hilang.`,
+      type: 'danger',
+      confirmText: 'Ya, Hapus Paket',
+    });
+    if (!yes) return;
+    try {
+      const res = await fetch(`/api/line-jahit/hapus-paket?id=${p.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        toast.error('Gagal', data.error || 'Gagal hapus paket.');
+      } else {
+        await fetchAll();
+        toast.deleted(`Paket ${p.nama} dihapus`);
+      }
+    } catch (e) { toast.error('Gagal', String(e)); }
+  }
+
   const paketCount = paketList.length;
   const bodyColCount = 3 + paketCount * 2; // TANGGAL + CUSTOMER + qty + AKSI
 
@@ -376,8 +396,18 @@ export default function LineJahitPage() {
                   {paketList.map(p => {
                     const c = paketColor(p.urutan);
                     return (
-                      <th key={p.id} colSpan={2} className={`${c.tableHead} border border-slate-300 px-2 py-1.5 text-center font-semibold`}>
-                        {p.nama}
+                      <th key={p.id} colSpan={2} className={`${c.tableHead} border border-slate-300 px-2 py-1.5 text-center font-semibold relative group`}>
+                        <span>{p.nama}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePaket(p)}
+                          title={`Hapus paket ${p.nama}`}
+                          className="absolute top-0.5 right-0.5 text-rose-600 hover:text-white hover:bg-rose-500 rounded p-0.5 opacity-40 hover:opacity-100 transition-all"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
                       </th>
                     );
                   })}
