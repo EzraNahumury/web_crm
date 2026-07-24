@@ -245,6 +245,27 @@ export default function AntrianDesignPage() {
     setBusyId(null);
   }
 
+  async function rejectOrder(order: Row) {
+    const yes = await toast.confirm({
+      title: 'Batalkan Pesanan?',
+      message: `${order.customer_nama || order.no_order} akan dipindah ke History Reject dan tidak bisa lanjut ke CS Order.`,
+      type: 'danger',
+      confirmText: 'Ya, Batalkan',
+    });
+    if (!yes) return;
+    setBusyId(Number(order.id));
+    try {
+      const now = nowSql();
+      await dbUpdate('orders', Number(order.id), {
+        design_stage: 'REJECTED',
+        design_rejected_at: now,
+      });
+      toast.success('Pesanan Dibatalkan', `${order.customer_nama || order.no_order} pindah ke History Reject.`);
+      await fetchData();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setBusyId(null);
+  }
+
   if (loading) return (
     <div className="space-y-4">
       <div className="h-32 bg-white/[0.03] rounded-2xl animate-pulse" />
@@ -448,6 +469,7 @@ export default function AntrianDesignPage() {
                 busy={busyId === Number(o.id)}
                 onRevisi={() => advanceToRevisi(o)}
                 onSelesai={() => finalize(o)}
+                onReject={() => rejectOrder(o)}
               />
             ))}
           </div>
@@ -458,7 +480,7 @@ export default function AntrianDesignPage() {
 }
 
 function OrderCard({
-  order, leadName, todayIso, holidays, busy, onRevisi, onSelesai,
+  order, leadName, todayIso, holidays, busy, onRevisi, onSelesai, onReject,
 }: {
   order: Row;
   leadName: string;
@@ -467,6 +489,7 @@ function OrderCard({
   busy: boolean;
   onRevisi: () => void;
   onSelesai: () => void;
+  onReject: () => void;
 }) {
   const currentStage = order.design_stage as DesignStage;
   const isSelesai = currentStage === 'SELESAI';
@@ -601,6 +624,14 @@ function OrderCard({
               className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors shadow-lg shadow-emerald-500/20"
             >
               {busy ? 'Menyimpan...' : 'Selesai'}
+            </button>
+            <button
+              onClick={onReject}
+              disabled={busy}
+              title="Batalkan pesanan — customer tidak lanjut. Pindah ke History Reject."
+              className="text-xs font-semibold text-rose-300 border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 px-3 py-2 rounded-lg transition-colors"
+            >
+              Batalkan
             </button>
           </div>
         )}

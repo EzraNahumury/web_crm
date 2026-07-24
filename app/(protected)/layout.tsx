@@ -65,8 +65,12 @@ const ADMIN_NAV: SideNavItem[] = [
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>,
   },
   {
-    href: '/antrian-design', label: 'Antrian Design',
+    label: 'Antrian Design',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" /></svg>,
+    children: [
+      { href: '/antrian-design', label: 'Antrian' },
+      { href: '/antrian-design/history-reject', label: 'History Reject' },
+    ],
   },
   {
     href: '/approval-finance', label: 'Approval Finance',
@@ -151,7 +155,7 @@ const ADMIN_NAV: SideNavItem[] = [
 const MENU_HREF_MAP: Record<string, string[]> = {
   'Dashboard': ['/dashboard'],
   'CS Selling': ['/cs-selling'],
-  'Antrian Design': ['/antrian-design'],
+  'Antrian Design': ['/antrian-design', '/antrian-design/history-reject'],
   'Approval Finance': ['/approval-finance'],
   'CS Order': ['/orders', '/orders/bukti-pembayaran'],
   'Work Orders': ['/work-orders'],

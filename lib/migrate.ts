@@ -748,6 +748,32 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `barang_cs` ADD COLUMN `hitung_qty` TINYINT(1) NOT NULL DEFAULT 1",
     ],
   },
+  {
+    // Antrian Design Reject: customer batal lanjut pesanan padahal
+    // sudah bayar DP Design. CS Design tekan tombol 'Batalkan' → order
+    // design_stage jadi 'REJECTED' + design_rejected_at diisi timestamp.
+    //
+    // Filter existing di pembayaran-modal (`design_stage IN (NULL,
+    // 'SELESAI')`) otomatis mengecualikan REJECTED — order tidak akan
+    // muncul di dropdown Rincian Order CS Order.
+    name: '042_orders_design_rejected_at',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `design_rejected_at` TIMESTAMP NULL",
+    ],
+  },
+  {
+    // Auto-grant menu 'Antrian Design' juga cover sub-menu History
+    // Reject — pakai satu key menu supaya sidebar filter tidak perlu
+    // 2 entry per role.
+    name: '043_grant_antrian_design_history_reject',
+    up: [
+      // No-op — MENU_HREF_MAP di layout.tsx map 'Antrian Design' ke
+      // 2 route (/antrian-design + /antrian-design/history-reject).
+      // Row role_menu_access existing 'Antrian Design' otomatis grant
+      // ke 2 route.
+      "SELECT 1",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
