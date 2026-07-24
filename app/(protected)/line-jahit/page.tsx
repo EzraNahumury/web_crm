@@ -339,8 +339,7 @@ export default function LineJahitPage() {
         </div>
       </div>
 
-      {/* Form Tambah Baris + Kedatangan Penjahit — 2 kolom di layar besar */}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5">
+      {/* Form Tambah Baris — full width (Kedatangan pindah ke sidebar) */}
       <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-5 space-y-4">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/25 grid place-items-center">
@@ -409,11 +408,8 @@ export default function LineJahitPage() {
         </div>
       </div>
 
-      <KedatanganPenjahitForm defaultMonth={month} onSubmitted={fetchAll} />
-      </div>
-
-      {/* Layout: tabel line jahit + sidebar kedatangan history */}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5">
+      {/* Layout: tabel line jahit + sidebar (form Kedatangan sticky + history) */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
         <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
           <div className="px-4 py-2 bg-white text-slate-800 border-b border-slate-200 font-bold text-sm tracking-wide">
             BULAN {monthLabel}
@@ -548,12 +544,15 @@ export default function LineJahitPage() {
           </div>
         </div>
 
-        {/* Sidebar: history kedatangan penjahit bulan aktif */}
-        <AttendanceHistoryPanel
-          monthLabel={monthLabel}
-          rows={attendance}
-          onDelete={deleteAttendance}
-        />
+        {/* Sidebar kanan: form Kedatangan (sticky) + history bulan aktif */}
+        <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+          <KedatanganPenjahitForm defaultMonth={month} onSubmitted={fetchAll} />
+          <AttendanceHistoryPanel
+            monthLabel={monthLabel}
+            rows={attendance}
+            onDelete={deleteAttendance}
+          />
+        </div>
       </div>
 
       {/* Summary panel — di bawah tabel Line Jahit */}
