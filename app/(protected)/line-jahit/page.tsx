@@ -313,6 +313,20 @@ export default function LineJahitPage() {
                   ))
                 )}
               </tbody>
+              {rows.length > 0 && (
+                <tfoot>
+                  <tr className="bg-yellow-200 text-slate-900 text-sm font-bold">
+                    <td colSpan={2} className="border border-slate-400 px-3 py-2 text-center uppercase tracking-wide">Total</td>
+                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.standarAtasan}</td>
+                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.standarCelana}</td>
+                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.klasikAtasan}</td>
+                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.klasikCelana}</td>
+                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.proAtasan}</td>
+                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.proCelana}</td>
+                    <td className="border border-slate-400 px-1 py-2"></td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
 
