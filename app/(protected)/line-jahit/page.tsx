@@ -410,13 +410,13 @@ export default function LineJahitPage() {
 
       {/* Layout: tabel line jahit + sidebar (form Kedatangan sticky + history) */}
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
-        <div className="rounded-2xl bg-[#111827] border border-white/[0.06]">
+        <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-x-clip">
           <div className="rounded-t-2xl px-4 py-2 bg-white text-slate-800 border-b border-slate-200 font-bold text-sm tracking-wide">
             BULAN {monthLabel}
           </div>
 
           <table className="w-full min-w-[720px] text-sm border-collapse">
-              <thead className="sticky top-14 z-20">
+              <thead className="sticky top-14 z-30 shadow-[0_8px_16px_-8px_rgba(0,0,0,0.5)]">
                 <tr className="text-slate-800">
                   <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-24 align-middle">TANGGAL</th>
                   <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold align-middle">CUSTOMER</th>
