@@ -307,7 +307,8 @@ export default function LineJahitPage() {
         </div>
       </div>
 
-      {/* Form Tambah Baris — sekarang di ATAS tabel */}
+      {/* Form Tambah Baris + Kedatangan Penjahit — 2 kolom di layar besar */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5">
       <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-5 space-y-4">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/25 grid place-items-center">
@@ -374,6 +375,9 @@ export default function LineJahitPage() {
             {saving ? 'Menyimpan...' : 'Tambah Baris'}
           </button>
         </div>
+      </div>
+
+      <KedatanganPenjahitForm defaultMonth={month} />
       </div>
 
       {/* Layout: tabel (2/3) + summary (1/3) */}
@@ -806,6 +810,113 @@ function AddPaketModal({ onCancel, onAdded }: {
             {saving ? 'Menambahkan...' : 'Apply'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   KedatanganPenjahitForm — form kecil di sebelah Tambah Baris.
+   Input tanggal + jumlah_standar + jumlah_special, submit ke tabel
+   penjahit_attendance. Append-only log: tiap submit bikin row baru.
+   ───────────────────────────────────────────────────────────────────── */
+function KedatanganPenjahitForm({ defaultMonth }: { defaultMonth: string }) {
+  const toast = useToast();
+  const [tanggal, setTanggal] = useState('');
+  const [standar, setStandar] = useState('');
+  const [special, setSpecial] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!tanggal) { toast.warning('Validasi', 'Pilih tanggal.'); return; }
+    const nStandar = Number(standar) || 0;
+    const nSpecial = Number(special) || 0;
+    if (nStandar === 0 && nSpecial === 0) {
+      toast.warning('Validasi', 'Isi setidaknya salah satu jumlah penjahit.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await dbCreate('penjahit_attendance', {
+        tanggal,
+        jumlah_standar: nStandar,
+        jumlah_special: nSpecial,
+      });
+      setTanggal('');
+      setStandar('');
+      setSpecial('');
+      toast.success('Kedatangan Dicatat', `${nStandar + nSpecial} penjahit datang.`);
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
+  return (
+    <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-5 space-y-4 h-fit">
+      <div className="flex items-center gap-2">
+        <div className="w-7 h-7 rounded-lg bg-violet-500/15 border border-violet-500/25 grid place-items-center">
+          <svg className="w-4 h-4 text-violet-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-white leading-tight">Pencatatan Kedatangan Penjahit</p>
+          <p className="text-[11px] text-slate-500">Log jumlah penjahit yang datang.</p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tanggal *</label>
+          <input
+            type="date"
+            value={tanggal}
+            onChange={e => setTanggal(e.target.value)}
+            min={`${defaultMonth}-01`}
+            max={`${defaultMonth}-31`}
+            className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/40 date-input"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Jumlah Penjahit Standar</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={standar}
+            onChange={e => setStandar(e.target.value.replace(/\D/g, ''))}
+            placeholder="0"
+            className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/40 tabular-nums"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Jumlah Penjahit Special</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={special}
+            onChange={e => setSpecial(e.target.value.replace(/\D/g, ''))}
+            placeholder="0"
+            className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/40 tabular-nums"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={() => { setTanggal(''); setStandar(''); setSpecial(''); }}
+          disabled={saving}
+          className="text-sm font-medium text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 px-4 py-2 rounded-lg transition-colors"
+        >
+          Reset
+        </button>
+        <button
+          onClick={submit}
+          disabled={saving}
+          className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg shadow-violet-500/20"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+          {saving ? 'Menyimpan...' : 'Catat'}
+        </button>
       </div>
     </div>
   );

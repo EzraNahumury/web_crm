@@ -845,6 +845,23 @@ const MIGRATIONS: Migration[] = [
         "('STANDAR', 'standar', 1), ('KLASIK', 'klasik', 2), ('PRO', 'pro', 3)",
     ],
   },
+  {
+    // Pencatatan kedatangan penjahit per hari. Append-only log, tidak
+    // ada uniqueness constraint di tanggal — operator boleh input lebih
+    // dari satu record per tanggal kalau perlu.
+    name: '049_penjahit_attendance',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `penjahit_attendance` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`jumlah_standar` INT NOT NULL DEFAULT 0," +
+        "`jumlah_special` INT NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_pa_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
