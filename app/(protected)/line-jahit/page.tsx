@@ -19,51 +19,105 @@ function fmtDayShort(iso: string): string {
   return `${d} ${['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'][m - 1]}`;
 }
 
+interface Paket {
+  id: number;
+  nama: string;
+  kolom_prefix: string;
+  urutan: number;
+}
+
 interface LineJahitRow {
   id: number;
   tanggal: string;
   customer: string;
-  standar_atasan: number;
-  standar_celana: number;
-  klasik_atasan: number;
-  klasik_celana: number;
-  pro_atasan: number;
-  pro_celana: number;
+  [key: string]: string | number; // qty kolom dinamis
 }
 
-// 6 kolom qty per row.
-const QTY_KEYS: (keyof LineJahitRow)[] = [
-  'standar_atasan', 'standar_celana',
-  'klasik_atasan', 'klasik_celana',
-  'pro_atasan', 'pro_celana',
+// Palet warna paket — dipakai bergilir sesuai urutan. Class Tailwind
+// ditulis literal supaya JIT scanner Tailwind bisa detect.
+const PAKET_PALETTE = [
+  { // 1 — kuning (default STANDAR)
+    tableHead: 'bg-yellow-100',
+    tableSub: 'bg-yellow-50',
+    formHead: 'bg-yellow-500/15 text-yellow-200 border-yellow-500/30',
+    formRing: 'focus:border-yellow-500/40',
+  },
+  { // 2 — biru (default KLASIK)
+    tableHead: 'bg-blue-100',
+    tableSub: 'bg-blue-50',
+    formHead: 'bg-blue-500/15 text-blue-200 border-blue-500/30',
+    formRing: 'focus:border-blue-500/40',
+  },
+  { // 3 — pink (default PRO)
+    tableHead: 'bg-pink-100',
+    tableSub: 'bg-pink-50',
+    formHead: 'bg-pink-500/15 text-pink-200 border-pink-500/30',
+    formRing: 'focus:border-pink-500/40',
+  },
+  { // 4 — hijau
+    tableHead: 'bg-emerald-100',
+    tableSub: 'bg-emerald-50',
+    formHead: 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30',
+    formRing: 'focus:border-emerald-500/40',
+  },
+  { // 5 — oranye
+    tableHead: 'bg-orange-100',
+    tableSub: 'bg-orange-50',
+    formHead: 'bg-orange-500/15 text-orange-200 border-orange-500/30',
+    formRing: 'focus:border-orange-500/40',
+  },
+  { // 6 — ungu
+    tableHead: 'bg-violet-100',
+    tableSub: 'bg-violet-50',
+    formHead: 'bg-violet-500/15 text-violet-200 border-violet-500/30',
+    formRing: 'focus:border-violet-500/40',
+  },
 ];
+
+type PaletteEntry = typeof PAKET_PALETTE[number];
+
+function paketColor(urutan: number): PaletteEntry {
+  const idx = ((urutan || 1) - 1) % PAKET_PALETTE.length;
+  return PAKET_PALETTE[idx < 0 ? 0 : idx];
+}
 
 export default function LineJahitPage() {
   const toast = useToast();
   const [month, setMonth] = useState(currentYm());
   const [rows, setRows] = useState<LineJahitRow[]>([]);
+  const [paketList, setPaketList] = useState<Paket[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Form state untuk row baru.
+  // Form state.
   const [newTanggal, setNewTanggal] = useState('');
   const [newCustomer, setNewCustomer] = useState('');
   const [newQty, setNewQty] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  // Row yang lagi di-edit lewat modal. null = modal tertutup.
+
+  // Row yang lagi di-edit lewat modal.
   const [editingRow, setEditingRow] = useState<LineJahitRow | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+
+  // Modal tambah paket baru.
+  const [showAddPaket, setShowAddPaket] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const all = await dbGet('line_jahit').catch(() => []);
-      // Filter by month (client-side supaya API tetap generic).
+      const [allRows, allPaket] = await Promise.all([
+        dbGet('line_jahit').catch(() => []),
+        dbGet('line_jahit_paket').catch(() => []),
+      ]);
       const [y, m] = month.split('-').map(Number);
-      const filtered = (all as Row[]).filter(r => {
+      const filtered = (allRows as Row[]).filter(r => {
         const t = String(r.tanggal || '').slice(0, 7);
         return t === `${y}-${String(m).padStart(2, '0')}`;
-      }).sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)) || Number(a.id) - Number(b.id));
+      }).sort((a, b) =>
+        String(a.tanggal).localeCompare(String(b.tanggal)) || Number(a.id) - Number(b.id)
+      );
       setRows(filtered as LineJahitRow[]);
+      const paketSorted = (allPaket as Paket[]).slice().sort((a, b) => (a.urutan || 0) - (b.urutan || 0));
+      setPaketList(paketSorted);
     } catch {}
     setLoading(false);
   }, [month]);
@@ -75,7 +129,6 @@ export default function LineJahitPage() {
     return `${BULAN_ID[m - 1]?.toUpperCase() || ''} ${y}`;
   }, [month]);
 
-  // Group row by tanggal untuk display rowspan-style (Excel-like).
   const groupedByDate = useMemo(() => {
     const g: Record<string, LineJahitRow[]> = {};
     for (const r of rows) {
@@ -85,25 +138,25 @@ export default function LineJahitPage() {
     return g;
   }, [rows]);
 
-  // Summary total per paket (Atasan + Celana) + grand total.
+  // Summary per paket + grand total. Struktur:
+  // per: { [paket_id]: { atasan, celana } }
   const summary = useMemo(() => {
-    const s = {
-      standarAtasan: 0, standarCelana: 0,
-      klasikAtasan: 0, klasikCelana: 0,
-      proAtasan: 0, proCelana: 0,
-    };
-    for (const r of rows) {
-      s.standarAtasan += Number(r.standar_atasan) || 0;
-      s.standarCelana += Number(r.standar_celana) || 0;
-      s.klasikAtasan += Number(r.klasik_atasan) || 0;
-      s.klasikCelana += Number(r.klasik_celana) || 0;
-      s.proAtasan += Number(r.pro_atasan) || 0;
-      s.proCelana += Number(r.pro_celana) || 0;
+    const per: Record<number, { atasan: number; celana: number }> = {};
+    let grandAtasan = 0;
+    let grandCelana = 0;
+    for (const p of paketList) {
+      let a = 0;
+      let c = 0;
+      for (const r of rows) {
+        a += Number(r[`${p.kolom_prefix}_atasan`]) || 0;
+        c += Number(r[`${p.kolom_prefix}_celana`]) || 0;
+      }
+      per[p.id] = { atasan: a, celana: c };
+      grandAtasan += a;
+      grandCelana += c;
     }
-    const grandAtasan = s.standarAtasan + s.klasikAtasan + s.proAtasan;
-    const grandCelana = s.standarCelana + s.klasikCelana + s.proCelana;
-    return { ...s, grandAtasan, grandCelana, grandTotal: grandAtasan + grandCelana };
-  }, [rows]);
+    return { per, grandAtasan, grandCelana, grandTotal: grandAtasan + grandCelana };
+  }, [rows, paketList]);
 
   async function addRow() {
     if (!newTanggal) { toast.warning('Validasi', 'Pilih tanggal.'); return; }
@@ -111,7 +164,10 @@ export default function LineJahitPage() {
     setSaving(true);
     try {
       const payload: Row = { tanggal: newTanggal, customer: newCustomer.trim() };
-      for (const k of QTY_KEYS) payload[k] = Number(newQty[k as string]) || 0;
+      for (const p of paketList) {
+        payload[`${p.kolom_prefix}_atasan`] = Number(newQty[`${p.kolom_prefix}_atasan`]) || 0;
+        payload[`${p.kolom_prefix}_celana`] = Number(newQty[`${p.kolom_prefix}_celana`]) || 0;
+      }
       await dbCreate('line_jahit', payload);
       setNewCustomer('');
       setNewQty({});
@@ -124,7 +180,6 @@ export default function LineJahitPage() {
   async function updateCell(id: number, key: string, val: number) {
     try {
       await dbUpdate('line_jahit', id, { [key]: val });
-      // Optimistic local update supaya UI langsung refleksikan.
       setRows(prev => prev.map(r => r.id === id ? { ...r, [key]: val } as LineJahitRow : r));
     } catch (e) { toast.error('Gagal Update', String(e)); }
   }
@@ -141,16 +196,12 @@ export default function LineJahitPage() {
   async function saveEditRow(updated: LineJahitRow) {
     setEditSaving(true);
     try {
-      await dbUpdate('line_jahit', updated.id, {
-        tanggal: updated.tanggal,
-        customer: updated.customer,
-        standar_atasan: updated.standar_atasan,
-        standar_celana: updated.standar_celana,
-        klasik_atasan: updated.klasik_atasan,
-        klasik_celana: updated.klasik_celana,
-        pro_atasan: updated.pro_atasan,
-        pro_celana: updated.pro_celana,
-      });
+      const payload: Row = { tanggal: updated.tanggal, customer: updated.customer };
+      for (const p of paketList) {
+        payload[`${p.kolom_prefix}_atasan`] = Number(updated[`${p.kolom_prefix}_atasan`]) || 0;
+        payload[`${p.kolom_prefix}_celana`] = Number(updated[`${p.kolom_prefix}_celana`]) || 0;
+      }
+      await dbUpdate('line_jahit', updated.id, payload);
       setEditingRow(null);
       await fetchAll();
       toast.success('Baris Diperbarui', `${updated.customer} berhasil diupdate.`);
@@ -173,6 +224,15 @@ export default function LineJahitPage() {
     } catch (e) { toast.error('Gagal', String(e)); }
   }
 
+  async function handlePaketAdded() {
+    setShowAddPaket(false);
+    await fetchAll();
+    toast.success('Paket Ditambahkan', 'Header baru muncul di tabel.');
+  }
+
+  const paketCount = paketList.length;
+  const bodyColCount = 3 + paketCount * 2; // TANGGAL + CUSTOMER + qty + AKSI
+
   if (loading) return (
     <div className="space-y-4">
       <div className="h-32 bg-white/[0.03] rounded-2xl animate-pulse" />
@@ -182,7 +242,7 @@ export default function LineJahitPage() {
 
   return (
     <div className="space-y-5">
-      {/* Hero header */}
+      {/* Hero */}
       <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-cyan-500/[0.14] via-blue-500/[0.06] to-transparent p-5 sm:p-6">
         <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
         <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -195,11 +255,11 @@ export default function LineJahitPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Line Jahit · {monthLabel}</h1>
               <p className="text-[13px] text-slate-300 mt-0.5">
-                Catatan jahit internal per tanggal + customer. 3 paket × 2 tipe (Atasan/Celana).
+                Catatan jahit internal per tanggal + customer. {paketCount} paket × 2 tipe (Atasan/Celana).
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <label className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider hidden sm:block">Bulan</label>
             <input
               type="month"
@@ -213,15 +273,92 @@ export default function LineJahitPage() {
             >
               Bulan Ini
             </button>
+            <button
+              onClick={() => setShowAddPaket(true)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 px-3 py-2 rounded-xl transition-colors shadow-lg shadow-emerald-500/20"
+              title="Tambah header paket baru (misal: WARRIOR)"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Tambah Header
+            </button>
           </div>
         </div>
       </div>
 
-      {/* 2-col layout: table (2/3) + summary (1/3) */}
+      {/* Form Tambah Baris — sekarang di ATAS tabel */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/25 grid place-items-center">
+            <svg className="w-4 h-4 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+          </div>
+          <p className="text-sm font-semibold text-white">Tambah Baris Baru</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
+          <div>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tanggal *</label>
+            <input
+              type="date"
+              value={newTanggal}
+              onChange={e => setNewTanggal(e.target.value)}
+              min={`${month}-01`}
+              max={`${month}-31`}
+              className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500/40 date-input"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Customer *</label>
+            <input
+              type="text"
+              value={newCustomer}
+              onChange={e => setNewCustomer(e.target.value)}
+              placeholder="Nama customer..."
+              className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500/40"
+            />
+          </div>
+        </div>
+
+        {/* Qty per paket — dinamis, auto-wrap */}
+        <div className="flex flex-wrap gap-3">
+          {paketList.map(p => (
+            <div key={p.id} className="flex-1 min-w-[220px]">
+              <QtyBlock
+                title={p.nama}
+                palette={paketColor(p.urutan)}
+                atasan={newQty[`${p.kolom_prefix}_atasan`] || ''}
+                celana={newQty[`${p.kolom_prefix}_celana`] || ''}
+                onAtasan={v => setNewQty(pr => ({ ...pr, [`${p.kolom_prefix}_atasan`]: v }))}
+                onCelana={v => setNewQty(pr => ({ ...pr, [`${p.kolom_prefix}_celana`]: v }))}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => { setNewTanggal(''); setNewCustomer(''); setNewQty({}); }}
+            disabled={saving}
+            className="text-sm font-medium text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 px-4 py-2 rounded-lg transition-colors"
+          >
+            Reset
+          </button>
+          <button
+            onClick={addRow}
+            disabled={saving}
+            className="inline-flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg shadow-cyan-500/20"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+            {saving ? 'Menyimpan...' : 'Tambah Baris'}
+          </button>
+        </div>
+      </div>
+
+      {/* Layout: tabel (2/3) + summary (1/3) */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        {/* Main table */}
         <div className="xl:col-span-2 rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-          {/* Month banner */}
           <div className="px-4 py-2 bg-white text-slate-800 border-b border-slate-200 font-bold text-sm tracking-wide">
             BULAN {monthLabel}
           </div>
@@ -229,34 +366,37 @@ export default function LineJahitPage() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm border-collapse">
               <thead>
-                {/* Header 3 baris. TANGGAL / CUSTOMER / kolom aksi span
-                    semua 3 baris (rowSpan=3). PAKET di baris 1 (colSpan=6),
-                    STANDAR/KLASIK/PRO di baris 2, ATASAN/CELANA di baris 3. */}
                 <tr className="text-slate-800">
                   <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-24 align-middle">TANGGAL</th>
                   <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold align-middle">CUSTOMER</th>
-                  <th colSpan={6} className="bg-orange-100 border border-slate-300 px-2 py-2 text-center font-bold">PAKET</th>
+                  <th colSpan={paketCount * 2} className="bg-orange-100 border border-slate-300 px-2 py-2 text-center font-bold">PAKET</th>
                   <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-20 align-middle"></th>
                 </tr>
                 <tr className="text-slate-800">
-                  <th colSpan={2} className="bg-yellow-100 border border-slate-300 px-2 py-1.5 text-center font-semibold">STANDAR</th>
-                  <th colSpan={2} className="bg-blue-100 border border-slate-300 px-2 py-1.5 text-center font-semibold">KLASIK</th>
-                  <th colSpan={2} className="bg-pink-100 border border-slate-300 px-2 py-1.5 text-center font-semibold">PRO</th>
+                  {paketList.map(p => {
+                    const c = paketColor(p.urutan);
+                    return (
+                      <th key={p.id} colSpan={2} className={`${c.tableHead} border border-slate-300 px-2 py-1.5 text-center font-semibold`}>
+                        {p.nama}
+                      </th>
+                    );
+                  })}
                 </tr>
                 <tr className="text-slate-700 text-xs">
-                  <th className="bg-yellow-50 border border-slate-300 px-1.5 py-1 text-center font-medium w-16">ATASAN</th>
-                  <th className="bg-yellow-50 border border-slate-300 px-1.5 py-1 text-center font-medium w-16">CELANA</th>
-                  <th className="bg-blue-50 border border-slate-300 px-1.5 py-1 text-center font-medium w-16">ATASAN</th>
-                  <th className="bg-blue-50 border border-slate-300 px-1.5 py-1 text-center font-medium w-16">CELANA</th>
-                  <th className="bg-pink-50 border border-slate-300 px-1.5 py-1 text-center font-medium w-16">ATASAN</th>
-                  <th className="bg-pink-50 border border-slate-300 px-1.5 py-1 text-center font-medium w-16">CELANA</th>
+                  {paketList.flatMap(p => {
+                    const c = paketColor(p.urutan);
+                    return [
+                      <th key={`${p.id}-a`} className={`${c.tableSub} border border-slate-300 px-1.5 py-1 text-center font-medium w-16`}>ATASAN</th>,
+                      <th key={`${p.id}-c`} className={`${c.tableSub} border border-slate-300 px-1.5 py-1 text-center font-medium w-16`}>CELANA</th>,
+                    ];
+                  })}
                 </tr>
               </thead>
               <tbody>
                 {Object.keys(groupedByDate).length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="border border-slate-300 px-3 py-8 text-center text-sm text-slate-500 bg-white">
-                      Belum ada data untuk bulan ini. Tambah baris di bawah.
+                    <td colSpan={bodyColCount} className="border border-slate-300 px-3 py-8 text-center text-sm text-slate-500 bg-white">
+                      Belum ada data untuk bulan ini. Tambah baris di atas.
                     </td>
                   </tr>
                 ) : (
@@ -278,14 +418,24 @@ export default function LineJahitPage() {
                             className="w-full bg-transparent focus:bg-slate-50 focus:outline-none px-1 py-0.5 rounded"
                           />
                         </td>
-                        {QTY_KEYS.map(k => (
-                          <td key={k} className="border border-slate-300 px-1 py-1 text-center">
-                            <QtyCell
-                              value={Number(r[k]) || 0}
-                              onCommit={val => updateCell(r.id, k, val)}
-                            />
-                          </td>
-                        ))}
+                        {paketList.flatMap(p => {
+                          const keyA = `${p.kolom_prefix}_atasan`;
+                          const keyC = `${p.kolom_prefix}_celana`;
+                          return [
+                            <td key={`${p.id}-a`} className="border border-slate-300 px-1 py-1 text-center">
+                              <QtyCell
+                                value={Number(r[keyA]) || 0}
+                                onCommit={val => updateCell(r.id, keyA, val)}
+                              />
+                            </td>,
+                            <td key={`${p.id}-c`} className="border border-slate-300 px-1 py-1 text-center">
+                              <QtyCell
+                                value={Number(r[keyC]) || 0}
+                                onCommit={val => updateCell(r.id, keyC, val)}
+                              />
+                            </td>,
+                          ];
+                        })}
                         <td className="border border-slate-300 px-1 py-1 text-center">
                           <div className="flex items-center justify-center gap-0.5">
                             <button
@@ -317,102 +467,18 @@ export default function LineJahitPage() {
                 <tfoot>
                   <tr className="bg-yellow-200 text-slate-900 text-sm font-bold">
                     <td colSpan={2} className="border border-slate-400 px-3 py-2 text-center uppercase tracking-wide">Total</td>
-                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.standarAtasan}</td>
-                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.standarCelana}</td>
-                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.klasikAtasan}</td>
-                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.klasikCelana}</td>
-                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.proAtasan}</td>
-                    <td className="border border-slate-400 px-2 py-2 text-center">{summary.proCelana}</td>
+                    {paketList.flatMap(p => {
+                      const s = summary.per[p.id] || { atasan: 0, celana: 0 };
+                      return [
+                        <td key={`${p.id}-a`} className="border border-slate-400 px-2 py-2 text-center">{s.atasan}</td>,
+                        <td key={`${p.id}-c`} className="border border-slate-400 px-2 py-2 text-center">{s.celana}</td>,
+                      ];
+                    })}
                     <td className="border border-slate-400 px-1 py-2"></td>
                   </tr>
                 </tfoot>
               )}
             </table>
-          </div>
-
-          {/* Add row form — dikelompokkan supaya jelas: Info dulu,
-              lalu 3 blok paket berlabel (STANDAR / KLASIK / PRO) dengan
-              inputan Atasan+Celana per blok. */}
-          <div className="border-t border-white/[0.06] bg-white/[0.02] p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/25 grid place-items-center">
-                <svg className="w-4 h-4 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-              </div>
-              <p className="text-sm font-semibold text-white">Tambah Baris Baru</p>
-            </div>
-
-            {/* Info: tanggal + customer */}
-            <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tanggal *</label>
-                <input
-                  type="date"
-                  value={newTanggal}
-                  onChange={e => setNewTanggal(e.target.value)}
-                  min={`${month}-01`}
-                  max={`${month}-31`}
-                  className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500/40 date-input"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Customer *</label>
-                <input
-                  type="text"
-                  value={newCustomer}
-                  onChange={e => setNewCustomer(e.target.value)}
-                  placeholder="Nama customer..."
-                  className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500/40"
-                />
-              </div>
-            </div>
-
-            {/* Qty per paket — 3 blok warna-koordinasi header tabel */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <QtyBlock
-                title="STANDAR"
-                accent="yellow"
-                atasan={newQty.standar_atasan || ''}
-                celana={newQty.standar_celana || ''}
-                onAtasan={v => setNewQty(p => ({ ...p, standar_atasan: v }))}
-                onCelana={v => setNewQty(p => ({ ...p, standar_celana: v }))}
-              />
-              <QtyBlock
-                title="KLASIK"
-                accent="blue"
-                atasan={newQty.klasik_atasan || ''}
-                celana={newQty.klasik_celana || ''}
-                onAtasan={v => setNewQty(p => ({ ...p, klasik_atasan: v }))}
-                onCelana={v => setNewQty(p => ({ ...p, klasik_celana: v }))}
-              />
-              <QtyBlock
-                title="PRO"
-                accent="pink"
-                atasan={newQty.pro_atasan || ''}
-                celana={newQty.pro_celana || ''}
-                onAtasan={v => setNewQty(p => ({ ...p, pro_atasan: v }))}
-                onCelana={v => setNewQty(p => ({ ...p, pro_celana: v }))}
-              />
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => { setNewTanggal(''); setNewCustomer(''); setNewQty({}); }}
-                disabled={saving}
-                className="text-sm font-medium text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 px-4 py-2 rounded-lg transition-colors"
-              >
-                Reset
-              </button>
-              <button
-                onClick={addRow}
-                disabled={saving}
-                className="inline-flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg shadow-cyan-500/20"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                {saving ? 'Menyimpan...' : 'Tambah Baris'}
-              </button>
-            </div>
           </div>
         </div>
 
@@ -424,33 +490,13 @@ export default function LineJahitPage() {
             </div>
             <table className="w-full text-sm bg-white text-slate-800">
               <tbody>
-                <tr>
-                  <td rowSpan={2} className="bg-yellow-100 border border-slate-300 px-3 py-2 font-bold text-center align-middle">STANDAR</td>
-                  <td className="bg-yellow-50 border border-slate-300 px-3 py-2">ATASAN</td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-bold tabular-nums">{summary.standarAtasan}</td>
-                </tr>
-                <tr>
-                  <td className="bg-yellow-50 border border-slate-300 px-3 py-2">CELANA</td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-bold tabular-nums">{summary.standarCelana}</td>
-                </tr>
-                <tr>
-                  <td rowSpan={2} className="bg-blue-100 border border-slate-300 px-3 py-2 font-bold text-center align-middle">KLASIK</td>
-                  <td className="bg-blue-50 border border-slate-300 px-3 py-2">ATASAN</td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-bold tabular-nums">{summary.klasikAtasan}</td>
-                </tr>
-                <tr>
-                  <td className="bg-blue-50 border border-slate-300 px-3 py-2">CELANA</td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-bold tabular-nums">{summary.klasikCelana}</td>
-                </tr>
-                <tr>
-                  <td rowSpan={2} className="bg-pink-100 border border-slate-300 px-3 py-2 font-bold text-center align-middle">PRO</td>
-                  <td className="bg-pink-50 border border-slate-300 px-3 py-2">ATASAN</td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-bold tabular-nums">{summary.proAtasan}</td>
-                </tr>
-                <tr>
-                  <td className="bg-pink-50 border border-slate-300 px-3 py-2">CELANA</td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-bold tabular-nums">{summary.proCelana}</td>
-                </tr>
+                {paketList.map(p => {
+                  const c = paketColor(p.urutan);
+                  const s = summary.per[p.id] || { atasan: 0, celana: 0 };
+                  return (
+                    <FragmentRow key={p.id} paket={p} palette={c} atasan={s.atasan} celana={s.celana} />
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -482,9 +528,17 @@ export default function LineJahitPage() {
       {editingRow && (
         <EditRowModal
           row={editingRow}
+          paketList={paketList}
           saving={editSaving}
           onCancel={() => setEditingRow(null)}
           onSave={saveEditRow}
+        />
+      )}
+
+      {showAddPaket && (
+        <AddPaketModal
+          onCancel={() => setShowAddPaket(false)}
+          onAdded={handlePaketAdded}
         />
       )}
     </div>
@@ -492,48 +546,65 @@ export default function LineJahitPage() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   EditRowModal — dialog untuk edit baris Line Jahit yang sudah ada.
-   Pre-fill semua field (tanggal, customer, 6 qty) supaya user tinggal
-   ubah nilai yang perlu.
+   Sub-komponen tabel summary (2 baris per paket). Dipisah supaya JSX
+   parent tidak crowded — logic-nya cuma render 2 <tr> berturut-turut.
+   ───────────────────────────────────────────────────────────────────── */
+function FragmentRow({ paket, palette, atasan, celana }: {
+  paket: Paket; palette: PaletteEntry; atasan: number; celana: number;
+}) {
+  return (
+    <>
+      <tr>
+        <td rowSpan={2} className={`${palette.tableHead} border border-slate-300 px-3 py-2 font-bold text-center align-middle`}>{paket.nama}</td>
+        <td className={`${palette.tableSub} border border-slate-300 px-3 py-2`}>ATASAN</td>
+        <td className="border border-slate-300 px-3 py-2 text-right font-bold tabular-nums">{atasan}</td>
+      </tr>
+      <tr>
+        <td className={`${palette.tableSub} border border-slate-300 px-3 py-2`}>CELANA</td>
+        <td className="border border-slate-300 px-3 py-2 text-right font-bold tabular-nums">{celana}</td>
+      </tr>
+    </>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   EditRowModal — dinamis mengikuti paketList, jadi kolom baru otomatis
+   muncul di form edit tanpa perlu ubah komponen.
    ───────────────────────────────────────────────────────────────────── */
 function EditRowModal({
-  row, saving, onCancel, onSave,
+  row, paketList, saving, onCancel, onSave,
 }: {
   row: LineJahitRow;
+  paketList: Paket[];
   saving: boolean;
   onCancel: () => void;
   onSave: (updated: LineJahitRow) => void;
 }) {
   const [tanggal, setTanggal] = useState(String(row.tanggal).slice(0, 10));
   const [customer, setCustomer] = useState(row.customer);
-  const [qty, setQty] = useState({
-    standar_atasan: String(row.standar_atasan || ''),
-    standar_celana: String(row.standar_celana || ''),
-    klasik_atasan: String(row.klasik_atasan || ''),
-    klasik_celana: String(row.klasik_celana || ''),
-    pro_atasan: String(row.pro_atasan || ''),
-    pro_celana: String(row.pro_celana || ''),
+  const [qty, setQty] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const p of paketList) {
+      init[`${p.kolom_prefix}_atasan`] = String(row[`${p.kolom_prefix}_atasan`] || '');
+      init[`${p.kolom_prefix}_celana`] = String(row[`${p.kolom_prefix}_celana`] || '');
+    }
+    return init;
   });
 
   function handleSubmit() {
     if (!tanggal || !customer.trim()) return;
-    onSave({
-      ...row,
-      tanggal,
-      customer: customer.trim(),
-      standar_atasan: Number(qty.standar_atasan) || 0,
-      standar_celana: Number(qty.standar_celana) || 0,
-      klasik_atasan: Number(qty.klasik_atasan) || 0,
-      klasik_celana: Number(qty.klasik_celana) || 0,
-      pro_atasan: Number(qty.pro_atasan) || 0,
-      pro_celana: Number(qty.pro_celana) || 0,
-    });
+    const updated: LineJahitRow = { ...row, tanggal, customer: customer.trim() };
+    for (const p of paketList) {
+      updated[`${p.kolom_prefix}_atasan`] = Number(qty[`${p.kolom_prefix}_atasan`]) || 0;
+      updated[`${p.kolom_prefix}_celana`] = Number(qty[`${p.kolom_prefix}_celana`]) || 0;
+    }
+    onSave(updated);
   }
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={saving ? undefined : onCancel} />
-      <div className="relative bg-[#1a1f35] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-toast-in">
+      <div className="relative bg-[#1a1f35] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden animate-toast-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-gradient-to-r from-amber-500/[0.10] to-transparent">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/25 grid place-items-center">
@@ -553,8 +624,7 @@ function EditRowModal({
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
-          {/* Info: tanggal + customer */}
+        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
           <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
             <div>
               <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tanggal *</label>
@@ -577,32 +647,19 @@ function EditRowModal({
             </div>
           </div>
 
-          {/* Qty per paket */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <QtyBlock
-              title="STANDAR"
-              accent="yellow"
-              atasan={qty.standar_atasan}
-              celana={qty.standar_celana}
-              onAtasan={v => setQty(p => ({ ...p, standar_atasan: v }))}
-              onCelana={v => setQty(p => ({ ...p, standar_celana: v }))}
-            />
-            <QtyBlock
-              title="KLASIK"
-              accent="blue"
-              atasan={qty.klasik_atasan}
-              celana={qty.klasik_celana}
-              onAtasan={v => setQty(p => ({ ...p, klasik_atasan: v }))}
-              onCelana={v => setQty(p => ({ ...p, klasik_celana: v }))}
-            />
-            <QtyBlock
-              title="PRO"
-              accent="pink"
-              atasan={qty.pro_atasan}
-              celana={qty.pro_celana}
-              onAtasan={v => setQty(p => ({ ...p, pro_atasan: v }))}
-              onCelana={v => setQty(p => ({ ...p, pro_celana: v }))}
-            />
+          <div className="flex flex-wrap gap-3">
+            {paketList.map(p => (
+              <div key={p.id} className="flex-1 min-w-[220px]">
+                <QtyBlock
+                  title={p.nama}
+                  palette={paketColor(p.urutan)}
+                  atasan={qty[`${p.kolom_prefix}_atasan`] || ''}
+                  celana={qty[`${p.kolom_prefix}_celana`] || ''}
+                  onAtasan={v => setQty(pr => ({ ...pr, [`${p.kolom_prefix}_atasan`]: v }))}
+                  onCelana={v => setQty(pr => ({ ...pr, [`${p.kolom_prefix}_celana`]: v }))}
+                />
+              </div>
+            ))}
           </div>
         </div>
 
@@ -621,8 +678,110 @@ function EditRowModal({
   );
 }
 
-// Inline editable numeric cell: shows the number (or blank if 0),
-// on focus becomes an input, on blur auto-save via onCommit.
+/* ─────────────────────────────────────────────────────────────────────
+   AddPaketModal — dialog untuk tambah paket baru. Input nama →
+   hitung preview kolom prefix (informational) → panggil endpoint.
+   ───────────────────────────────────────────────────────────────────── */
+function AddPaketModal({ onCancel, onAdded }: {
+  onCancel: () => void;
+  onAdded: () => void;
+}) {
+  const toast = useToast();
+  const [nama, setNama] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const preview = nama
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 24);
+
+  const valid = /^[a-z][a-z0-9_]{0,23}$/.test(preview);
+
+  async function handleApply() {
+    if (!nama.trim()) { toast.warning('Validasi', 'Isi nama paket.'); return; }
+    if (!valid) { toast.warning('Validasi', 'Nama harus dimulai huruf latin (a-z).'); return; }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/line-jahit/tambah-paket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nama: nama.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        toast.error('Gagal', data.error || 'Gagal tambah paket.');
+      } else {
+        onAdded();
+      }
+    } catch (e) {
+      toast.error('Gagal', String(e));
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={saving ? undefined : onCancel} />
+      <div className="relative bg-[#1a1f35] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-toast-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-gradient-to-r from-emerald-500/[0.10] to-transparent">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/25 grid place-items-center">
+              <svg className="w-5 h-5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Tambah Header Paket</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Header baru akan muncul di semua baris.</p>
+            </div>
+          </div>
+          <button onClick={onCancel} disabled={saving} className="text-slate-500 hover:text-white transition-colors p-1.5 hover:bg-white/[0.05] rounded-lg disabled:opacity-50">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Nama Paket *</label>
+            <input
+              type="text"
+              value={nama}
+              onChange={e => setNama(e.target.value)}
+              placeholder="Contoh: WARRIOR"
+              autoFocus
+              className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500/40"
+            />
+          </div>
+          {nama && (
+            <div className="text-[11px] text-slate-500 space-y-1">
+              <div>Preview kolom: <span className="font-mono text-slate-300">{preview}_atasan</span>, <span className="font-mono text-slate-300">{preview}_celana</span></div>
+              {!valid && (
+                <div className="text-rose-400">Nama harus dimulai huruf latin (a-z).</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/[0.06] bg-white/[0.015]">
+          <button onClick={onCancel} disabled={saving}
+            className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors disabled:opacity-50">
+            Batal
+          </button>
+          <button onClick={handleApply} disabled={saving || !valid}
+            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-emerald-500/20">
+            {saving ? 'Menambahkan...' : 'Apply'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Inline editable numeric cell.
 function QtyCell({ value, onCommit }: { value: number; onCommit: (val: number) => void }) {
   const [editing, setEditing] = useState(false);
   const [local, setLocal] = useState(String(value || ''));
@@ -661,25 +820,21 @@ function QtyCell({ value, onCommit }: { value: number; onCommit: (val: number) =
   );
 }
 
-// Blok inputan qty per paket (STANDAR / KLASIK / PRO) untuk form
-// tambah baris — 2 field (Atasan + Celana) dengan header colored.
+// Blok inputan qty per paket. Palette dilewatkan dari parent (sesuai
+// urutan paket) supaya paket baru dapat warna otomatis.
 function QtyBlock({
-  title, accent, atasan, celana, onAtasan, onCelana,
+  title, palette, atasan, celana, onAtasan, onCelana,
 }: {
   title: string;
-  accent: 'yellow' | 'blue' | 'pink';
+  palette: PaletteEntry;
   atasan: string;
   celana: string;
   onAtasan: (v: string) => void;
   onCelana: (v: string) => void;
 }) {
-  const cls =
-    accent === 'yellow' ? { header: 'bg-yellow-500/15 text-yellow-200 border-yellow-500/30', ring: 'focus:border-yellow-500/40' } :
-    accent === 'blue' ? { header: 'bg-blue-500/15 text-blue-200 border-blue-500/30', ring: 'focus:border-blue-500/40' } :
-    { header: 'bg-pink-500/15 text-pink-200 border-pink-500/30', ring: 'focus:border-pink-500/40' };
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
-      <div className={`px-3 py-1.5 border-b ${cls.header} text-[11px] font-bold uppercase tracking-widest text-center`}>
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden h-full">
+      <div className={`px-3 py-1.5 border-b ${palette.formHead} text-[11px] font-bold uppercase tracking-widest text-center`}>
         {title}
       </div>
       <div className="grid grid-cols-2 gap-2 p-2">
@@ -691,7 +846,7 @@ function QtyBlock({
             value={atasan}
             onChange={e => onAtasan(e.target.value.replace(/\D/g, ''))}
             placeholder="0"
-            className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none ${cls.ring} text-center tabular-nums`}
+            className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none ${palette.formRing} text-center tabular-nums`}
           />
         </label>
         <label className="block">
@@ -702,7 +857,7 @@ function QtyBlock({
             value={celana}
             onChange={e => onCelana(e.target.value.replace(/\D/g, ''))}
             placeholder="0"
-            className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none ${cls.ring} text-center tabular-nums`}
+            className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none ${palette.formRing} text-center tabular-nums`}
           />
         </label>
       </div>

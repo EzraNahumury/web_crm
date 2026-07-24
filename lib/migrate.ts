@@ -824,6 +824,27 @@ const MIGRATIONS: Migration[] = [
     name: '047_line_jahit_seed_2026',
     up: [LINE_JAHIT_SEED_2026_SQL],
   },
+  {
+    // Config paket Line Jahit — nama display + prefix kolom di tabel
+    // line_jahit. Dipakai supaya operator bisa nambah paket baru
+    // (WARRIOR, dll) via UI, dan endpoint /api/line-jahit/tambah-paket
+    // yang menjalankan ALTER TABLE ADD COLUMN sesuai prefix.
+    name: '048_line_jahit_paket',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `line_jahit_paket` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`nama` VARCHAR(64) NOT NULL," +
+        "`kolom_prefix` VARCHAR(32) NOT NULL," +
+        "`urutan` INT NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "UNIQUE KEY `uk_lj_paket_nama` (`nama`)," +
+        "UNIQUE KEY `uk_lj_paket_prefix` (`kolom_prefix`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "INSERT IGNORE INTO `line_jahit_paket` (`nama`, `kolom_prefix`, `urutan`) VALUES " +
+        "('STANDAR', 'standar', 1), ('KLASIK', 'klasik', 2), ('PRO', 'pro', 3)",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
