@@ -105,11 +105,11 @@ const ADMIN_NAV: SideNavItem[] = [
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>,
   },
   {
-    href: '/crm-deadline-lock', label: 'CRM Deadline Lock',
+    href: '/crm-deadline-lock', label: 'Produksi Deadline Lock',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>,
   },
   {
-    label: 'CRM Finishing',
+    label: 'Produksi Finishing',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" /></svg>,
     children: [
       { href: '/crm-finishing', label: 'Papan Finishing' },
@@ -237,7 +237,7 @@ function AdminLayout({ user, logout, children }: {
         <div className="px-5 h-[72px] flex items-center gap-2 shrink-0">
           <img src="/logo/new logo.png" alt="AYRES" className="h-9 brightness-0 invert opacity-90" />
           <div className="flex flex-col leading-tight">
-            <span className="text-[13px] font-bold text-white tracking-tight">AYRES CRM</span>
+            <span className="text-[13px] font-bold text-white tracking-tight">AYRES</span>
             <span className="text-[10px] text-slate-500 tracking-wider uppercase">Production</span>
           </div>
         </div>
