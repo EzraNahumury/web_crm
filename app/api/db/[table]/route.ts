@@ -11,6 +11,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   barang_cs:         { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
   bank:              { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
   gudang:            { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
+  line_jahit:        { columns: '*', searchCols: ['customer'], filterCols: ['id'] },
   barang:            { columns: 'b.*, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['b.id'] },
   tipe_barang:       { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
   ukuran:            { columns: '*', searchCols: ['nama'], filterCols: ['id'] },

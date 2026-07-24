@@ -783,6 +783,40 @@ const MIGRATIONS: Migration[] = [
       "SELECT 1",
     ],
   },
+  {
+    // Line Jahit: catatan jahit internal per tanggal + customer, dengan
+    // 3 kategori paket (STANDAR / KLASIK / PRO) × 2 tipe (Atasan /
+    // Celana) = 6 kolom qty. Summary total per paket + grand total
+    // dihitung di client.
+    name: '045_line_jahit',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `line_jahit` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`customer` VARCHAR(255) NOT NULL," +
+        "`standar_atasan` INT NOT NULL DEFAULT 0," +
+        "`standar_celana` INT NOT NULL DEFAULT 0," +
+        "`klasik_atasan` INT NOT NULL DEFAULT 0," +
+        "`klasik_celana` INT NOT NULL DEFAULT 0," +
+        "`pro_atasan` INT NOT NULL DEFAULT 0," +
+        "`pro_celana` INT NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_lj_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
+  {
+    // Auto-grant menu 'Line Jahit' ke setiap role yang punya 'Produksi' —
+    // asumsi tim produksi yang input data jahit internal.
+    name: '046_grant_line_jahit',
+    up: [
+      "INSERT IGNORE INTO `role_menu_access` (`role_id`, `menu_name`) " +
+        "SELECT DISTINCT `role_id`, 'Line Jahit' FROM `role_menu_access` " +
+        "WHERE `menu_name` = 'Produksi'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

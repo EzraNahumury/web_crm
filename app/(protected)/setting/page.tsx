@@ -44,6 +44,7 @@ const MENU_ITEMS = [
   'Approval Gudang',
   'CRM Deadline Lock',
   'CRM Finishing',
+  'Line Jahit',
   'Laporan',
   'Stok',
   'Settings',
