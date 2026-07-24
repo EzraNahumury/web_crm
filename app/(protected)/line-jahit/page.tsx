@@ -204,14 +204,16 @@ export default function LineJahitPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[720px] text-sm border-collapse">
               <thead>
-                {/* Group header */}
+                {/* Header 3 baris. TANGGAL / CUSTOMER / kolom aksi span
+                    semua 3 baris (rowSpan=3). PAKET di baris 1 (colSpan=6),
+                    STANDAR/KLASIK/PRO di baris 2, ATASAN/CELANA di baris 3. */}
                 <tr className="text-slate-800">
-                  <th rowSpan={2} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-24">TANGGAL</th>
-                  <th rowSpan={2} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold">CUSTOMER</th>
+                  <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-24 align-middle">TANGGAL</th>
+                  <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold align-middle">CUSTOMER</th>
                   <th colSpan={6} className="bg-orange-100 border border-slate-300 px-2 py-2 text-center font-bold">PAKET</th>
-                  <th rowSpan={2} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-14"></th>
+                  <th rowSpan={3} className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-12 align-middle"></th>
                 </tr>
                 <tr className="text-slate-800">
                   <th colSpan={2} className="bg-yellow-100 border border-slate-300 px-2 py-1.5 text-center font-semibold">STANDAR</th>
@@ -280,42 +282,87 @@ export default function LineJahitPage() {
             </table>
           </div>
 
-          {/* Add row form */}
-          <div className="border-t border-white/[0.06] bg-white/[0.02] p-4">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-2">Tambah Baris</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-9 gap-2 items-center">
-              <input
-                type="date"
-                value={newTanggal}
-                onChange={e => setNewTanggal(e.target.value)}
-                min={`${month}-01`}
-                max={`${month}-31`}
-                className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-500/40 date-input"
-              />
-              <input
-                type="text"
-                value={newCustomer}
-                onChange={e => setNewCustomer(e.target.value)}
-                placeholder="Nama customer..."
-                className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-500/40 md:col-span-2"
-              />
-              {QTY_KEYS.map(k => (
+          {/* Add row form — dikelompokkan supaya jelas: Info dulu,
+              lalu 3 blok paket berlabel (STANDAR / KLASIK / PRO) dengan
+              inputan Atasan+Celana per blok. */}
+          <div className="border-t border-white/[0.06] bg-white/[0.02] p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/25 grid place-items-center">
+                <svg className="w-4 h-4 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+              </div>
+              <p className="text-sm font-semibold text-white">Tambah Baris Baru</p>
+            </div>
+
+            {/* Info: tanggal + customer */}
+            <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tanggal *</label>
                 <input
-                  key={k}
-                  type="number"
-                  min="0"
-                  value={newQty[k as string] || ''}
-                  onChange={e => setNewQty(prev => ({ ...prev, [k]: e.target.value }))}
-                  placeholder="0"
-                  className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-500/40 text-center tabular-nums"
+                  type="date"
+                  value={newTanggal}
+                  onChange={e => setNewTanggal(e.target.value)}
+                  min={`${month}-01`}
+                  max={`${month}-31`}
+                  className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500/40 date-input"
                 />
-              ))}
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Customer *</label>
+                <input
+                  type="text"
+                  value={newCustomer}
+                  onChange={e => setNewCustomer(e.target.value)}
+                  placeholder="Nama customer..."
+                  className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500/40"
+                />
+              </div>
+            </div>
+
+            {/* Qty per paket — 3 blok warna-koordinasi header tabel */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <QtyBlock
+                title="STANDAR"
+                accent="yellow"
+                atasan={newQty.standar_atasan || ''}
+                celana={newQty.standar_celana || ''}
+                onAtasan={v => setNewQty(p => ({ ...p, standar_atasan: v }))}
+                onCelana={v => setNewQty(p => ({ ...p, standar_celana: v }))}
+              />
+              <QtyBlock
+                title="KLASIK"
+                accent="blue"
+                atasan={newQty.klasik_atasan || ''}
+                celana={newQty.klasik_celana || ''}
+                onAtasan={v => setNewQty(p => ({ ...p, klasik_atasan: v }))}
+                onCelana={v => setNewQty(p => ({ ...p, klasik_celana: v }))}
+              />
+              <QtyBlock
+                title="PRO"
+                accent="pink"
+                atasan={newQty.pro_atasan || ''}
+                celana={newQty.pro_celana || ''}
+                onAtasan={v => setNewQty(p => ({ ...p, pro_atasan: v }))}
+                onCelana={v => setNewQty(p => ({ ...p, pro_celana: v }))}
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { setNewTanggal(''); setNewCustomer(''); setNewQty({}); }}
+                disabled={saving}
+                className="text-sm font-medium text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 px-4 py-2 rounded-lg transition-colors"
+              >
+                Reset
+              </button>
               <button
                 onClick={addRow}
                 disabled={saving}
-                className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors md:col-span-2 lg:col-span-9"
+                className="inline-flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg shadow-cyan-500/20"
               >
-                {saving ? 'Menyimpan...' : '+ Tambah Baris'}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                {saving ? 'Menyimpan...' : 'Tambah Baris'}
               </button>
             </div>
           </div>
@@ -424,5 +471,54 @@ function QtyCell({ value, onCommit }: { value: number; onCommit: (val: number) =
     >
       {value > 0 ? value : <span className="text-slate-300">—</span>}
     </button>
+  );
+}
+
+// Blok inputan qty per paket (STANDAR / KLASIK / PRO) untuk form
+// tambah baris — 2 field (Atasan + Celana) dengan header colored.
+function QtyBlock({
+  title, accent, atasan, celana, onAtasan, onCelana,
+}: {
+  title: string;
+  accent: 'yellow' | 'blue' | 'pink';
+  atasan: string;
+  celana: string;
+  onAtasan: (v: string) => void;
+  onCelana: (v: string) => void;
+}) {
+  const cls =
+    accent === 'yellow' ? { header: 'bg-yellow-500/15 text-yellow-200 border-yellow-500/30', ring: 'focus:border-yellow-500/40' } :
+    accent === 'blue' ? { header: 'bg-blue-500/15 text-blue-200 border-blue-500/30', ring: 'focus:border-blue-500/40' } :
+    { header: 'bg-pink-500/15 text-pink-200 border-pink-500/30', ring: 'focus:border-pink-500/40' };
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+      <div className={`px-3 py-1.5 border-b ${cls.header} text-[11px] font-bold uppercase tracking-widest text-center`}>
+        {title}
+      </div>
+      <div className="grid grid-cols-2 gap-2 p-2">
+        <label className="block">
+          <span className="block text-[10px] font-medium text-slate-500 mb-1 text-center">Atasan</span>
+          <input
+            type="number"
+            min="0"
+            value={atasan}
+            onChange={e => onAtasan(e.target.value)}
+            placeholder="0"
+            className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none ${cls.ring} text-center tabular-nums`}
+          />
+        </label>
+        <label className="block">
+          <span className="block text-[10px] font-medium text-slate-500 mb-1 text-center">Celana</span>
+          <input
+            type="number"
+            min="0"
+            value={celana}
+            onChange={e => onCelana(e.target.value)}
+            placeholder="0"
+            className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none ${cls.ring} text-center tabular-nums`}
+          />
+        </label>
+      </div>
+    </div>
   );
 }
