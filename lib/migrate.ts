@@ -3,6 +3,7 @@
 // `database/migrations/` folder ships with the build.
 
 import pool from './db';
+import { LINE_JAHIT_SEED_2026_SQL } from './seed-line-jahit-2026';
 
 let migrationsPromise: Promise<void> | null = null;
 
@@ -816,6 +817,12 @@ const MIGRATIONS: Migration[] = [
         "SELECT DISTINCT `role_id`, 'Line Jahit' FROM `role_menu_access` " +
         "WHERE `menu_name` = 'Produksi'",
     ],
+  },
+  {
+    // Seed data historis Line Jahit April-Juli 2026 (293 baris) dari file
+    // Excel operator. Tracking via _migrations — hanya jalan sekali.
+    name: '047_line_jahit_seed_2026',
+    up: [LINE_JAHIT_SEED_2026_SQL],
   },
 ];
 
