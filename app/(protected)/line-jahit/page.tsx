@@ -301,21 +301,6 @@ export default function LineJahitPage() {
     toast.success('Paket Ditambahkan', 'Header baru muncul di tabel.');
   }
 
-  async function deleteAttendance(a: Attendance) {
-    const yes = await toast.confirm({
-      title: 'Hapus catatan?',
-      message: `Catatan tanggal ${fmtDayShort(a.tanggal)} akan dihapus.`,
-      type: 'danger',
-      confirmText: 'Ya, Hapus',
-    });
-    if (!yes) return;
-    try {
-      await dbDelete('penjahit_attendance', a.id);
-      await fetchAll();
-      toast.deleted('Catatan Dihapus');
-    } catch (e) { toast.error('Gagal', String(e)); }
-  }
-
   async function handleDeletePaket(p: Paket) {
     const yes = await toast.confirm({
       title: `Hapus paket "${p.nama}"?`,
@@ -726,13 +711,7 @@ export default function LineJahitPage() {
       )}
 
       {activeMenu === 'kedatangan' && (
-        <KedatanganView
-          monthLabel={monthLabel}
-          month={month}
-          attendance={attendance}
-          onSubmitted={fetchAll}
-          onDelete={deleteAttendance}
-        />
+        <KedatanganView month={month} onSubmitted={fetchAll} />
       )}
 
       {editingRow && (
@@ -1137,152 +1116,17 @@ function KedatanganPenjahitForm({ defaultMonth, onSubmitted }: {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   KedatanganView — full-tab view untuk sub-menu Kedatangan Penjahit.
-   Berisi form input + history bulan + summary gaji total.
+   KedatanganView — sub-tab Kedatangan Penjahit di menu Line Jahit.
+   Cuma menampilkan FORM Pencatatan Kedatangan. History, rate gaji,
+   dan total gaji sudah dipindah ke menu Analisa · Line Jahit.
    ───────────────────────────────────────────────────────────────────── */
-function KedatanganView({ monthLabel, month, attendance, onSubmitted, onDelete }: {
-  monthLabel: string;
+function KedatanganView({ month, onSubmitted }: {
   month: string;
-  attendance: Attendance[];
   onSubmitted: () => void | Promise<void>;
-  onDelete: (a: Attendance) => void | Promise<void>;
 }) {
-  const totalStandar = attendance.reduce((s, r) => s + (Number(r.jumlah_standar) || 0), 0);
-  const totalSpecial = attendance.reduce((s, r) => s + (Number(r.jumlah_special) || 0), 0);
-  const gajiStandar = totalStandar * GAJI_STANDAR_PER_HARI;
-  const gajiSpecial = totalSpecial * GAJI_SPECIAL_PER_HARI;
-  const grandGaji = gajiStandar + gajiSpecial;
-
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-5 items-start">
-        <div className="space-y-4">
-          <KedatanganPenjahitForm defaultMonth={month} onSubmitted={onSubmitted} />
-          <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-4 space-y-3">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Rate Gaji Harian</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/30 p-3">
-                <p className="text-[10px] text-yellow-300 font-semibold uppercase tracking-wider">Standar</p>
-                <p className="text-sm text-white font-bold mt-1 tabular-nums">{fmtRupiah(GAJI_STANDAR_PER_HARI)}</p>
-                <p className="text-[10px] text-slate-500">per hari</p>
-              </div>
-              <div className="rounded-lg bg-pink-500/10 border border-pink-500/30 p-3">
-                <p className="text-[10px] text-pink-300 font-semibold uppercase tracking-wider">Special</p>
-                <p className="text-sm text-white font-bold mt-1 tabular-nums">{fmtRupiah(GAJI_SPECIAL_PER_HARI)}</p>
-                <p className="text-[10px] text-slate-500">per hari</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <AttendanceHistoryPanel
-          monthLabel={monthLabel}
-          rows={attendance}
-          onDelete={onDelete}
-        />
-      </div>
-
-      <div className="rounded-2xl overflow-hidden border border-violet-500/40">
-        <div className="bg-violet-400 text-slate-900 text-center py-2 font-bold text-sm uppercase tracking-wider">
-          Total Gaji Penjahit Bulan {monthLabel.split(' ')[0]}
-        </div>
-        <table className="w-full text-sm bg-violet-50 text-slate-900">
-          <tbody>
-            <tr>
-              <td className="border border-violet-200 px-3 py-2 font-semibold">Standar ({totalStandar} kedatangan × Rp 100.000)</td>
-              <td className="border border-violet-200 px-3 py-2 text-right font-bold tabular-nums w-56">{fmtRupiah(gajiStandar)}</td>
-            </tr>
-            <tr>
-              <td className="border border-violet-200 px-3 py-2 font-semibold">Special ({totalSpecial} kedatangan × Rp 160.000)</td>
-              <td className="border border-violet-200 px-3 py-2 text-right font-bold tabular-nums">{fmtRupiah(gajiSpecial)}</td>
-            </tr>
-            <tr>
-              <td className="border border-violet-300 bg-violet-200 px-3 py-2 font-bold uppercase">Grand Total Gaji</td>
-              <td className="border border-violet-300 bg-violet-200 px-3 py-2 text-right font-bold tabular-nums text-lg">{fmtRupiah(grandGaji)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────────────
-   AttendanceHistoryPanel — daftar catatan kedatangan penjahit bulan
-   aktif + kolom gaji per-baris (standar × 100k + special × 160k).
-   ───────────────────────────────────────────────────────────────────── */
-function AttendanceHistoryPanel({ monthLabel, rows, onDelete }: {
-  monthLabel: string;
-  rows: Attendance[];
-  onDelete: (a: Attendance) => void | Promise<void>;
-}) {
-  const totalStandar = rows.reduce((s, r) => s + (Number(r.jumlah_standar) || 0), 0);
-  const totalSpecial = rows.reduce((s, r) => s + (Number(r.jumlah_special) || 0), 0);
-  const totalGaji = totalStandar * GAJI_STANDAR_PER_HARI + totalSpecial * GAJI_SPECIAL_PER_HARI;
-
-  return (
-    <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden h-fit">
-      <div className="px-4 py-2 bg-violet-200 text-slate-800 border-b border-slate-200 font-bold text-sm tracking-wide text-center">
-        KEDATANGAN PENJAHIT · {monthLabel}
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm bg-white text-slate-800 border-collapse">
-          <thead>
-            <tr className="text-[11px] text-slate-700 uppercase tracking-wide">
-              <th className="bg-violet-100 border border-slate-300 px-2 py-1.5 text-center font-semibold">Tanggal</th>
-              <th className="bg-violet-50 border border-slate-300 px-2 py-1.5 text-center font-semibold">Standar</th>
-              <th className="bg-violet-50 border border-slate-300 px-2 py-1.5 text-center font-semibold">Special</th>
-              <th className="bg-violet-100 border border-slate-300 px-2 py-1.5 text-right font-semibold">Gaji Hari Itu</th>
-              <th className="bg-violet-100 border border-slate-300 px-1 py-1.5 w-8"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="border border-slate-300 px-3 py-6 text-center text-xs text-slate-500">
-                  Belum ada catatan kedatangan bulan ini.
-                </td>
-              </tr>
-            ) : (
-              rows.map(r => {
-                const nS = Number(r.jumlah_standar) || 0;
-                const nSp = Number(r.jumlah_special) || 0;
-                const gaji = nS * GAJI_STANDAR_PER_HARI + nSp * GAJI_SPECIAL_PER_HARI;
-                return (
-                  <tr key={r.id} className="hover:bg-slate-50">
-                    <td className="border border-slate-300 px-2 py-1.5 text-center font-medium text-slate-700">{fmtDayShort(r.tanggal)}</td>
-                    <td className="border border-slate-300 px-2 py-1.5 text-center tabular-nums">{nS > 0 ? nS : <span className="text-slate-300">—</span>}</td>
-                    <td className="border border-slate-300 px-2 py-1.5 text-center tabular-nums">{nSp > 0 ? nSp : <span className="text-slate-300">—</span>}</td>
-                    <td className="border border-slate-300 px-2 py-1.5 text-right tabular-nums font-semibold text-emerald-700">{fmtRupiah(gaji)}</td>
-                    <td className="border border-slate-300 px-1 py-1 text-center">
-                      <button
-                        onClick={() => onDelete(r)}
-                        title="Hapus catatan"
-                        className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-          {rows.length > 0 && (
-            <tfoot>
-              <tr className="bg-violet-200 text-slate-900 font-bold text-xs">
-                <td className="border border-slate-400 px-2 py-2 text-center uppercase">Total</td>
-                <td className="border border-slate-400 px-2 py-2 text-center tabular-nums">{totalStandar}</td>
-                <td className="border border-slate-400 px-2 py-2 text-center tabular-nums">{totalSpecial}</td>
-                <td className="border border-slate-400 px-2 py-2 text-right tabular-nums text-emerald-800">{fmtRupiah(totalGaji)}</td>
-                <td className="border border-slate-400 px-1 py-2"></td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
+    <div className="max-w-lg">
+      <KedatanganPenjahitForm defaultMonth={month} onSubmitted={onSubmitted} />
     </div>
   );
 }
