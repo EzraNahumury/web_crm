@@ -572,8 +572,8 @@ export default function LineJahitPage() {
                         {(() => {
                           const rp = realisasiPoin(r, paketList);
                           return (
-                            <td className="border border-slate-300 px-2 py-1 text-center tabular-nums font-semibold text-sky-700">
-                              {rp > 0 ? fmtPoin(rp) : <span className="text-slate-300 font-normal">—</span>}
+                            <td className="border border-slate-300 px-2 py-1 text-center tabular-nums font-semibold text-sky-700" title={`Realisasi poin dari qty × rate/${BASE_RATE_POIN}`}>
+                              {fmtPoin(rp)}
                             </td>
                           );
                         })()}
