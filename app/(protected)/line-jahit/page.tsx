@@ -195,6 +195,20 @@ export default function LineJahitPage() {
     return g;
   }, [rows]);
 
+  // Target poin per tanggal — dari beban gaji penjahit ÷ rate dasar.
+  // beban_gaji = Σ (jumlah_standar × 100k + jumlah_special × 160k) untuk
+  // tanggal itu. target = beban_gaji / BASE_RATE_POIN.
+  const targetByDate = useMemo(() => {
+    const t: Record<string, number> = {};
+    for (const a of attendance) {
+      const key = String(a.tanggal).slice(0, 10);
+      const beban = (Number(a.jumlah_standar) || 0) * GAJI_STANDAR_PER_HARI
+                  + (Number(a.jumlah_special) || 0) * GAJI_SPECIAL_PER_HARI;
+      t[key] = (t[key] || 0) + beban / BASE_RATE_POIN;
+    }
+    return t;
+  }, [attendance]);
+
   // Summary per paket + grand total. Struktur:
   // per: { [paket_id]: { atasan, celana } }
   const summary = useMemo(() => {
@@ -568,7 +582,13 @@ export default function LineJahitPage() {
                             </td>,
                           ];
                         })}
-                        <td className="border border-slate-300 px-2 py-1 text-center text-slate-400">—</td>
+                        {i === 0 && (
+                          <td rowSpan={group.length} className="border border-slate-300 px-2 py-1 text-center align-middle tabular-nums font-semibold text-emerald-700 bg-emerald-50/40" title={`Target poin harian = beban gaji ÷ ${BASE_RATE_POIN}`}>
+                            {(targetByDate[date] || 0) > 0
+                              ? fmtPoin(targetByDate[date])
+                              : <span className="text-slate-300 font-normal">—</span>}
+                          </td>
+                        )}
                         {(() => {
                           const rp = realisasiPoin(r, paketList);
                           return (
@@ -616,7 +636,9 @@ export default function LineJahitPage() {
                         <td key={`${p.id}-c`} className="border border-slate-400 px-2 py-2 text-center">{s.celana}</td>,
                       ];
                     })}
-                    <td className="border border-slate-400 px-2 py-2 text-center"></td>
+                    <td className="border border-slate-400 px-2 py-2 text-center tabular-nums text-emerald-800">
+                      {fmtPoin(Object.values(targetByDate).reduce((a, b) => a + b, 0))}
+                    </td>
                     <td className="border border-slate-400 px-2 py-2 text-center tabular-nums text-sky-800">
                       {fmtPoin(rows.reduce((s, r) => s + realisasiPoin(r, paketList), 0))}
                     </td>
