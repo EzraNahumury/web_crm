@@ -862,6 +862,21 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Rate per paket per tipe (atasan/celana) — dipakai untuk konversi
+    // ke poin. Base rate = 5000 (Standar Atasan = 1 poin), rate lain
+    // di-scale relatif. Contoh: Klasik Atasan 7000 → 1.4 poin.
+    // Seed 3 paket default sesuai rate card AYRES.
+    name: '050_line_jahit_paket_rate',
+    up: [
+      "ALTER TABLE `line_jahit_paket` " +
+        "ADD COLUMN `rate_atasan` INT NOT NULL DEFAULT 5000, " +
+        "ADD COLUMN `rate_celana` INT NOT NULL DEFAULT 5000",
+      "UPDATE `line_jahit_paket` SET `rate_atasan` = 5000, `rate_celana` = 5000 WHERE `kolom_prefix` = 'standar'",
+      "UPDATE `line_jahit_paket` SET `rate_atasan` = 7000, `rate_celana` = 6000 WHERE `kolom_prefix` = 'klasik'",
+      "UPDATE `line_jahit_paket` SET `rate_atasan` = 8500, `rate_celana` = 6000 WHERE `kolom_prefix` = 'pro'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

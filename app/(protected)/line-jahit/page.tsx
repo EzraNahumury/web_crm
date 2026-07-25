@@ -24,6 +24,8 @@ interface Paket {
   nama: string;
   kolom_prefix: string;
   urutan: number;
+  rate_atasan: number;
+  rate_celana: number;
 }
 
 interface Attendance {
@@ -93,8 +95,33 @@ function paketColor(urutan: number): PaletteEntry {
 const GAJI_STANDAR_PER_HARI = 100_000;
 const GAJI_SPECIAL_PER_HARI = 160_000;
 
+// Rate dasar (rate terendah = 1 poin). Hardcoded 5000 supaya poin scale
+// tidak berubah kalau operator ganti rate paket Standar nanti.
+const BASE_RATE_POIN = 5000;
+
+function poinAtasan(p: Paket): number {
+  return (Number(p.rate_atasan) || BASE_RATE_POIN) / BASE_RATE_POIN;
+}
+function poinCelana(p: Paket): number {
+  return (Number(p.rate_celana) || BASE_RATE_POIN) / BASE_RATE_POIN;
+}
+
+function realisasiPoin(row: LineJahitRow, paketList: Paket[]): number {
+  let total = 0;
+  for (const p of paketList) {
+    total += (Number(row[`${p.kolom_prefix}_atasan`]) || 0) * poinAtasan(p);
+    total += (Number(row[`${p.kolom_prefix}_celana`]) || 0) * poinCelana(p);
+  }
+  return total;
+}
+
 function fmtRupiah(n: number): string {
   return 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
+}
+
+function fmtPoin(n: number): string {
+  const val = Math.round(n * 10) / 10;
+  return val.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 }
 
 type SubMenu = 'line-jahit' | 'kedatangan';
@@ -469,7 +496,10 @@ export default function LineJahitPage() {
                     const c = paketColor(p.urutan);
                     return (
                       <th key={p.id} colSpan={2} className={`${c.tableHead} border border-slate-300 px-2 py-1.5 text-center font-semibold relative`}>
-                        <span>{p.nama}</span>
+                        <div className="leading-tight">{p.nama}</div>
+                        <div className="text-[9px] font-normal text-slate-500 leading-tight" title={`Rate atasan ${fmtRupiah(p.rate_atasan)} · celana ${fmtRupiah(p.rate_celana)}`}>
+                          {fmtPoin(poinAtasan(p))} / {fmtPoin(poinCelana(p))} poin
+                        </div>
                         <button
                           type="button"
                           onClick={() => handleDeletePaket(p)}
@@ -538,9 +568,16 @@ export default function LineJahitPage() {
                             </td>,
                           ];
                         })}
-                        <td className="border border-slate-300 px-1 py-1 text-center text-slate-400">—</td>
-                        <td className="border border-slate-300 px-1 py-1 text-center text-slate-400">—</td>
-                        <td className="border border-slate-300 px-1 py-1 text-center text-slate-400">—</td>
+                        <td className="border border-slate-300 px-2 py-1 text-center text-slate-400">—</td>
+                        {(() => {
+                          const rp = realisasiPoin(r, paketList);
+                          return (
+                            <td className="border border-slate-300 px-2 py-1 text-center tabular-nums font-semibold text-sky-700">
+                              {rp > 0 ? fmtPoin(rp) : <span className="text-slate-300 font-normal">—</span>}
+                            </td>
+                          );
+                        })()}
+                        <td className="border border-slate-300 px-2 py-1 text-center text-slate-400">—</td>
                         <td className="border border-slate-300 px-1 py-1 text-center">
                           <div className="flex items-center justify-center gap-0.5">
                             <button
@@ -580,7 +617,9 @@ export default function LineJahitPage() {
                       ];
                     })}
                     <td className="border border-slate-400 px-2 py-2 text-center"></td>
-                    <td className="border border-slate-400 px-2 py-2 text-center"></td>
+                    <td className="border border-slate-400 px-2 py-2 text-center tabular-nums text-sky-800">
+                      {fmtPoin(rows.reduce((s, r) => s + realisasiPoin(r, paketList), 0))}
+                    </td>
                     <td className="border border-slate-400 px-2 py-2 text-center"></td>
                     <td className="border border-slate-400 px-1 py-2"></td>
                   </tr>
@@ -806,6 +845,8 @@ function AddPaketModal({ onCancel, onAdded }: {
 }) {
   const toast = useToast();
   const [nama, setNama] = useState('');
+  const [rateAtasan, setRateAtasan] = useState('5000');
+  const [rateCelana, setRateCelana] = useState('5000');
   const [saving, setSaving] = useState(false);
 
   const preview = nama
@@ -816,16 +857,20 @@ function AddPaketModal({ onCancel, onAdded }: {
     .slice(0, 24);
 
   const valid = /^[a-z][a-z0-9_]{0,23}$/.test(preview);
+  const nA = Number(rateAtasan) || 0;
+  const nC = Number(rateCelana) || 0;
+  const rateValid = nA >= 100 && nA <= 1000000 && nC >= 100 && nC <= 1000000;
 
   async function handleApply() {
     if (!nama.trim()) { toast.warning('Validasi', 'Isi nama paket.'); return; }
     if (!valid) { toast.warning('Validasi', 'Nama harus dimulai huruf latin (a-z).'); return; }
+    if (!rateValid) { toast.warning('Validasi', 'Rate harus antara 100 dan 1.000.000.'); return; }
     setSaving(true);
     try {
       const res = await fetch('/api/line-jahit/tambah-paket', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nama: nama.trim() }),
+        body: JSON.stringify({ nama: nama.trim(), rate_atasan: nA, rate_celana: nC }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -874,6 +919,34 @@ function AddPaketModal({ onCancel, onAdded }: {
               className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500/40"
             />
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Rate Atasan (Rp)</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={rateAtasan}
+                onChange={e => setRateAtasan(e.target.value.replace(/\D/g, ''))}
+                placeholder="5000"
+                className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500/40 tabular-nums"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">= {fmtPoin(nA / BASE_RATE_POIN)} poin</p>
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Rate Celana (Rp)</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={rateCelana}
+                onChange={e => setRateCelana(e.target.value.replace(/\D/g, ''))}
+                placeholder="5000"
+                className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500/40 tabular-nums"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">= {fmtPoin(nC / BASE_RATE_POIN)} poin</p>
+            </div>
+          </div>
+
           {nama && (
             <div className="text-[11px] text-slate-500 space-y-1">
               <div>Preview kolom: <span className="font-mono text-slate-300">{preview}_atasan</span>, <span className="font-mono text-slate-300">{preview}_celana</span></div>
@@ -889,7 +962,7 @@ function AddPaketModal({ onCancel, onAdded }: {
             className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors disabled:opacity-50">
             Batal
           </button>
-          <button onClick={handleApply} disabled={saving || !valid}
+          <button onClick={handleApply} disabled={saving || !valid || !rateValid}
             className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-emerald-500/20">
             {saving ? 'Menambahkan...' : 'Apply'}
           </button>

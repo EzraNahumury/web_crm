@@ -21,6 +21,11 @@ export async function POST(req: NextRequest) {
     if (namaInput.length > 60) {
       return NextResponse.json({ success: false, error: 'Nama paket terlalu panjang (max 60 char).' }, { status: 400 });
     }
+    const rateAtasan = Math.max(0, Math.floor(Number(body.rate_atasan) || 5000));
+    const rateCelana = Math.max(0, Math.floor(Number(body.rate_celana) || 5000));
+    if (rateAtasan < 100 || rateAtasan > 1000000 || rateCelana < 100 || rateCelana > 1000000) {
+      return NextResponse.json({ success: false, error: 'Rate harus antara 100 dan 1.000.000.' }, { status: 400 });
+    }
 
     const nama = namaInput.toUpperCase();
     // Prefix = nama di-normalize jadi identifier SQL yang aman.
@@ -78,13 +83,13 @@ export async function POST(req: NextRequest) {
     // INSERT config paket. Urutan setelah ALTER supaya kalau ALTER gagal, config
     // tidak tertinggal orphan tanpa kolom pendukung.
     const id = await insert(
-      'INSERT INTO line_jahit_paket (nama, kolom_prefix, urutan) VALUES (?, ?, ?)',
-      [nama, prefix, urutan]
+      'INSERT INTO line_jahit_paket (nama, kolom_prefix, urutan, rate_atasan, rate_celana) VALUES (?, ?, ?, ?, ?)',
+      [nama, prefix, urutan, rateAtasan, rateCelana]
     );
 
     return NextResponse.json({
       success: true,
-      data: { id, nama, kolom_prefix: prefix, urutan },
+      data: { id, nama, kolom_prefix: prefix, urutan, rate_atasan: rateAtasan, rate_celana: rateCelana },
     });
   } catch (err) {
     console.error('tambah-paket error:', err);
