@@ -597,7 +597,26 @@ export default function LineJahitPage() {
                             </td>
                           );
                         })()}
-                        <td className="border border-slate-300 px-2 py-1 text-center text-slate-400">—</td>
+                        {i === 0 && (() => {
+                          const tgt = targetByDate[date] || 0;
+                          const totalRp = group.reduce((s, gr) => s + realisasiPoin(gr, paketList), 0);
+                          if (tgt === 0 && totalRp === 0) {
+                            return (
+                              <td rowSpan={group.length} className="border border-slate-300 px-2 py-1 text-center align-middle text-slate-300">—</td>
+                            );
+                          }
+                          const diff = totalRp - tgt;
+                          const isPositive = diff >= 0;
+                          const cls = isPositive
+                            ? 'bg-emerald-50/60 text-emerald-700'
+                            : 'bg-rose-50/60 text-rose-700';
+                          const sign = isPositive ? '+' : '−';
+                          return (
+                            <td rowSpan={group.length} className={`border border-slate-300 px-2 py-1 text-center align-middle tabular-nums font-bold ${cls}`} title={`Selisih = Realisasi − Target`}>
+                              {sign}{fmtPoin(Math.abs(diff))}
+                            </td>
+                          );
+                        })()}
                         <td className="border border-slate-300 px-1 py-1 text-center">
                           <div className="flex items-center justify-center gap-0.5">
                             <button
@@ -642,7 +661,19 @@ export default function LineJahitPage() {
                     <td className="border border-slate-400 px-2 py-2 text-center tabular-nums text-sky-800">
                       {fmtPoin(rows.reduce((s, r) => s + realisasiPoin(r, paketList), 0))}
                     </td>
-                    <td className="border border-slate-400 px-2 py-2 text-center"></td>
+                    {(() => {
+                      const totalTgt = Object.values(targetByDate).reduce((a, b) => a + b, 0);
+                      const totalRp = rows.reduce((s, r) => s + realisasiPoin(r, paketList), 0);
+                      const diff = totalRp - totalTgt;
+                      const isPositive = diff >= 0;
+                      const cls = isPositive ? 'text-emerald-800' : 'text-rose-800';
+                      const sign = isPositive ? '+' : '−';
+                      return (
+                        <td className={`border border-slate-400 px-2 py-2 text-center tabular-nums ${cls}`}>
+                          {sign}{fmtPoin(Math.abs(diff))}
+                        </td>
+                      );
+                    })()}
                     <td className="border border-slate-400 px-1 py-2"></td>
                   </tr>
                 </tfoot>
