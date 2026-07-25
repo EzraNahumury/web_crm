@@ -364,12 +364,22 @@ export default function ProduksiPage() {
   const tersediaWosRaw = getWoForProgress(tersediaItems);
   const tersediaWos = (() => {
     const q = search.trim().toLowerCase();
-    if (!q) return tersediaWosRaw;
-    return tersediaWosRaw.filter(item => {
+    const filtered = q ? tersediaWosRaw.filter(item => {
       const wo = item.wo;
       return String(wo?.no_wo || '').toLowerCase().includes(q)
         || String(wo?.customer_nama || '').toLowerCase().includes(q)
         || String(wo?.paket || '').toLowerCase().includes(q);
+    }) : tersediaWosRaw;
+    // Urutkan by target selesai final ASC — deadline paling dekat naik
+    // di atas. WO tanpa target (belum ada tanggal_deadline) taruh di
+    // paling bawah supaya operator fokus ke yang urgent dulu.
+    return filtered.slice().sort((a, b) => {
+      const tA = woTargets[Number(a.wo?.id)]?.targetSelesai || '';
+      const tB = woTargets[Number(b.wo?.id)]?.targetSelesai || '';
+      if (!tA && !tB) return 0;
+      if (!tA) return 1;
+      if (!tB) return -1;
+      return tA.localeCompare(tB);
     });
   })();
   const tersediaQty = tersediaWos.reduce((sum, item) => sum + (item.wo?.jumlah || 0), 0);

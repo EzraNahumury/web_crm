@@ -127,12 +127,29 @@ export default function AntrianDesignPage() {
   const activeOrders = useMemo(() => {
     const list = antrianFiltered.filter(o => String(o.design_stage) === activeTab);
     const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(o =>
+    const filtered = !q ? list : list.filter(o =>
       String(o.customer_nama || '').toLowerCase().includes(q)
       || String(o.no_order || '').toLowerCase().includes(q)
     );
-  }, [antrianFiltered, activeTab, search]);
+    // Sort by target selesai final ASC (deadline paling dekat naik ke
+    // atas). Kalau design_awal_at kosong → fallback ke estimasi_deadline
+    // dari CS Selling. Order tanpa target sama sekali diletakkan paling
+    // bawah supaya operator fokus ke yang paling urgent.
+    return filtered.slice().sort((a, b) => {
+      const baseA = String(a.design_awal_at || '').slice(0, 10);
+      const baseB = String(b.design_awal_at || '').slice(0, 10);
+      const targetA = baseA
+        ? (computeDesignStageTargets(baseA, holidays)['REVISI_3'] || '')
+        : String(a.estimasi_deadline || '').slice(0, 10);
+      const targetB = baseB
+        ? (computeDesignStageTargets(baseB, holidays)['REVISI_3'] || '')
+        : String(b.estimasi_deadline || '').slice(0, 10);
+      if (!targetA && !targetB) return 0;
+      if (!targetA) return 1;
+      if (!targetB) return -1;
+      return targetA.localeCompare(targetB);
+    });
+  }, [antrianFiltered, activeTab, search, holidays]);
 
   // Auto-jump ke stage pertama yang punya match kalau global search
   // baru diketik dan tab aktif kosong. UX: ketik → langsung ke step
