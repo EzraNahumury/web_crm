@@ -153,6 +153,23 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ tabl
     const vals = [...Object.values(fields), id];
 
     const affected = await execute(`UPDATE \`${table}\` SET ${sets} WHERE id = ?`, vals);
+
+    // Cascade: kalau orders.customer_nama berubah, sinkronkan ke semua
+    // work_orders yang punya order_id ini. WO menyimpan snapshot
+    // customer_nama saat dibuat — tanpa cascade ini, rename di CS Selling
+    // tidak nyampai ke Produksi.
+    if (table === 'orders' && Object.prototype.hasOwnProperty.call(fields, 'customer_nama')) {
+      try {
+        await execute(
+          'UPDATE `work_orders` SET `customer_nama` = ? WHERE `order_id` = ?',
+          [fields.customer_nama, id]
+        );
+      } catch (cascadeErr) {
+        // Log tapi jangan gagalkan request utama — orders update sudah sukses.
+        console.warn('cascade customer_nama to work_orders failed:', cascadeErr);
+      }
+    }
+
     return NextResponse.json({ success: true, data: { affected } });
   } catch (err) {
     console.error(`PUT ${table} error:`, err);

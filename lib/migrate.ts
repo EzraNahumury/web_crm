@@ -877,6 +877,20 @@ const MIGRATIONS: Migration[] = [
       "UPDATE `line_jahit_paket` SET `rate_atasan` = 8500, `rate_celana` = 6000 WHERE `kolom_prefix` = 'pro'",
     ],
   },
+  {
+    // Backfill work_orders.customer_nama dari orders.customer_nama.
+    // WO copy customer_nama saat dibuat, jadi kalau operator rename
+    // customer di CS Selling setelah WO exist, WO stale. Ini fix
+    // sekali untuk data yang sudah terlanjur out-of-sync. Prevention
+    // (auto-cascade saat orders update) dilakukan di API layer.
+    name: '051_backfill_wo_customer_nama',
+    up: [
+      "UPDATE `work_orders` wo " +
+        "JOIN `orders` o ON o.id = wo.order_id " +
+        "SET wo.customer_nama = o.customer_nama " +
+        "WHERE COALESCE(wo.customer_nama, '') <> COALESCE(o.customer_nama, '')",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
