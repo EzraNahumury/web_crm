@@ -589,11 +589,11 @@ export default function LineJahitPage() {
                               : <span className="text-slate-300 font-normal">—</span>}
                           </td>
                         )}
-                        {(() => {
-                          const rp = realisasiPoin(r, paketList);
+                        {i === 0 && (() => {
+                          const totalRp = group.reduce((s, gr) => s + realisasiPoin(gr, paketList), 0);
                           return (
-                            <td className="border border-slate-300 px-2 py-1 text-center tabular-nums font-semibold text-sky-700" title={`Realisasi poin dari qty × rate/${BASE_RATE_POIN}`}>
-                              {fmtPoin(rp)}
+                            <td rowSpan={group.length} className="border border-slate-300 px-2 py-1 text-center align-middle tabular-nums font-semibold text-sky-700 bg-sky-50/40" title={`Realisasi harian = Σ qty × poin`}>
+                              {totalRp > 0 ? fmtPoin(totalRp) : <span className="text-slate-300 font-normal">—</span>}
                             </td>
                           );
                         })()}
