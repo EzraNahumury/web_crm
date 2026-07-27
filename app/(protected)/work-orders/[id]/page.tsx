@@ -1497,6 +1497,83 @@ function TabDetail({ wo }: { wo: Row }) {
   );
 }
 
+/* Searchable dropdown untuk pilih bahan. Berbeda dari native <select>,
+   membolehkan search cepat via keyboard — dipakai untuk field bahan
+   di form WO1 supaya operator gampang cari di list panjang. */
+function SearchableBahanSelect({
+  value, options, placeholder = 'Pilih bahan...', onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selectedLabel = useMemo(
+    () => options.find(o => o.value === value)?.label ?? '',
+    [options, value]
+  );
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(o => o.label.toLowerCase().includes(q));
+  }, [options, search]);
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) { setOpen(false); setSearch(''); }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+  useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full bg-[#0d1117] border border-white/10 text-white text-left focus:border-blue-500/50 focus:outline-none rounded-lg px-4 py-2.5 text-sm transition-colors cursor-pointer flex items-center justify-between gap-2"
+      >
+        <span className={selectedLabel ? 'text-white' : 'text-slate-500'}>{selectedLabel || placeholder}</span>
+        <svg className={`w-4 h-4 text-slate-500 transition-transform shrink-0 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-full bg-[#0d1117] border border-white/10 rounded-lg shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-white/10">
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Cari bahan..."
+              className="w-full bg-[#0a0e17] border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+            />
+          </div>
+          <div style={{ maxHeight: 240 }} className="overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-center text-xs text-slate-500">Tidak ada hasil</div>
+            ) : filtered.map(o => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => { onChange(o.value); setOpen(false); setSearch(''); }}
+                className={`w-full text-left px-3 py-2 text-sm transition-colors ${o.value === value ? 'bg-blue-600/20 text-blue-300' : 'text-slate-300 hover:bg-white/[0.04]'}`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ═══ Tab WO 1 — Lembar Spesifikasi ═══ */
 function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: Row; specs: Row[]; specBahan: Row[] }) {
   const [createOpen, setCreateOpen] = useState(false);
@@ -2373,20 +2450,59 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 </div>
               </div>
 
-              {/* Detail Bahan — 8 baris fixed sesuai template Excel AYRES. */}
+              {/* Detail Bahan — 8 baris fixed sesuai template + bisa tambah
+                  baris extra kalau operator perlu (contoh: variasi khusus). */}
               <div className="border-t border-white/[0.06] pt-5">
-                <h3 className="text-sm font-bold text-white mb-3">Detail Bahan (8 Bagian)</h3>
-                <p className="text-[11px] text-slate-500 mb-3">Baris bagian sesuai template AYRES — cukup pilih bahan per bagian.</p>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Detail Bahan</h3>
+                    <p className="text-[11px] text-slate-500">8 baris template + bisa tambah baris extra.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBahanRows(prev => [...prev, { id: Date.now(), bagian: '', bahan: '' }])}
+                    className="text-xs text-blue-400 border border-blue-500/25 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                  >
+                    + Tambah Baris
+                  </button>
+                </div>
                 <div className="space-y-2">
-                  {bahanRows.map(r => (
-                    <div key={r.id} className="grid grid-cols-[140px_1fr] gap-2 items-center">
-                      <label className="text-xs text-slate-300 font-medium">{r.bagian}</label>
-                      <select className={sCls} value={r.bahan} onChange={e => setBahanRows(prev => prev.map(p => p.id === r.id ? { ...p, bahan: e.target.value } : p))}>
-                        <option value="">— Pilih bahan —</option>
-                        {barangList.map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
-                      </select>
-                    </div>
-                  ))}
+                  {bahanRows.map((r, idx) => {
+                    const isFixed = idx < WO_BAHAN_ROWS.length && r.bagian === WO_BAHAN_ROWS[idx];
+                    return (
+                      <div key={r.id} className="grid grid-cols-[140px_1fr_28px] gap-2 items-center">
+                        {isFixed ? (
+                          <label className="text-xs text-slate-300 font-medium truncate" title={r.bagian}>{r.bagian}</label>
+                        ) : (
+                          <input
+                            className="w-full bg-[#0d1117] border border-white/10 text-white text-xs rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500/40 placeholder-slate-500"
+                            placeholder="Nama bagian"
+                            value={r.bagian}
+                            onChange={e => setBahanRows(prev => prev.map(p => p.id === r.id ? { ...p, bagian: e.target.value } : p))}
+                          />
+                        )}
+                        <SearchableBahanSelect
+                          value={r.bahan}
+                          options={barangList.map(b => ({ value: String(b.nama), label: String(b.nama) }))}
+                          onChange={v => setBahanRows(prev => prev.map(p => p.id === r.id ? { ...p, bahan: v } : p))}
+                        />
+                        {isFixed ? (
+                          <span />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setBahanRows(prev => prev.filter(p => p.id !== r.id))}
+                            title="Hapus baris"
+                            className="text-rose-500 hover:text-rose-300 p-1.5 rounded hover:bg-rose-500/10"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -2397,28 +2513,10 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 <input value={approvalAdmin} onChange={e => setApprovalAdmin(e.target.value)} className={iCls} />
               </div>
 
-              {/* Penanggung Jawab per Stage */}
-              <div className="border-t border-white/[0.06] pt-5">
-                <h3 className="text-sm font-bold text-white mb-3">Penanggung Jawab (14 Tahap)</h3>
-                <p className="text-[11px] text-slate-500 mb-3">Sesuai template AYRES APPAREL — nama PJ untuk tiap tahap produksi.</p>
-                <div className="space-y-2">
-                  {WO_PJ_STAGES.map((stage, i) => {
-                    const k = pjKey(stage);
-                    return (
-                      <div key={k} className="grid grid-cols-[24px_140px_1fr] gap-2 items-center">
-                        <span className="text-[11px] text-slate-500 font-mono text-right">{i + 1}.</span>
-                        <label className="text-xs text-slate-300 font-medium truncate" title={stage}>{stage}</label>
-                        <input
-                          value={pj[k] || ''}
-                          onChange={e => setPj(prev => ({ ...prev, [k]: e.target.value }))}
-                          placeholder="Nama PJ..."
-                          className="w-full bg-[#0d1117] border border-white/10 text-white text-xs rounded px-2 py-1.5 focus:outline-none focus:border-blue-500/40"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              {/* Section Penanggung Jawab dihilangkan dari form —
+                  kolomnya di spec card render tetap ada tapi biasanya
+                  kosong. State `pj` tetap di-load/save untuk backward-compat
+                  dengan legacy data yang punya nama PJ. */}
             </div>
 
             {/* Footer */}
@@ -2527,28 +2625,10 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 <input value={approvalAdmin} onChange={e => setApprovalAdmin(e.target.value)} className={iCls} />
               </div>
 
-              {/* Penanggung Jawab per Stage */}
-              <div className="border-t border-white/[0.06] pt-5">
-                <h3 className="text-sm font-bold text-white mb-3">Penanggung Jawab (14 Tahap)</h3>
-                <p className="text-[11px] text-slate-500 mb-3">Sesuai template AYRES APPAREL — nama PJ untuk tiap tahap produksi.</p>
-                <div className="space-y-2">
-                  {WO_PJ_STAGES.map((stage, i) => {
-                    const k = pjKey(stage);
-                    return (
-                      <div key={k} className="grid grid-cols-[24px_140px_1fr] gap-2 items-center">
-                        <span className="text-[11px] text-slate-500 font-mono text-right">{i + 1}.</span>
-                        <label className="text-xs text-slate-300 font-medium truncate" title={stage}>{stage}</label>
-                        <input
-                          value={pj[k] || ''}
-                          onChange={e => setPj(prev => ({ ...prev, [k]: e.target.value }))}
-                          placeholder="Nama PJ..."
-                          className="w-full bg-[#0d1117] border border-white/10 text-white text-xs rounded px-2 py-1.5 focus:outline-none focus:border-blue-500/40"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              {/* Section Penanggung Jawab dihilangkan dari form —
+                  kolomnya di spec card render tetap ada tapi biasanya
+                  kosong. State `pj` tetap di-load/save untuk backward-compat
+                  dengan legacy data yang punya nama PJ. */}
             </div>
             <div className="px-6 py-4 border-t border-white/[0.06] flex items-center justify-end gap-3 shrink-0">
               <button onClick={() => { setEditOpen(false); setEditSpec(null); resetForm(); }} className="px-5 py-2.5 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">Batal</button>
