@@ -43,6 +43,7 @@ export default function AnalisaCsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [sortDir, setSortDir] = useState<'newest' | 'oldest'>('newest');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -64,13 +65,21 @@ export default function AnalisaCsPage() {
     { name: 'Belum DP Produksi', value: totals.belum_dp_produksi, color: '#f59e0b' },
   ];
 
-  const filteredPending = pending.filter(p => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return String(p.no_order || '').toLowerCase().includes(q)
-      || String(p.customer_nama || '').toLowerCase().includes(q)
-      || String(p.customer_phone || '').toLowerCase().includes(q);
-  });
+  const filteredPending = pending
+    .filter(p => {
+      const q = search.trim().toLowerCase();
+      if (!q) return true;
+      return String(p.no_order || '').toLowerCase().includes(q)
+        || String(p.customer_nama || '').toLowerCase().includes(q)
+        || String(p.customer_phone || '').toLowerCase().includes(q);
+    })
+    .slice()
+    .sort((a, b) => {
+      const ta = String(a.tanggal_order || '').slice(0, 10);
+      const tb = String(b.tanggal_order || '').slice(0, 10);
+      const cmp = ta.localeCompare(tb);
+      return sortDir === 'newest' ? -cmp : cmp;
+    });
 
   const totalNominalPending = filteredPending.reduce((s, p) => s + p.nominal_order, 0);
   const totalDpDesainPending = filteredPending.reduce((s, p) => s + p.dp_desain, 0);
@@ -205,7 +214,23 @@ export default function AnalisaCsPage() {
                 <th className="text-right px-4 py-2.5">Nominal Order</th>
                 <th className="text-right px-4 py-2.5">DP Design</th>
                 <th className="text-right px-4 py-2.5">Kekurangan</th>
-                <th className="text-left px-4 py-2.5">Tgl Order</th>
+                <th className="text-left px-4 py-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setSortDir(sortDir === 'newest' ? 'oldest' : 'newest')}
+                    className="inline-flex items-center gap-1 hover:text-white transition-colors"
+                    title={`Sort ${sortDir === 'newest' ? 'terbaru' : 'terlama'} dulu — klik untuk toggle`}
+                  >
+                    Tgl Order
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      {sortDir === 'newest' ? (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      ) : (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                      )}
+                    </svg>
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>

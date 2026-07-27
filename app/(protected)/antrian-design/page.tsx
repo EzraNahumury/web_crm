@@ -124,6 +124,28 @@ export default function AntrianDesignPage() {
     return c;
   }, [antrianFiltered]);
 
+  // Jumlah order terlambat SLA per stage — dipakai badge merah di tab.
+  // SELESAI skip karena sudah tidak butuh warning lagi.
+  const stageLateCounts = useMemo(() => {
+    const today = todayIsoLocal();
+    const c: Record<DesignStage, number> = {
+      AWAL: 0, REVISI_1: 0, REVISI_2: 0, REVISI_3: 0, SELESAI: 0,
+    };
+    for (const o of antrianFiltered) {
+      const stage = o.design_stage as DesignStage;
+      if (stage === 'SELESAI' || !(stage in c)) continue;
+      const baseline = String(o.design_awal_at || '').slice(0, 10);
+      if (!baseline) continue;
+      const targets = computeDesignStageTargets(baseline, holidays);
+      const tStage = targets[stage];
+      const tFinal = targets['REVISI_3'];
+      const stageLate = tStage ? classifyLateDesign(tStage, today) === 'terlambat' : false;
+      const finalLate = tFinal ? classifyLateDesign(tFinal, today) === 'terlambat' : false;
+      if (stageLate || finalLate) c[stage]++;
+    }
+    return c;
+  }, [antrianFiltered, holidays]);
+
   const activeOrders = useMemo(() => {
     const list = antrianFiltered.filter(o => String(o.design_stage) === activeTab);
     const q = search.trim().toLowerCase();
@@ -383,6 +405,7 @@ export default function AntrianDesignPage() {
         <div className="flex gap-0 flex-1 min-w-0 overflow-x-auto">
           {DESIGN_STAGE_ORDER.map(stage => {
             const count = stageCounts[stage];
+            const lateCount = stageLateCounts[stage];
             const isActiveTab = activeTab === stage;
             return (
               <button key={stage} onClick={() => setActiveTab(stage)}
@@ -396,6 +419,17 @@ export default function AntrianDesignPage() {
                   <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full ${
                     isActiveTab ? 'bg-white/20 text-white' : 'bg-fuchsia-500/20 text-fuchsia-300'
                   }`}>{count}</span>
+                )}
+                {lateCount > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full bg-red-500/25 text-red-200 border border-red-500/40"
+                    title={`${lateCount} order terlambat SLA`}
+                  >
+                    <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M11.983 1.907a1.5 1.5 0 012.034 0l9.5 8.774a1.5 1.5 0 01-1.017 2.606H2.5A1.5 1.5 0 011.483 10.68l9.5-8.774a1.5 1.5 0 01.5-.319 1.5 1.5 0 01.5 0z" />
+                    </svg>
+                    {lateCount}
+                  </span>
                 )}
               </button>
             );
