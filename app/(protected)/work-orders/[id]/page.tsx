@@ -2725,7 +2725,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                   <div className="grid grid-cols-[220px_1fr_240px] border-2 border-black border-t-0">
                     {/* ─── LEFT COLUMN ─── */}
                     <div className="border-r-2 border-black flex flex-col">
-                      <div className="bg-emerald-800 text-white text-center text-[11px] font-bold py-1 border-b-2 border-black">DESAIN MOCK UP</div>
+                      <div className="bg-emerald-800 text-center text-[11px] font-bold py-1 border-b-2 border-black" style={{ color: '#fff' }}>DESAIN MOCK UP</div>
                       <div className="border-b-2 border-black bg-white" style={{ minHeight: 220 }}>
                         {spec.dokumen_desain ? (
                           <img src={spec.dokumen_desain} alt="Desain Mockup" className="w-full h-full object-contain" style={{ maxHeight: 300 }} />
@@ -2754,7 +2754,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
 
                     {/* ─── MIDDLE COLUMN ─── */}
                     <div className="border-r-2 border-black flex flex-col">
-                      <div className="bg-black text-white text-center text-[11px] font-bold py-1 border-b-2 border-black">PATTERN</div>
+                      <div className="bg-black text-center text-[11px] font-bold py-1 border-b-2 border-black" style={{ color: '#fff' }}>PATTERN</div>
                       <div className="border-b-2 border-black bg-white flex-1" style={{ minHeight: 380 }}>
                         {spec.dokumen_pattern ? (
                           <img src={spec.dokumen_pattern} alt="Pattern" className="w-full h-full object-contain" style={{ maxHeight: 480 }} />
@@ -2764,11 +2764,11 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                       </div>
                       <div className="grid grid-cols-2 border-b-2 border-black">
                         <div className="border-r-2 border-black">
-                          <div className="bg-black text-white text-center text-[11px] font-bold py-1 border-b-2 border-black">Font &amp; Number</div>
+                          <div className="bg-black text-center text-[11px] font-bold py-1 border-b-2 border-black" style={{ color: '#fff' }}>Font &amp; Number</div>
                           <div className="p-2 text-[11px] min-h-[70px] whitespace-pre-wrap">{spec.font_nomor || ''}</div>
                         </div>
                         <div>
-                          <div className="bg-black text-white text-center text-[11px] font-bold py-1 border-b-2 border-black">Approval Admin / Data</div>
+                          <div className="bg-black text-center text-[11px] font-bold py-1 border-b-2 border-black" style={{ color: '#fff' }}>Approval Admin / Data</div>
                           <div className="p-2 text-[11px] min-h-[70px] whitespace-pre-wrap">{spec.approval_admin || ''}</div>
                         </div>
                       </div>
