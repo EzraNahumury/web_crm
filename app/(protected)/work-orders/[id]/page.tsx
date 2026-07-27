@@ -2029,7 +2029,18 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       setApprovalAdmin(fresh.approval_admin || '');
       setDokDesain(fresh.dokumen_desain || null);
       setDokPattern(fresh.dokumen_pattern || null);
-      setBahanRows(rows.length > 0 ? rows.map((b: Row) => ({ id: b.id, bagian: b.bagian, bahan: b.bahan })) : [{ id: 1, bagian: '', bahan: '' }]);
+      // Bahan section = 8 baris FIXED. Lookup existing bahan dari
+      // wo_spesifikasi_bahan by bagian name (case-insensitive, via normBagian).
+      const bahanMap: Record<string, string> = {};
+      for (const r of rows) {
+        const key = normBagian(String(r.bagian)).toUpperCase();
+        bahanMap[key] = String(r.bahan || '');
+      }
+      setBahanRows(WO_BAHAN_ROWS.map((bagian, i) => ({
+        id: i + 1,
+        bagian,
+        bahan: bahanMap[bagian.toUpperCase()] || '',
+      })));
       setPj(parsePj(fresh.penanggung_jawab_json));
       setEditOpen(true);
     } catch (e) { toast.error('Gagal memuat data', String(e)); }
@@ -2073,7 +2084,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     setInfoUkuran(''); setInfoLogo(''); setInfoPacking(''); setWebbing('');
     setFontNomor(''); setKeterangan(''); setKeteranganJahit(''); setApprovalAdmin('');
     setDokDesain(null); setDokPattern(null);
-    setBahanRows([{ id: 1, bagian: '', bahan: '' }]);
+    setBahanRows(WO_BAHAN_ROWS.map((bagian, i) => ({ id: i + 1, bagian, bahan: '' })));
     setPj(emptyPj());
   }
 
@@ -2104,17 +2115,24 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     // Pre-fill paket from the WO's first paket value (user can change via dropdown)
     setPaket(String(wo.paket || '').split(',')[0].trim());
     setJumlah('');
+    // Bahan section = 8 baris FIXED sesuai template Excel AYRES. Lookup
+    // bahan dari order_detail_bahan by bagian name (case-insensitive)
+    // sebagai pre-fill; kalau tidak match, biarkan kosong.
+    let orderBahan: Row[] = [];
     try {
       const all = await dbGet('order_detail_bahan');
-      const rows = all.filter((d: Row) => String(d.order_id) === String(wo.order_id));
-      if (rows.length > 0) {
-        setBahanRows(rows.map((d: Row, i: number) => ({ id: i + 1, bagian: d.bagian, bahan: d.bahan })));
-      } else {
-        setBahanRows([{ id: 1, bagian: '', bahan: '' }]);
-      }
-    } catch {
-      setBahanRows([{ id: 1, bagian: '', bahan: '' }]);
-    }
+      orderBahan = all.filter((d: Row) => String(d.order_id) === String(wo.order_id));
+    } catch {}
+    const lookupBahan = (target: string) => {
+      const t = target.toLowerCase();
+      const match = orderBahan.find(d => String(d.bagian || '').toLowerCase() === t);
+      return match ? String(match.bahan || '') : '';
+    };
+    setBahanRows(WO_BAHAN_ROWS.map((bagian, i) => ({
+      id: i + 1,
+      bagian,
+      bahan: lookupBahan(bagian),
+    })));
     setCreateOpen(true);
   }
 
@@ -2237,14 +2255,18 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-white">Lembar Spesifikasi</h2>
+        {/* Tombol Import Spec (PDF) dihilangkan — WO1 sekarang input
+            langsung via form web. Handler + hidden file input dipertahankan
+            untuk backward-compat kalau legacy PDF perlu re-import. */}
         <input ref={importFileRef} type="file" accept=".pdf,application/pdf" onChange={handleImportSpec} className="hidden" />
         <button
-          onClick={() => importFileRef.current?.click()}
-          disabled={importing}
-          className="flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50"
+          onClick={openCreateDrawer}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors shadow-lg shadow-blue-500/20"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
-          {importing ? 'Mengimport...' : 'Import Spec (PDF)'}
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Tambah Spec
         </button>
       </div>
 
@@ -2351,19 +2373,16 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 </div>
               </div>
 
-              {/* Detail Bahan */}
+              {/* Detail Bahan — 8 baris fixed sesuai template Excel AYRES. */}
               <div className="border-t border-white/[0.06] pt-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-white">Detail Bahan</h3>
-                  <button onClick={() => setBahanRows(prev => [...prev, { id: Date.now(), bagian: '', bahan: '' }])}
-                    className="text-xs text-blue-400 border border-blue-500/20 px-3 py-1 rounded-lg hover:bg-blue-500/10 transition-colors">+ Tambah Baris Bahan</button>
-                </div>
+                <h3 className="text-sm font-bold text-white mb-3">Detail Bahan (8 Bagian)</h3>
+                <p className="text-[11px] text-slate-500 mb-3">Baris bagian sesuai template AYRES — cukup pilih bahan per bagian.</p>
                 <div className="space-y-2">
                   {bahanRows.map(r => (
-                    <div key={r.id} className="grid grid-cols-2 gap-2">
-                      <input className={iCls} placeholder="Nama bagian" value={r.bagian} onChange={e => setBahanRows(prev => prev.map(p => p.id === r.id ? { ...p, bagian: e.target.value } : p))} />
+                    <div key={r.id} className="grid grid-cols-[140px_1fr] gap-2 items-center">
+                      <label className="text-xs text-slate-300 font-medium">{r.bagian}</label>
                       <select className={sCls} value={r.bahan} onChange={e => setBahanRows(prev => prev.map(p => p.id === r.id ? { ...p, bahan: e.target.value } : p))}>
-                        <option value="">Pilih bahan...</option>
+                        <option value="">— Pilih bahan —</option>
                         {barangList.map(b => <option key={b.id} value={b.nama}>{b.nama}</option>)}
                       </select>
                     </div>
@@ -2542,15 +2561,19 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       {/* Content — empty state or spec cards */}
       {specs.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-white/[0.08] py-14 text-center">
-          <svg className="w-10 h-10 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
+          <svg className="w-10 h-10 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
           <p className="text-sm font-semibold text-white mb-1">Belum ada lembar spesifikasi</p>
-          <p className="text-xs text-slate-500 mb-4">Import file PDF untuk memulai.</p>
+          <p className="text-xs text-slate-500 mb-4">Klik tombol di bawah untuk mulai input.</p>
           <button
-            onClick={() => importFileRef.current?.click()}
-            disabled={importing}
-            className="inline-flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            onClick={openCreateDrawer}
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg shadow-blue-500/20"
           >
-            {importing ? 'Mengimport...' : 'Import Spec'}
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Tambah Spec
           </button>
         </div>
       ) : (
