@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
@@ -3177,7 +3177,173 @@ function WoImportTab({ wo, section, accept, title, helper }: {
 }
 
 function TabWO2({ wo }: { wo: Row; gudangItems: Row[]; specs: Row[]; specBahan: Row[] }) {
-  return <WoImportTab wo={wo} section="wo2" accept=".xlsx,.xls,.pdf" title="Permintaan Gudang" helper="Import file Excel (.xlsx) atau PDF — preview muncul otomatis setelah upload." />;
+  return <TabDetailUkuranTim wo={wo} />;
+}
+
+/* ═══ Tab WO 2 — Detail Ukuran Tim (image #464) ═══ */
+type UkuranRow = {
+  id: number | null;
+  urutan: number;
+  nama: string; np: string; size: string; ket1: string; ket2: string;
+  bd: string; bb: string;
+  lengan_kanan: string; lengan_kiri: string;
+  lis_lengan_kanan: string; lis_lengan_kiri: string;
+  var_kerah: string; kerah: string; penjahit: string;
+};
+const EMPTY_UKURAN_ROW = (i: number): UkuranRow => ({
+  id: null, urutan: i,
+  nama: '', np: '', size: '', ket1: '', ket2: '',
+  bd: '', bb: '',
+  lengan_kanan: '', lengan_kiri: '',
+  lis_lengan_kanan: '', lis_lengan_kiri: '',
+  var_kerah: '', kerah: '', penjahit: '',
+});
+
+function TabDetailUkuranTim({ wo }: { wo: Row }) {
+  const toast = useToast();
+  const [rows, setRows] = useState<UkuranRow[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: wo.id });
+      const sorted = data.slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
+      setRows(sorted.length > 0
+        ? sorted.map((r) => ({
+            id: Number(r.id), urutan: Number(r.urutan) || 0,
+            nama: String(r.nama || ''), np: String(r.np || ''), size: String(r.size || ''),
+            ket1: String(r.ket1 || ''), ket2: String(r.ket2 || ''),
+            bd: String(r.bd || ''), bb: String(r.bb || ''),
+            lengan_kanan: String(r.lengan_kanan || ''), lengan_kiri: String(r.lengan_kiri || ''),
+            lis_lengan_kanan: String(r.lis_lengan_kanan || ''), lis_lengan_kiri: String(r.lis_lengan_kiri || ''),
+            var_kerah: String(r.var_kerah || ''), kerah: String(r.kerah || ''),
+            penjahit: String(r.penjahit || ''),
+          }))
+        : Array.from({ length: 5 }, (_, i) => EMPTY_UKURAN_ROW(i + 1)));
+    } catch (e) { toast.error('Gagal Muat', String(e)); }
+    setLoading(false);
+  }, [wo.id, toast]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  function setField(idx: number, field: keyof UkuranRow, val: string) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+  }
+  function addRow() {
+    setRows(prev => [...prev, EMPTY_UKURAN_ROW(prev.length + 1)]);
+  }
+  async function removeRow(idx: number) {
+    const row = rows[idx];
+    if (row.id) {
+      try { await dbDelete('wo_ukuran_tim', row.id); } catch (e) { toast.error('Gagal', String(e)); return; }
+    }
+    setRows(prev => prev.filter((_, i) => i !== idx).map((r, i) => ({ ...r, urutan: i + 1 })));
+  }
+  async function saveAll() {
+    setSaving(true);
+    try {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const payload = {
+          work_order_id: wo.id, urutan: i + 1,
+          nama: r.nama, np: r.np, size: r.size, ket1: r.ket1, ket2: r.ket2,
+          bd: r.bd, bb: r.bb,
+          lengan_kanan: r.lengan_kanan, lengan_kiri: r.lengan_kiri,
+          lis_lengan_kanan: r.lis_lengan_kanan, lis_lengan_kiri: r.lis_lengan_kiri,
+          var_kerah: r.var_kerah, kerah: r.kerah, penjahit: r.penjahit,
+        };
+        if (r.id) {
+          await dbUpdate('wo_ukuran_tim', r.id, payload);
+        } else {
+          const newId = await dbCreate('wo_ukuran_tim', payload);
+          setRows(prev => prev.map((row, idx) => idx === i ? { ...row, id: Number(newId) } : row));
+        }
+      }
+      toast.success('Tersimpan', 'Detail ukuran tim disimpan.');
+      await fetchAll();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
+  if (loading) return <div className="h-64 bg-white/[0.03] rounded-xl animate-pulse" />;
+
+  const cellCls = 'w-full bg-transparent focus:bg-white/[0.03] focus:outline-none px-2 py-1.5 text-xs text-white placeholder-slate-600';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-white">Detail Ukuran Tim</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Customer: <span className="text-slate-300 font-medium">{wo.customer_nama || '-'}</span></p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
+          <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
+            {saving ? 'Menyimpan...' : 'Simpan Semua'}
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-white/[0.08] bg-[#111827]">
+        <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+          <thead>
+            <tr className="text-slate-200 font-bold text-center" style={{ background: '#065f46' }}>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-10">NO</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[140px]">NAMA</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-16">NP</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-16">SIZE</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[80px]">KET</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[80px]">KET</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-16">BD</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-16">BB</th>
+              <th colSpan={2} className="border border-white/10 px-2 py-2">LENGAN</th>
+              <th colSpan={2} className="border border-white/10 px-2 py-2">LIS LENGAN</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[90px]">VAR KERAH</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[80px]">KERAH</th>
+              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[100px]">PENJAHIT</th>
+              <th rowSpan={2} className="border border-white/10 px-1 py-2 w-8"></th>
+            </tr>
+            <tr className="text-slate-200 font-semibold text-center" style={{ background: '#047857' }}>
+              <th className="border border-white/10 px-2 py-1 w-16">KANAN</th>
+              <th className="border border-white/10 px-2 py-1 w-16">KIRI</th>
+              <th className="border border-white/10 px-2 py-1 w-16">KANAN</th>
+              <th className="border border-white/10 px-2 py-1 w-16">KIRI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{i + 1}</td>
+                <td className="border border-white/10"><input className={cellCls} value={r.nama} onChange={e => setField(i, 'nama', e.target.value)} placeholder="Nama..." /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.np} onChange={e => setField(i, 'np', e.target.value)} placeholder="NP" /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.size} onChange={e => setField(i, 'size', e.target.value)} placeholder="Size" /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.ket1} onChange={e => setField(i, 'ket1', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.ket2} onChange={e => setField(i, 'ket2', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.bd} onChange={e => setField(i, 'bd', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.bb} onChange={e => setField(i, 'bb', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.lengan_kanan} onChange={e => setField(i, 'lengan_kanan', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.lengan_kiri} onChange={e => setField(i, 'lengan_kiri', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.lis_lengan_kanan} onChange={e => setField(i, 'lis_lengan_kanan', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.lis_lengan_kiri} onChange={e => setField(i, 'lis_lengan_kiri', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.var_kerah} onChange={e => setField(i, 'var_kerah', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.kerah} onChange={e => setField(i, 'kerah', e.target.value)} /></td>
+                <td className="border border-white/10"><input className={cellCls} value={r.penjahit} onChange={e => setField(i, 'penjahit', e.target.value)} /></td>
+                <td className="border border-white/10 text-center">
+                  <button onClick={() => removeRow(i)} title="Hapus baris" className="text-rose-500 hover:text-rose-300 p-1 rounded hover:bg-rose-500/10">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 /* ═══ Tab WO 3 — Detail Order Items ═══ */
@@ -3204,10 +3370,342 @@ function serializeKets(kets: string[]): string {
 }
 
 function TabWO3({ wo }: { wo: Row; detailItems: Row[]; specs: Row[]; specBahan: Row[] }) {
-  return <WoImportTab wo={wo} section="wo3" accept=".xlsx,.xls,.pdf" title="Detail Order Items" helper="Import file Excel (.xlsx) atau PDF — preview muncul otomatis setelah upload." />;
+  return <TabFormPengiriman wo={wo} />;
 }
 
-/* ═══ Tab WO 4 — Form Pengiriman ═══ */
+/* ═══ Tab WO 3 — Form Pengiriman + Promo/Bonus (image #465) ═══ */
+type PengirimanRow = {
+  id: number | null; urutan: number;
+  nama: string; np: string; ukuran: string; keterangan: string; checklist: number;
+};
+
+function TabFormPengiriman({ wo }: { wo: Row }) {
+  const toast = useToast();
+  const [rows, setRows] = useState<PengirimanRow[]>([]);
+  const [promo, setPromo] = useState('');
+  const [bonus, setBonus] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [items, woFresh] = await Promise.all([
+        dbGet<Row>('wo_pengiriman', undefined, { work_order_id: wo.id }),
+        dbGet<Row>('work_orders', undefined, { id: wo.id }),
+      ]);
+      const sorted = items.slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
+      setRows(sorted.length > 0
+        ? sorted.map(r => ({
+            id: Number(r.id), urutan: Number(r.urutan) || 0,
+            nama: String(r.nama || ''), np: String(r.np || ''),
+            ukuran: String(r.ukuran || ''), keterangan: String(r.keterangan || ''),
+            checklist: Number(r.checklist) || 0,
+          }))
+        : Array.from({ length: 5 }, (_, i) => ({ id: null, urutan: i + 1, nama: '', np: '', ukuran: '', keterangan: '', checklist: 0 })));
+      const fresh = woFresh[0];
+      if (fresh) {
+        setPromo(String(fresh.pengiriman_promo || ''));
+        setBonus(String(fresh.pengiriman_bonus || ''));
+      }
+    } catch (e) { toast.error('Gagal Muat', String(e)); }
+    setLoading(false);
+  }, [wo.id, toast]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  function setField(idx: number, field: keyof PengirimanRow, val: string | number) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+  }
+  function addRow() {
+    setRows(prev => [...prev, { id: null, urutan: prev.length + 1, nama: '', np: '', ukuran: '', keterangan: '', checklist: 0 }]);
+  }
+  async function removeRow(idx: number) {
+    const row = rows[idx];
+    if (row.id) {
+      try { await dbDelete('wo_pengiriman', row.id); } catch (e) { toast.error('Gagal', String(e)); return; }
+    }
+    setRows(prev => prev.filter((_, i) => i !== idx).map((r, i) => ({ ...r, urutan: i + 1 })));
+  }
+  async function saveAll() {
+    setSaving(true);
+    try {
+      // Save WO-level promo/bonus
+      await dbUpdate('work_orders', wo.id, {
+        pengiriman_promo: promo || null,
+        pengiriman_bonus: bonus || null,
+      });
+      // Save rows
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const payload = {
+          work_order_id: wo.id, urutan: i + 1,
+          nama: r.nama || '', np: r.np, ukuran: r.ukuran || '',
+          keterangan: r.keterangan, checklist: r.checklist,
+        };
+        if (r.id) await dbUpdate('wo_pengiriman', r.id, payload);
+        else {
+          const newId = await dbCreate('wo_pengiriman', payload);
+          setRows(prev => prev.map((row, idx) => idx === i ? { ...row, id: Number(newId) } : row));
+        }
+      }
+      toast.success('Tersimpan', 'Form pengiriman disimpan.');
+      await fetchAll();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
+  if (loading) return <div className="h-64 bg-white/[0.03] rounded-xl animate-pulse" />;
+
+  const cellCls = 'w-full bg-transparent focus:bg-white/[0.03] focus:outline-none px-2 py-1.5 text-xs text-white placeholder-slate-600';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-white">Form Pengiriman</h2>
+        <div className="flex items-center gap-2">
+          <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
+          <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
+            {saving ? 'Menyimpan...' : 'Simpan Semua'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
+        <div className="rounded-xl border border-white/[0.08] bg-[#111827] overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-200 font-bold text-center" style={{ background: '#065f46' }}>
+                <th className="border border-white/10 px-2 py-2 w-10">NO</th>
+                <th className="border border-white/10 px-2 py-2 min-w-[160px]">NAMA</th>
+                <th className="border border-white/10 px-2 py-2 w-20">NP</th>
+                <th className="border border-white/10 px-2 py-2 w-20">SIZE</th>
+                <th className="border border-white/10 px-2 py-2 min-w-[140px]">KET</th>
+                <th className="border border-white/10 px-2 py-2 w-24">CHECKLIST</th>
+                <th className="border border-white/10 px-1 py-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                  <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{i + 1}</td>
+                  <td className="border border-white/10"><input className={cellCls} value={r.nama} onChange={e => setField(i, 'nama', e.target.value)} placeholder="Nama..." /></td>
+                  <td className="border border-white/10"><input className={cellCls} value={r.np} onChange={e => setField(i, 'np', e.target.value)} /></td>
+                  <td className="border border-white/10"><input className={cellCls} value={r.ukuran} onChange={e => setField(i, 'ukuran', e.target.value)} /></td>
+                  <td className="border border-white/10"><input className={cellCls} value={r.keterangan} onChange={e => setField(i, 'keterangan', e.target.value)} /></td>
+                  <td className="border border-white/10 text-center">
+                    <input type="checkbox" checked={r.checklist === 1} onChange={e => setField(i, 'checklist', e.target.checked ? 1 : 0)} className="w-4 h-4 accent-emerald-500 cursor-pointer" />
+                  </td>
+                  <td className="border border-white/10 text-center">
+                    <button onClick={() => removeRow(i)} title="Hapus baris" className="text-rose-500 hover:text-rose-300 p-1 rounded hover:bg-rose-500/10">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/[0.08] bg-[#111827] overflow-hidden">
+            <div className="text-slate-200 font-bold text-center py-2 text-xs" style={{ background: '#3b82f6' }}>PROMO</div>
+            <textarea value={promo} onChange={e => setPromo(e.target.value)} placeholder="Catat promo aktif..." className="w-full min-h-[140px] bg-transparent text-white text-xs px-3 py-2 focus:outline-none resize-none" />
+          </div>
+          <div className="rounded-xl border border-white/[0.08] bg-[#111827] overflow-hidden">
+            <div className="text-slate-200 font-bold text-center py-2 text-xs" style={{ background: '#3b82f6' }}>BONUS</div>
+            <textarea value={bonus} onChange={e => setBonus(e.target.value)} placeholder="Catat bonus (jersey extra, ongkir, dll)..." className="w-full min-h-[140px] bg-transparent text-white text-xs px-3 py-2 focus:outline-none resize-none" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ Tab WO 4 — Form Permintaan Gudang (image #466) ═══ */
+const WO4_ITEMS = [
+  'FULL BODY', 'FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION',
+  'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS',
+  'AUTENTIC', 'WEBBING', 'WASHTAG', 'ELASTIC PANTS',
+  'DTF SPONSOR', 'POLIFLEX', 'DTF SIZE',
+];
+const WO4_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL'];
+
+type GudangRow = {
+  id: number | null; urutan: number;
+  kategori: string; bagian: string; bahan: string; warna: string; kuantitas: number;
+  isFixed?: boolean;
+};
+
 function TabWO4({ wo }: { wo: Row; detailItems: Row[] }) {
-  return <WoImportTab wo={wo} section="wo4" accept=".xlsx,.xls,.pdf" title="Form Pengiriman" helper="Import file Excel (.xlsx) atau PDF — preview muncul otomatis setelah upload." />;
+  return <TabFormPermintaanGudang wo={wo} />;
+}
+
+function TabFormPermintaanGudang({ wo }: { wo: Row }) {
+  const toast = useToast();
+  const [rows, setRows] = useState<GudangRow[]>([]);
+  const [barangList, setBarangList] = useState<Row[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { dbGet('barang').then(setBarangList).catch(() => {}); }, []);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const items = await dbGet<Row>('wo_permintaan_gudang', undefined, { work_order_id: wo.id });
+      const sorted = items.slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
+      const byBagian: Record<string, Row> = {};
+      for (const r of sorted) byBagian[String(r.bagian || '').toUpperCase()] = r;
+      // Assemble: 16 fixed items + 6 fixed sizes + extras
+      const assembled: GudangRow[] = [];
+      let idx = 1;
+      for (const it of WO4_ITEMS) {
+        const found = byBagian[it];
+        assembled.push({
+          id: found ? Number(found.id) : null,
+          urutan: idx++, kategori: 'BAHAN_UTAMA',
+          bagian: it, bahan: String(found?.bahan || ''),
+          warna: String(found?.warna || ''), kuantitas: Number(found?.kuantitas) || 0,
+          isFixed: true,
+        });
+      }
+      for (const sz of WO4_SIZES) {
+        const found = byBagian[sz];
+        assembled.push({
+          id: found ? Number(found.id) : null,
+          urutan: idx++, kategori: 'MATERIAL_TAMBAHAN',
+          bagian: sz, bahan: String(found?.bahan || ''),
+          warna: String(found?.warna || ''), kuantitas: Number(found?.kuantitas) || 0,
+          isFixed: true,
+        });
+      }
+      // Extras: any items in DB not in the fixed list
+      const fixedSet = new Set([...WO4_ITEMS, ...WO4_SIZES].map(s => s.toUpperCase()));
+      for (const r of sorted) {
+        const b = String(r.bagian || '').toUpperCase();
+        if (!fixedSet.has(b)) {
+          assembled.push({
+            id: Number(r.id), urutan: idx++, kategori: String(r.kategori || 'BAHAN_UTAMA'),
+            bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
+            warna: String(r.warna || ''), kuantitas: Number(r.kuantitas) || 0,
+            isFixed: false,
+          });
+        }
+      }
+      setRows(assembled);
+    } catch (e) { toast.error('Gagal Muat', String(e)); }
+    setLoading(false);
+  }, [wo.id, toast]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  function setField(idx: number, field: keyof GudangRow, val: string | number) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+  }
+  function addRow() {
+    setRows(prev => [...prev, { id: null, urutan: prev.length + 1, kategori: 'BAHAN_UTAMA', bagian: '', bahan: '', warna: '', kuantitas: 0, isFixed: false }]);
+  }
+  async function removeRow(idx: number) {
+    const row = rows[idx];
+    if (row.isFixed) return;
+    if (row.id) {
+      try { await dbDelete('wo_permintaan_gudang', row.id); } catch (e) { toast.error('Gagal', String(e)); return; }
+    }
+    setRows(prev => prev.filter((_, i) => i !== idx));
+  }
+  async function saveAll() {
+    setSaving(true);
+    try {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        // Skip fixed rows that have no data (empty bahan/warna/kuantitas)
+        if (r.isFixed && !r.bahan && !r.warna && !r.kuantitas && !r.id) continue;
+        const payload = {
+          work_order_id: wo.id, urutan: i + 1,
+          kategori: r.kategori || 'BAHAN_UTAMA',
+          bagian: r.bagian || '', bahan: r.bahan || '',
+          warna: r.warna || null, kuantitas: Number(r.kuantitas) || 0,
+        };
+        if (r.id) await dbUpdate('wo_permintaan_gudang', r.id, payload);
+        else {
+          const newId = await dbCreate('wo_permintaan_gudang', payload);
+          setRows(prev => prev.map((row, idx) => idx === i ? { ...row, id: Number(newId) } : row));
+        }
+      }
+      toast.success('Tersimpan', 'Form permintaan gudang disimpan.');
+      await fetchAll();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
+  if (loading) return <div className="h-64 bg-white/[0.03] rounded-xl animate-pulse" />;
+
+  const cellCls = 'w-full bg-transparent focus:bg-white/[0.03] focus:outline-none px-2 py-1.5 text-xs text-white placeholder-slate-600';
+  const bahanOptions = barangList.map(b => ({ value: String(b.nama), label: String(b.nama) }));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-white">Form Permintaan Gudang</h2>
+        <div className="flex items-center gap-2">
+          <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
+          <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
+            {saving ? 'Menyimpan...' : 'Simpan Semua'}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-white/[0.08] bg-[#111827] overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-slate-200 font-bold text-center" style={{ background: '#f59e0b' }}>
+              <th className="border border-white/10 px-2 py-2 w-10" style={{ color: '#0f172a' }}>NO</th>
+              <th className="border border-white/10 px-2 py-2 min-w-[180px]" style={{ color: '#0f172a' }}>ITEM</th>
+              <th className="border border-white/10 px-2 py-2 min-w-[200px]" style={{ color: '#0f172a' }}>BAHAN</th>
+              <th className="border border-white/10 px-2 py-2 min-w-[120px]" style={{ color: '#0f172a' }}>WARNA</th>
+              <th className="border border-white/10 px-2 py-2 w-24" style={{ color: '#0f172a' }}>KUANTITAS</th>
+              <th className="border border-white/10 px-1 py-2 w-8"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className={`border-b border-white/[0.04] hover:bg-white/[0.02] ${!r.isFixed ? 'bg-blue-500/[0.03]' : ''}`}>
+                <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{i + 1}</td>
+                <td className="border border-white/10">
+                  {r.isFixed ? (
+                    <span className="block px-2 py-1.5 text-xs text-slate-200 font-semibold">{r.bagian}</span>
+                  ) : (
+                    <input className={cellCls} value={r.bagian} onChange={e => setField(i, 'bagian', e.target.value)} placeholder="Nama item extra..." />
+                  )}
+                </td>
+                <td className="border border-white/10 p-1">
+                  <SearchableBahanSelect
+                    value={r.bahan}
+                    options={bahanOptions}
+                    onChange={v => setField(i, 'bahan', v)}
+                    placeholder="Pilih bahan..."
+                  />
+                </td>
+                <td className="border border-white/10"><input className={cellCls} value={r.warna} onChange={e => setField(i, 'warna', e.target.value)} placeholder="Warna..." /></td>
+                <td className="border border-white/10"><input type="text" inputMode="numeric" className={cellCls + ' text-right tabular-nums'} value={r.kuantitas || ''} onChange={e => setField(i, 'kuantitas', Number(e.target.value.replace(/\D/g, '')) || 0)} /></td>
+                <td className="border border-white/10 text-center">
+                  {!r.isFixed && (
+                    <button onClick={() => removeRow(i)} title="Hapus baris" className="text-rose-500 hover:text-rose-300 p-1 rounded hover:bg-rose-500/10">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                      </svg>
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus.</p>
+    </div>
+  );
 }

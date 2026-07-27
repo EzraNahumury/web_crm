@@ -924,6 +924,48 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `wo_spesifikasi` ADD COLUMN `penanggung_jawab_json` LONGTEXT NULL",
     ],
   },
+  {
+    // WO2 web form: Detail Ukuran Tim. Satu row per anggota tim dengan
+    // pengukuran per bagian (BD, BB, Lengan Kanan/Kiri, Lis Lengan
+    // Kanan/Kiri, Var Kerah, Kerah) + info umum (nama, NP, size, dua
+    // KET, penjahit). NP = nomor punggung.
+    name: '054_wo_ukuran_tim',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `wo_ukuran_tim` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`work_order_id` INT UNSIGNED NOT NULL," +
+        "`urutan` INT NOT NULL DEFAULT 0," +
+        "`nama` VARCHAR(150) NULL," +
+        "`np` VARCHAR(30) NULL," +
+        "`size` VARCHAR(30) NULL," +
+        "`ket1` VARCHAR(100) NULL," +
+        "`ket2` VARCHAR(100) NULL," +
+        "`bd` VARCHAR(30) NULL," +
+        "`bb` VARCHAR(30) NULL," +
+        "`lengan_kanan` VARCHAR(30) NULL," +
+        "`lengan_kiri` VARCHAR(30) NULL," +
+        "`lis_lengan_kanan` VARCHAR(30) NULL," +
+        "`lis_lengan_kiri` VARCHAR(30) NULL," +
+        "`var_kerah` VARCHAR(50) NULL," +
+        "`kerah` VARCHAR(50) NULL," +
+        "`penjahit` VARCHAR(100) NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_wut_wo` (`work_order_id`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
+  {
+    // WO3 Form Pengiriman punya section PROMO + BONUS di sisi kanan
+    // (di luar tabel per-anggota). Disimpan di work_orders langsung
+    // sebagai kolom TEXT — 1 promo + 1 bonus per WO, bukan per item.
+    name: '055_work_orders_pengiriman_promo_bonus',
+    up: [
+      "ALTER TABLE `work_orders` ADD COLUMN `pengiriman_promo` TEXT NULL",
+      "ALTER TABLE `work_orders` ADD COLUMN `pengiriman_bonus` TEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
