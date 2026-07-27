@@ -994,13 +994,15 @@ export default function WorkOrderDetailPage() {
       const { default: autoTable } = await import('jspdf-autotable');
 
       // Refetch fresh data so unsaved-then-saved changes show up immediately
-      const [freshSpecs, freshSpecBahan, freshGudang, freshDetail, freshShip] = await Promise.all([
+      const [freshSpecs, freshSpecBahan, freshGudang, freshShip, freshUkuran, freshWoArr] = await Promise.all([
         dbGet('wo_spesifikasi').then(all => all.filter((r: Row) => String(r.work_order_id) === String(wo.id))).catch(() => specs),
         dbGet('wo_spesifikasi_bahan').catch(() => specBahan),
         dbGet('wo_permintaan_gudang').then(all => all.filter((r: Row) => String(r.work_order_id) === String(wo.id))).catch(() => gudangItems),
-        dbGet('wo_detail_items').then(all => all.filter((r: Row) => String(r.work_order_id) === String(wo.id))).catch(() => detailItems),
         dbGet('wo_pengiriman').then(all => all.filter((r: Row) => String(r.work_order_id) === String(wo.id))).catch(() => []),
+        dbGet('wo_ukuran_tim').then(all => all.filter((r: Row) => String(r.work_order_id) === String(wo.id))).catch(() => []),
+        dbGet('work_orders', undefined, { id: wo.id }).catch(() => []),
       ]);
+      const freshWoData = (freshWoArr as Row[])[0] || {};
 
       const pdf = new jsPDF('l', 'mm', 'a4');
       const pageW = 297, pageH = 210, margin = 5;
@@ -1022,87 +1024,70 @@ export default function WorkOrderDetailPage() {
         pdf.addImage(imgData, 'PNG', margin, margin, contentW, contentH);
       }
 
-      // === WO 2: Permintaan Gudang ===
-      // Structure derived from specs (same as TabWO2), warna/kuantitas merged from saved gudang data.
-      const bahanUtamaRows: { bagian: string; bahan: string; warna: string; kuantitas: number }[] = [];
-      const aksesorisPreset: { bagian: string; bahan: string }[] = [];
-      for (const spec of freshSpecs) {
-        const rows = freshSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
-        for (const r of rows) bahanUtamaRows.push({ bagian: r.bagian || '', bahan: r.bahan || '-', warna: '', kuantitas: 0 });
-        if (spec.tagline) aksesorisPreset.push({ bagian: 'Tagline', bahan: spec.tagline });
-        if (spec.authentic) aksesorisPreset.push({ bagian: 'Keaslian', bahan: spec.authentic });
-        if (spec.info_ukuran) aksesorisPreset.push({ bagian: 'Info Ukuran', bahan: spec.info_ukuran });
-        if (spec.info_logo) aksesorisPreset.push({ bagian: 'Info Logo', bahan: spec.info_logo });
-        if (spec.info_packing) aksesorisPreset.push({ bagian: 'Info Packing', bahan: spec.info_packing });
-        if (spec.webbing) aksesorisPreset.push({ bagian: 'Webbing', bahan: spec.webbing });
-        if (spec.font_nomor) aksesorisPreset.push({ bagian: 'Font & Nomor', bahan: spec.font_nomor });
-      }
-      const savedBu = freshGudang.filter((r: Row) => r.kategori === 'BAHAN_UTAMA');
-      const savedAks = freshGudang.filter((r: Row) => r.kategori === 'AKSESORIS');
-      const savedMat = freshGudang.filter((r: Row) => r.kategori === 'MATERIAL_TAMBAHAN');
-      // Hydrate bahan utama warna/kuantitas
-      for (const row of bahanUtamaRows) {
-        const m = savedBu.find((g: Row) => g.bagian === row.bagian && g.bahan === row.bahan);
-        if (m) { row.warna = m.warna || ''; row.kuantitas = Number(m.kuantitas) || 0; }
-      }
-      // Hydrate aksesoris preset rows
-      const aksesorisRows: { bagian: string; bahan: string; warna: string; kuantitas: number }[] = aksesorisPreset.map(p => {
-        const m = savedAks.find((g: Row) => g.bagian === p.bagian && g.bahan === p.bahan);
-        return { ...p, warna: m?.warna || '', kuantitas: Number(m?.kuantitas) || 0 };
-      });
-      // Extra aksesoris (saved but not in preset)
-      const presetKeys = new Set(aksesorisPreset.map(r => `${r.bagian}|${r.bahan}`));
-      const extraAksRows = savedAks
-        .filter((g: Row) => !presetKeys.has(`${g.bagian}|${g.bahan}`))
-        .map((g: Row) => ({ bagian: g.bagian || '', bahan: g.bahan || '', warna: g.warna || '', kuantitas: Number(g.kuantitas) || 0 }));
-      const allAks = [...aksesorisRows, ...extraAksRows];
-      const matRows = savedMat.map((g: Row) => ({ bagian: g.bagian || '', bahan: g.bahan || '', warna: g.warna || '', kuantitas: Number(g.kuantitas) || 0 }));
-
-      const hasWo2Data = bahanUtamaRows.length > 0 || allAks.length > 0 || matRows.length > 0;
-      if (hasWo2Data) {
+      // === WO 2: Detail Ukuran Tim ===
+      if (freshUkuran.length > 0) {
         if (!firstPage) pdf.addPage();
         firstPage = false;
         pdf.setFontSize(14);
-        pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}`, 14, 18);
+        pdf.text(`DETAIL UKURAN TIM - ${customer.toUpperCase()}`, 14, 18);
         pdf.setFontSize(10);
         pdf.text(`No WO: ${woName}`, 14, 26);
 
+        // Load kolom config dari work_orders (atau default).
+        const kolom = parseWo2Kolom(freshWoData.wo2_kolom_json as string);
+        const hasGrpChildren = kolom.some((k: Wo2Col) => k.children && k.children.length > 0);
+        // Build head — row 1 parent, row 2 children (kalau ada grouped).
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const allWo2Rows: any[] = [];
-        let no = 1;
-        for (const r of bahanUtamaRows) {
-          allWo2Rows.push([String(no++), r.bagian, r.bahan, r.warna, String(r.kuantitas)]);
-        }
-        if (allAks.length > 0) {
-          allWo2Rows.push([{ content: 'AKSESORIS', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } }]);
-          for (const r of allAks) {
-            allWo2Rows.push([String(no++), r.bagian, r.bahan, r.warna, String(r.kuantitas)]);
+        const headRow1: any[] = [{ content: 'NO', rowSpan: hasGrpChildren ? 2 : 1 }];
+        const headRow2: string[] = [];
+        for (const k of kolom) {
+          if (k.children && k.children.length > 0) {
+            headRow1.push({ content: k.label, colSpan: k.children.length });
+            for (const c of k.children) headRow2.push(c.label);
+          } else {
+            headRow1.push({ content: k.label, rowSpan: hasGrpChildren ? 2 : 1 });
           }
         }
-        if (matRows.length > 0) {
-          allWo2Rows.push([{ content: 'MATERIAL TAMBAHAN', colSpan: 5, styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] } }]);
-          for (const r of matRows) {
-            allWo2Rows.push([String(no++), r.bagian, r.bahan, r.warna, String(r.kuantitas)]);
-          }
+        const head = hasGrpChildren ? [headRow1, headRow2] : [headRow1];
+        // Flatten leaf keys (id) untuk map value per row.
+        const leafIds: string[] = [];
+        for (const k of kolom) {
+          if (k.children && k.children.length > 0) for (const c of k.children) leafIds.push(c.id);
+          else leafIds.push(k.id);
         }
+        const body = freshUkuran.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => {
+          let dj: Record<string, string> = {};
+          if (r.data_json) { try { dj = JSON.parse(String(r.data_json)) || {}; } catch {} }
+          // Merge legacy + data_json (data_json wins).
+          const legacy: Record<string, string> = {
+            nama: String(r.nama || ''), np: String(r.np || ''), size: String(r.size || ''),
+            ket1: String(r.ket1 || ''), ket2: String(r.ket2 || ''),
+            bd: String(r.bd || ''), bb: String(r.bb || ''),
+            lengan_kanan: String(r.lengan_kanan || ''), lengan_kiri: String(r.lengan_kiri || ''),
+            lis_lengan_kanan: String(r.lis_lengan_kanan || ''), lis_lengan_kiri: String(r.lis_lengan_kiri || ''),
+            var_kerah: String(r.var_kerah || ''), kerah: String(r.kerah || ''),
+            penjahit: String(r.penjahit || ''),
+          };
+          const merged = { ...legacy, ...dj };
+          return [String(i + 1), ...leafIds.map(k => merged[k] || '')];
+        });
         autoTable(pdf, {
           startY: 32,
-          head: [['NO', 'BAGIAN', 'BAHAN', 'WARNA', 'KUANTITAS']],
-          body: allWo2Rows,
-          styles: { fontSize: 9 },
-          headStyles: { fillColor: [30, 58, 95] },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          head: head as any,
+          body,
+          styles: { fontSize: 8, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          headStyles: { fillColor: [6, 95, 70], halign: 'center', valign: 'middle', textColor: 255, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          bodyStyles: { halign: 'center' },
         });
       }
 
-      // === WO 3: Detail Order Items ===
-      if (freshDetail.length > 0) {
-        if (!firstPage) pdf.addPage();
-        firstPage = false;
-        pdf.setFontSize(14);
-        pdf.text(`DETAIL ORDER ITEMS - ${woName}`, 14, 18);
-        pdf.setFontSize(10);
-        pdf.text(`Customer: ${customer}`, 14, 26);
-
+      // === WO 3 LEGACY (dead code — WO3 sekarang Form Pengiriman, handled below).
+      // Block ini di-disable via `false` supaya kompilasi tetap jalan tanpa
+      // dead-code warning, sekaligus jaga logic legacy kalau nanti perlu
+      // di-restore. Bisa dihapus setelah verifikasi produksi.
+      if (false as boolean) {
+        const freshDetail: Row[] = [];
         // Build bagian columns from spec_bahan
         const specIdSet = new Set(freshSpecs.map((s: Row) => String(s.id)));
         const rel = freshSpecBahan.filter((b: Row) => specIdSet.has(String(b.spesifikasi_id)));
@@ -1283,36 +1268,106 @@ export default function WorkOrderDetailPage() {
         });
       }
 
-      // === WO 4: Form Pengiriman ===
-      if (freshDetail.length > 0) {
+      // === WO 3: Form Pengiriman + PROMO/BONUS ===
+      if (freshShip.length > 0 || freshWoData.pengiriman_promo || freshWoData.pengiriman_bonus) {
         if (!firstPage) pdf.addPage();
         firstPage = false;
         pdf.setFontSize(14);
-        pdf.text(`FORM PENGIRIMAN ${customer.toUpperCase()} (${paket})`, 14, 18);
-
-        const shipMap: Record<string, Row> = {};
-        for (const s of freshShip) shipMap[String(s.urutan)] = s;
+        pdf.text(`FORM PENGIRIMAN - ${customer.toUpperCase()}`, 14, 18);
+        pdf.setFontSize(10);
+        pdf.text(`No WO: ${woName} · Paket: ${paket}`, 14, 26);
 
         autoTable(pdf, {
-          startY: 26,
-          head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'BONUS', 'CHECK']],
-          body: freshDetail.map((item: Row, i: number) => {
-            const existing = shipMap[String(i + 1)];
-            const kets = parseKets(item.keterangan).filter(k => k.trim()).join(' | ');
-            return [i + 1, item.nama || '', item.np || '', item.ukuran || '', kets, existing?.bonus || '', (existing?.checklist === 1 || existing?.checklist === true) ? 'v' : ''];
-          }),
-          styles: { fontSize: 9 },
-          headStyles: { fillColor: [30, 58, 95] },
+          startY: 32,
+          head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'CHECK']],
+          body: freshShip.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
+            String(i + 1),
+            String(r.nama || ''),
+            String(r.np || ''),
+            String(r.ukuran || ''),
+            String(r.keterangan || ''),
+            (r.checklist === 1 || r.checklist === true) ? 'v' : '',
+          ]),
+          styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          headStyles: { fillColor: [6, 95, 70], textColor: 255, halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
+          bodyStyles: { halign: 'center' },
+          columnStyles: { 1: { halign: 'left' }, 4: { halign: 'left' } },
         });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const finalY = ((pdf as any).lastAutoTable?.finalY || 100) + 20;
+        let curY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
+        // PROMO + BONUS boxes side by side (di bawah tabel).
+        const promo = String(freshWoData.pengiriman_promo || '');
+        const bonus = String(freshWoData.pengiriman_bonus || '');
+        if (promo || bonus) {
+          const boxW = (pageW - margin * 2 - 4) / 2;
+          const boxH = 40;
+          // PROMO
+          pdf.setFillColor(59, 130, 246);
+          pdf.rect(margin, curY, boxW, 7, 'F');
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFontSize(10);
+          pdf.text('PROMO', margin + boxW / 2, curY + 5, { align: 'center' });
+          pdf.setDrawColor(0);
+          pdf.rect(margin, curY + 7, boxW, boxH);
+          pdf.setTextColor(0);
+          pdf.setFontSize(9);
+          const promoLines = pdf.splitTextToSize(promo || '-', boxW - 4);
+          pdf.text(promoLines, margin + 2, curY + 12);
+          // BONUS
+          const bx = margin + boxW + 4;
+          pdf.setFillColor(59, 130, 246);
+          pdf.rect(bx, curY, boxW, 7, 'F');
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFontSize(10);
+          pdf.text('BONUS', bx + boxW / 2, curY + 5, { align: 'center' });
+          pdf.setDrawColor(0);
+          pdf.rect(bx, curY + 7, boxW, boxH);
+          pdf.setTextColor(0);
+          pdf.setFontSize(9);
+          const bonusLines = pdf.splitTextToSize(bonus || '-', boxW - 4);
+          pdf.text(bonusLines, bx + 2, curY + 12);
+          curY += boxH + 20;
+        } else {
+          curY += 20;
+        }
+        // Tanda tangan
         pdf.setFontSize(10);
-        pdf.text('Dibuat Oleh,', 14, finalY);
-        pdf.text('Dicek Oleh,', 85, finalY);
-        pdf.text('Diterima Oleh,', 155, finalY);
-        pdf.text('( Admin )', 14, finalY + 25);
-        pdf.text('( QC / Packing )', 85, finalY + 25);
-        pdf.text(`( ${customer} )`, 155, finalY + 25);
+        pdf.text('Dibuat Oleh,', 14, curY);
+        pdf.text('Dicek Oleh,', 85, curY);
+        pdf.text('Diterima Oleh,', 155, curY);
+        pdf.text('( Admin )', 14, curY + 25);
+        pdf.text('( QC / Packing )', 85, curY + 25);
+        pdf.text(`( ${customer} )`, 155, curY + 25);
+      }
+
+      // === WO 4: Form Permintaan Gudang ===
+      if (freshGudang.length > 0) {
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.setFontSize(14);
+        pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}`, 14, 18);
+        pdf.setFontSize(10);
+        pdf.text(`No WO: ${woName}`, 14, 26);
+
+        autoTable(pdf, {
+          startY: 32,
+          head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
+          body: freshGudang.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
+            String(i + 1),
+            String(r.bagian || ''),
+            String(r.bahan || ''),
+            String(r.warna || ''),
+            String(r.kuantitas || 0),
+          ]),
+          styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
+          bodyStyles: { halign: 'left' },
+          columnStyles: {
+            0: { cellWidth: 15, halign: 'center' },
+            3: { cellWidth: 30 },
+            4: { cellWidth: 25, halign: 'right' },
+          },
+        });
       }
 
       if (firstPage) {
