@@ -3304,7 +3304,22 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
     });
   }
   function handleDeleteKolom(colId: string) {
-    setKolom(prev => prev.filter(k => k.id !== colId));
+    setKolom(prev => {
+      // Case 1: colId adalah parent (top-level) → drop parent + semua child.
+      if (prev.some(k => k.id === colId)) {
+        return prev.filter(k => k.id !== colId);
+      }
+      // Case 2: colId adalah child → cari parent yang punya, drop child itu.
+      // Kalau setelah drop parent-nya jadi kosong (0 children), drop parent juga.
+      return prev.map(k => {
+        if (k.children && k.children.some(c => c.id === colId)) {
+          const remaining = k.children.filter(c => c.id !== colId);
+          if (remaining.length === 0) return null;
+          return { ...k, children: remaining };
+        }
+        return k;
+      }).filter((k): k is Wo2Col => k !== null);
+    });
     setDeleteHeader(null);
   }
   async function saveAll() {
