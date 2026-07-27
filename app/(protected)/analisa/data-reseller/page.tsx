@@ -4,31 +4,62 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ResellerRow = Record<string, any>;
 
-// Kolom yang biasanya ada di detail expand. Kalau ada field di DB
-// dengan nama beda, tampil di section "Field Lain" biar tidak hilang.
-const MAIN_FIELDS = ['email', 'provinsi', 'wilayah_pemasaran', 'alamat_lengkap',
-  'alamat', 'nama_usaha', 'nama_toko', 'status_reseller_ayres',
-  'status_reseller', 'jenis_reseller', 'media_penjualan',
-  'instagram', 'tiktok', 'instagram_tiktok'];
+// Mapping alias — DB reseller pakai English (FULL_NAME, WA_NUMBER, ...),
+// pick() coba semua alias case-insensitive supaya kolom apapun tetap
+// ke-detect.
+const ALIAS_NAMA = ['full_name', 'nama', 'name'];
+const ALIAS_WA = ['wa_number', 'whatsapp', 'no_hp', 'no_wa', 'phone'];
+const ALIAS_KOTA = ['city', 'kota'];
+const ALIAS_STATUS_USAHA = ['business_status', 'status_usaha'];
+const ALIAS_TANGGAL = ['tanggal', 'created_at', 'registered_at', 'createdAt'];
 
-const IMG_FIELDS = ['foto_ktp', 'foto_profil', 'foto_logo', 'foto_usaha', 'logo_usaha'];
+const ALIAS_EMAIL = ['email'];
+const ALIAS_PROVINSI = ['province', 'provinsi'];
+const ALIAS_WILAYAH = ['market_area', 'wilayah_pemasaran'];
+const ALIAS_ALAMAT = ['address', 'alamat_lengkap', 'alamat'];
+const ALIAS_NAMA_USAHA = ['business_name', 'nama_usaha', 'nama_toko'];
+const ALIAS_STATUS_RESELLER = ['reseller_status', 'status_reseller_ayres', 'status_reseller'];
+const ALIAS_JENIS_RESELLER = ['reseller_type', 'jenis_reseller'];
+const ALIAS_MEDIA = ['sales_channels', 'media_penjualan'];
+const ALIAS_INSTAGRAM = ['instagram_username', 'instagram', 'ig'];
+const ALIAS_TIKTOK = ['tiktok_username', 'tiktok', 'tt'];
 
-const CHECK_FIELDS = ['data_benar', 'setuju_sk', 'setuju_syarat',
-  'bersedia_promo', 'setuju_promo', 'terima_promo'];
+const ALIAS_FOTO_KTP = ['ktp_file', 'foto_ktp', 'ktp'];
+const ALIAS_FOTO_LOGO = ['logo_file', 'profile_file', 'foto_profil', 'foto_logo', 'logo_usaha', 'foto_usaha'];
 
-const TABLE_FIELDS = new Set([
-  'id', 'tanggal', 'created_at', 'nama', 'whatsapp', 'no_hp', 'no_wa',
-  'kota', 'status_usaha', 'password', 'updated_at',
-  ...MAIN_FIELDS, ...IMG_FIELDS, ...CHECK_FIELDS,
+const ALIAS_AGREE_DATA = ['agree_data_true', 'agree_data', 'data_benar'];
+const ALIAS_AGREE_TERMS = ['agree_terms', 'agree_sk', 'setuju_sk', 'setuju_syarat'];
+const ALIAS_AGREE_MARKETING = ['agree_marketing', 'agree_promo', 'bersedia_promo', 'setuju_promo', 'terima_promo'];
+
+const ALL_KNOWN_FIELDS = new Set([
+  'id', 'password', 'updated_at',
+  ...ALIAS_NAMA, ...ALIAS_WA, ...ALIAS_KOTA, ...ALIAS_STATUS_USAHA, ...ALIAS_TANGGAL,
+  ...ALIAS_EMAIL, ...ALIAS_PROVINSI, ...ALIAS_WILAYAH, ...ALIAS_ALAMAT,
+  ...ALIAS_NAMA_USAHA, ...ALIAS_STATUS_RESELLER, ...ALIAS_JENIS_RESELLER,
+  ...ALIAS_MEDIA, ...ALIAS_INSTAGRAM, ...ALIAS_TIKTOK,
+  ...ALIAS_FOTO_KTP, ...ALIAS_FOTO_LOGO,
+  ...ALIAS_AGREE_DATA, ...ALIAS_AGREE_TERMS, ...ALIAS_AGREE_MARKETING,
 ]);
 
-// Kalau path relatif (dimulai /), asumsikan di-host di ayreslab.id.
+// Kalau path relatif (dimulai /) atau url absolut, pakai apa adanya.
+// Kalau cuma nama file (KTP_FILE = "1784...jpg"), coba path /uploads/{file}
+// yang biasanya dipakai reseller website.
 function fullImgUrl(v: unknown): string {
   const s = String(v || '').trim();
   if (!s) return '';
   if (/^https?:\/\//.test(s)) return s;
   if (s.startsWith('/')) return 'https://ayreslab.id' + s;
-  return 'https://ayreslab.id/' + s;
+  // Just filename — tebak folder /uploads/. Kalau path beda, ganti disini.
+  return 'https://ayreslab.id/uploads/' + s;
+}
+
+// Terjemahkan value status usaha ke label yang manusiawi.
+function humanizeStatus(v: string): string {
+  const t = String(v || '').toLowerCase();
+  if (!t) return '';
+  if (t === 'never_sold' || t.includes('belum')) return 'Belum Pernah Berjualan';
+  if (t === 'has_sold' || t.includes('sudah') || t.includes('sold')) return 'Sudah Berjualan Jersey';
+  return v; // biarkan raw kalau tidak match
 }
 
 function fmtDate(v: unknown): string {
@@ -44,12 +75,31 @@ function fmtDate(v: unknown): string {
   return `${dd}/${mm}/${yy} ${hh}:${mi}`;
 }
 
+// pick — cari value dari row dengan list alias. Case-insensitive:
+// coba key persis dulu, lalu variasi UPPER + lower. Berguna karena
+// MySQL column case bervariasi antar hosting.
 function pick(row: ResellerRow, keys: string[]): string {
   for (const k of keys) {
-    const v = row[k];
-    if (v != null && String(v).trim()) return String(v);
+    for (const variant of [k, k.toUpperCase(), k.toLowerCase()]) {
+      const v = row[variant];
+      if (v != null && String(v).trim()) return String(v);
+    }
   }
   return '';
+}
+// pickBool — sama seperti pick tapi return truthy check.
+function pickBool(row: ResellerRow, keys: string[]): boolean {
+  for (const k of keys) {
+    for (const variant of [k, k.toUpperCase(), k.toLowerCase()]) {
+      if (variant in row) {
+        const v = row[variant];
+        if (v === 1 || v === true || v === '1') return true;
+        if (v === 0 || v === false || v === '0' || v == null || v === '') return false;
+        return Boolean(v);
+      }
+    }
+  }
+  return false;
 }
 
 function statusBadgeCls(s: string): string {
@@ -98,10 +148,10 @@ export default function DataResellerPage() {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter(r =>
-      String(r.nama || '').toLowerCase().includes(q)
-      || String(pick(r, ['whatsapp', 'no_hp', 'no_wa']) || '').toLowerCase().includes(q)
-      || String(r.kota || '').toLowerCase().includes(q)
-      || String(r.email || '').toLowerCase().includes(q)
+      pick(r, ALIAS_NAMA).toLowerCase().includes(q)
+      || pick(r, ALIAS_WA).toLowerCase().includes(q)
+      || pick(r, ALIAS_KOTA).toLowerCase().includes(q)
+      || pick(r, ALIAS_EMAIL).toLowerCase().includes(q)
     );
   }, [rows, search]);
 
@@ -200,8 +250,12 @@ export default function DataResellerPage() {
                     filtered.map((r, idx) => {
                       const id = r.id ?? idx;
                       const isExpanded = expandedId === id;
-                      const status = String(r.status_usaha || '');
-                      const wa = pick(r, ['whatsapp', 'no_hp', 'no_wa']);
+                      const nama = pick(r, ALIAS_NAMA);
+                      const wa = pick(r, ALIAS_WA);
+                      const kota = pick(r, ALIAS_KOTA);
+                      const statusRaw = pick(r, ALIAS_STATUS_USAHA);
+                      const statusDisplay = humanizeStatus(statusRaw);
+                      const tanggal = pick(r, ALIAS_TANGGAL);
                       return (
                         <React.Fragment key={String(id)}>
                           <tr
@@ -209,14 +263,14 @@ export default function DataResellerPage() {
                             className="border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer transition-colors"
                           >
                             <td className="px-4 py-3 text-slate-500 tabular-nums">{r.id ?? idx + 1}</td>
-                            <td className="px-4 py-3 text-slate-400 tabular-nums text-xs">{fmtDate(r.tanggal || r.created_at)}</td>
-                            <td className="px-4 py-3 text-white font-medium">{r.nama || '-'}</td>
+                            <td className="px-4 py-3 text-slate-400 tabular-nums text-xs">{fmtDate(tanggal)}</td>
+                            <td className="px-4 py-3 text-white font-medium">{nama || '-'}</td>
                             <td className="px-4 py-3 text-slate-300 tabular-nums">{wa || '-'}</td>
-                            <td className="px-4 py-3 text-slate-300">{r.kota || '-'}</td>
+                            <td className="px-4 py-3 text-slate-300">{kota || '-'}</td>
                             <td className="px-4 py-3">
-                              {status ? (
-                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${statusBadgeCls(status)}`}>
-                                  {status}
+                              {statusDisplay ? (
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${statusBadgeCls(statusRaw)}`}>
+                                  {statusDisplay}
                                 </span>
                               ) : <span className="text-slate-500">-</span>}
                             </td>
@@ -245,30 +299,30 @@ export default function DataResellerPage() {
 import React from 'react';
 
 function DetailRow({ row }: { row: ResellerRow }) {
-  const email = String(row.email || '');
-  const provinsi = String(row.provinsi || '');
-  const wilayah = String(row.wilayah_pemasaran || '');
-  const alamat = pick(row, ['alamat_lengkap', 'alamat']);
-  const namaUsaha = pick(row, ['nama_usaha', 'nama_toko']);
-  const statusReseller = pick(row, ['status_reseller_ayres', 'status_reseller']);
-  const jenisReseller = String(row.jenis_reseller || '');
-  const media = String(row.media_penjualan || '');
-  const igTt = pick(row, ['instagram_tiktok', 'instagram']);
-  const ig = String(row.instagram || '');
-  const tt = String(row.tiktok || '');
-  const igTtDisplay = igTt || [ig, tt].filter(Boolean).join(' / ') || '';
+  const email = pick(row, ALIAS_EMAIL);
+  const provinsi = pick(row, ALIAS_PROVINSI);
+  const wilayah = pick(row, ALIAS_WILAYAH);
+  const alamat = pick(row, ALIAS_ALAMAT);
+  const namaUsaha = pick(row, ALIAS_NAMA_USAHA);
+  const statusReseller = pick(row, ALIAS_STATUS_RESELLER);
+  const jenisReseller = pick(row, ALIAS_JENIS_RESELLER);
+  const media = pick(row, ALIAS_MEDIA).replace(/_/g, ' ').replace(/,\s*/g, ', ');
+  const ig = pick(row, ALIAS_INSTAGRAM);
+  const tt = pick(row, ALIAS_TIKTOK);
+  const igTtDisplay = [ig, tt].filter(Boolean).join(' / ') || '';
 
-  const fotoKtp = pick(row, ['foto_ktp']);
-  const fotoLogo = pick(row, ['foto_profil', 'foto_logo', 'logo_usaha', 'foto_usaha']);
+  const fotoKtp = pick(row, ALIAS_FOTO_KTP);
+  const fotoLogo = pick(row, ALIAS_FOTO_LOGO);
 
-  const dataBenar = Number(row.data_benar) === 1 || row.data_benar === true;
-  const setujuSk = Number(pick(row, ['setuju_sk', 'setuju_syarat']) || 0) === 1 || row.setuju_sk === true || row.setuju_syarat === true;
-  const bersediaPromo = Number(pick(row, ['bersedia_promo', 'setuju_promo', 'terima_promo']) || 0) === 1
-    || row.bersedia_promo === true || row.setuju_promo === true || row.terima_promo === true;
+  const dataBenar = pickBool(row, ALIAS_AGREE_DATA);
+  const setujuSk = pickBool(row, ALIAS_AGREE_TERMS);
+  const bersediaPromo = pickBool(row, ALIAS_AGREE_MARKETING);
 
-  // Field yang belum di-render, biar operator bisa lihat data lain kalau ada.
+  // Field yang belum di-render (case-insensitive) — biar operator bisa
+  // lihat data lain kalau ada kolom baru di DB.
+  const knownLower = new Set(Array.from(ALL_KNOWN_FIELDS).map(k => k.toLowerCase()));
   const otherFields: [string, unknown][] = Object.entries(row).filter(([k, v]) => {
-    if (TABLE_FIELDS.has(k)) return false;
+    if (knownLower.has(k.toLowerCase())) return false;
     if (v == null || v === '') return false;
     return true;
   });
