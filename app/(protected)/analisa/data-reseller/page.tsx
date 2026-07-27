@@ -24,9 +24,6 @@ const ALIAS_MEDIA = ['sales_channels', 'media_penjualan'];
 const ALIAS_INSTAGRAM = ['instagram_username', 'instagram', 'ig'];
 const ALIAS_TIKTOK = ['tiktok_username', 'tiktok', 'tt'];
 
-const ALIAS_FOTO_KTP = ['ktp_file', 'foto_ktp', 'ktp'];
-const ALIAS_FOTO_LOGO = ['logo_file', 'profile_file', 'foto_profil', 'foto_logo', 'logo_usaha', 'foto_usaha'];
-
 const ALIAS_AGREE_DATA = ['agree_data_true', 'agree_data', 'data_benar'];
 const ALIAS_AGREE_TERMS = ['agree_terms', 'agree_sk', 'setuju_sk', 'setuju_syarat'];
 const ALIAS_AGREE_MARKETING = ['agree_marketing', 'agree_promo', 'bersedia_promo', 'setuju_promo', 'terima_promo'];
@@ -37,21 +34,8 @@ const ALL_KNOWN_FIELDS = new Set([
   ...ALIAS_EMAIL, ...ALIAS_PROVINSI, ...ALIAS_WILAYAH, ...ALIAS_ALAMAT,
   ...ALIAS_NAMA_USAHA, ...ALIAS_STATUS_RESELLER, ...ALIAS_JENIS_RESELLER,
   ...ALIAS_MEDIA, ...ALIAS_INSTAGRAM, ...ALIAS_TIKTOK,
-  ...ALIAS_FOTO_KTP, ...ALIAS_FOTO_LOGO,
   ...ALIAS_AGREE_DATA, ...ALIAS_AGREE_TERMS, ...ALIAS_AGREE_MARKETING,
 ]);
-
-// Kalau path relatif (dimulai /) atau url absolut, pakai apa adanya.
-// Kalau cuma nama file (KTP_FILE = "1784...jpg"), coba path /uploads/{file}
-// yang biasanya dipakai reseller website.
-function fullImgUrl(v: unknown): string {
-  const s = String(v || '').trim();
-  if (!s) return '';
-  if (/^https?:\/\//.test(s)) return s;
-  if (s.startsWith('/')) return 'https://ayreslab.id' + s;
-  // Just filename — tebak folder /uploads/. Kalau path beda, ganti disini.
-  return 'https://ayreslab.id/uploads/' + s;
-}
 
 // Terjemahkan value status usaha ke label yang manusiawi.
 function humanizeStatus(v: string): string {
@@ -311,9 +295,6 @@ function DetailRow({ row }: { row: ResellerRow }) {
   const tt = pick(row, ALIAS_TIKTOK);
   const igTtDisplay = [ig, tt].filter(Boolean).join(' / ') || '';
 
-  const fotoKtp = pick(row, ALIAS_FOTO_KTP);
-  const fotoLogo = pick(row, ALIAS_FOTO_LOGO);
-
   const dataBenar = pickBool(row, ALIAS_AGREE_DATA);
   const setujuSk = pickBool(row, ALIAS_AGREE_TERMS);
   const bersediaPromo = pickBool(row, ALIAS_AGREE_MARKETING);
@@ -340,14 +321,7 @@ function DetailRow({ row }: { row: ResellerRow }) {
           <Field label="Jenis Reseller" value={jenisReseller} />
           <Field label="Media Penjualan" value={media} />
           <Field label="Instagram / TikTok" value={igTtDisplay} />
-          <ImgField label="Foto KTP" value={fotoKtp} />
         </div>
-
-        {fotoLogo && (
-          <div className="mt-4">
-            <ImgField label="Foto Profil/Logo Usaha" value={fotoLogo} />
-          </div>
-        )}
 
         {(dataBenar || setujuSk || bersediaPromo) && (
           <div className="mt-4">
@@ -387,20 +361,3 @@ function Field({ label, value, span = 1 }: { label: string; value: string; span?
   );
 }
 
-function ImgField({ label, value }: { label: string; value: string }) {
-  if (!value) return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">{label}</p>
-      <p className="text-sm text-slate-500 mt-0.5">—</p>
-    </div>
-  );
-  const url = fullImgUrl(value);
-  return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">{label}</p>
-      <a href={url} target="_blank" rel="noopener noreferrer" className="block">
-        <img src={url} alt={label} className="max-h-32 rounded-lg border border-white/10 object-contain bg-white/[0.02] hover:border-white/20 transition-colors" />
-      </a>
-    </div>
-  );
-}
