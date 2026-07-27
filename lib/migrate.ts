@@ -966,6 +966,20 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `work_orders` ADD COLUMN `pengiriman_bonus` TEXT NULL",
     ],
   },
+  {
+    // WO2 Detail Ukuran Tim sekarang punya kolom dynamic — operator
+    // bisa tambah header (single atau grouped dengan sub-columns) dan
+    // hapus kolom. Config kolom disimpan JSON di work_orders,
+    // value row disimpan JSON di wo_ukuran_tim.data_json. Kolom legacy
+    // (nama/np/size/…) tetap dipertahankan untuk backward compat —
+    // saat load, value legacy di-merge ke data_json kalau data_json
+    // masih kosong; saat save, semua write ke data_json.
+    name: '056_wo2_dynamic_kolom',
+    up: [
+      "ALTER TABLE `work_orders` ADD COLUMN `wo2_kolom_json` LONGTEXT NULL",
+      "ALTER TABLE `wo_ukuran_tim` ADD COLUMN `data_json` LONGTEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

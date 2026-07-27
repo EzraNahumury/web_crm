@@ -3180,39 +3180,82 @@ function TabWO2({ wo }: { wo: Row; gudangItems: Row[]; specs: Row[]; specBahan: 
   return <TabDetailUkuranTim wo={wo} />;
 }
 
-/* ═══ Tab WO 2 — Detail Ukuran Tim (image #464) ═══ */
-type UkuranRow = {
-  id: number | null;
-  urutan: number;
-  nama: string; np: string; size: string; ket1: string; ket2: string;
-  bd: string; bb: string;
-  lengan_kanan: string; lengan_kiri: string;
-  lis_lengan_kanan: string; lis_lengan_kiri: string;
-  var_kerah: string; kerah: string; penjahit: string;
+/* ═══ Tab WO 2 — Detail Ukuran Tim (image #464) — kolom dynamic ═══ */
+type Wo2Col = {
+  id: string; label: string; urutan: number;
+  children?: { id: string; label: string; urutan: number }[];
 };
-const EMPTY_UKURAN_ROW = (i: number): UkuranRow => ({
-  id: null, urutan: i,
-  nama: '', np: '', size: '', ket1: '', ket2: '',
-  bd: '', bb: '',
-  lengan_kanan: '', lengan_kiri: '',
-  lis_lengan_kanan: '', lis_lengan_kiri: '',
-  var_kerah: '', kerah: '', penjahit: '',
-});
+
+// Kolom default = 13 kolom sesuai template Excel AYRES. id nya match
+// nama kolom legacy di wo_ukuran_tim supaya value existing tetap ke-read.
+const DEFAULT_WO2_KOLOM: Wo2Col[] = [
+  { id: 'nama', label: 'NAMA', urutan: 1 },
+  { id: 'np', label: 'NP', urutan: 2 },
+  { id: 'size', label: 'SIZE', urutan: 3 },
+  { id: 'ket1', label: 'KET', urutan: 4 },
+  { id: 'ket2', label: 'KET', urutan: 5 },
+  { id: 'bd', label: 'BD', urutan: 6 },
+  { id: 'bb', label: 'BB', urutan: 7 },
+  { id: 'lengan', label: 'LENGAN', urutan: 8, children: [
+    { id: 'lengan_kanan', label: 'KANAN', urutan: 1 },
+    { id: 'lengan_kiri', label: 'KIRI', urutan: 2 },
+  ]},
+  { id: 'lis_lengan', label: 'LIS LENGAN', urutan: 9, children: [
+    { id: 'lis_lengan_kanan', label: 'KANAN', urutan: 1 },
+    { id: 'lis_lengan_kiri', label: 'KIRI', urutan: 2 },
+  ]},
+  { id: 'var_kerah', label: 'VAR KERAH', urutan: 10 },
+  { id: 'kerah', label: 'KERAH', urutan: 11 },
+  { id: 'penjahit', label: 'PENJAHIT', urutan: 12 },
+];
+
+type UkuranRow = { id: number | null; urutan: number; data: Record<string, string> };
+
+function parseWo2Kolom(raw: string | null | undefined): Wo2Col[] {
+  if (!raw) return DEFAULT_WO2_KOLOM.slice();
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed as Wo2Col[];
+  } catch {}
+  return DEFAULT_WO2_KOLOM.slice();
+}
+
+// Flatten config jadi list leaf keys (untuk header row 2 dan tbody cells).
+function flatLeafKeys(kolom: Wo2Col[]): { id: string; label: string; parent?: string }[] {
+  const out: { id: string; label: string; parent?: string }[] = [];
+  for (const k of kolom) {
+    if (k.children && k.children.length > 0) {
+      for (const c of k.children) out.push({ id: c.id, label: c.label, parent: k.label });
+    } else {
+      out.push({ id: k.id, label: k.label });
+    }
+  }
+  return out;
+}
 
 function TabDetailUkuranTim({ wo }: { wo: Row }) {
   const toast = useToast();
   const [rows, setRows] = useState<UkuranRow[]>([]);
+  const [kolom, setKolom] = useState<Wo2Col[]>(DEFAULT_WO2_KOLOM);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [addHeaderOpen, setAddHeaderOpen] = useState(false);
+  const [deleteHeader, setDeleteHeader] = useState<{ colId: string; label: string } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: wo.id });
+      const [data, woFresh] = await Promise.all([
+        dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: wo.id }),
+        dbGet<Row>('work_orders', undefined, { id: wo.id }),
+      ]);
+      const fresh = woFresh[0];
+      setKolom(parseWo2Kolom(fresh?.wo2_kolom_json as string));
       const sorted = data.slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
-      setRows(sorted.length > 0
-        ? sorted.map((r) => ({
-            id: Number(r.id), urutan: Number(r.urutan) || 0,
+      if (sorted.length > 0) {
+        setRows(sorted.map((r) => {
+          // Merge legacy columns + data_json. data_json wins kalau ada.
+          const legacy: Record<string, string> = {
             nama: String(r.nama || ''), np: String(r.np || ''), size: String(r.size || ''),
             ket1: String(r.ket1 || ''), ket2: String(r.ket2 || ''),
             bd: String(r.bd || ''), bb: String(r.bb || ''),
@@ -3220,19 +3263,32 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
             lis_lengan_kanan: String(r.lis_lengan_kanan || ''), lis_lengan_kiri: String(r.lis_lengan_kiri || ''),
             var_kerah: String(r.var_kerah || ''), kerah: String(r.kerah || ''),
             penjahit: String(r.penjahit || ''),
-          }))
-        : Array.from({ length: 5 }, (_, i) => EMPTY_UKURAN_ROW(i + 1)));
+          };
+          let dj: Record<string, string> = {};
+          if (r.data_json) {
+            try { dj = JSON.parse(String(r.data_json)) || {}; } catch {}
+          }
+          return {
+            id: Number(r.id), urutan: Number(r.urutan) || 0,
+            data: { ...legacy, ...dj },
+          };
+        }));
+      } else {
+        setRows(Array.from({ length: 5 }, (_, i) => ({ id: null, urutan: i + 1, data: {} })));
+      }
     } catch (e) { toast.error('Gagal Muat', String(e)); }
     setLoading(false);
   }, [wo.id, toast]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  function setField(idx: number, field: keyof UkuranRow, val: string) {
-    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+  const leafKeys = useMemo(() => flatLeafKeys(kolom), [kolom]);
+
+  function setCell(idx: number, key: string, val: string) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, data: { ...r.data, [key]: val } } : r));
   }
   function addRow() {
-    setRows(prev => [...prev, EMPTY_UKURAN_ROW(prev.length + 1)]);
+    setRows(prev => [...prev, { id: null, urutan: prev.length + 1, data: {} }]);
   }
   async function removeRow(idx: number) {
     const row = rows[idx];
@@ -3241,22 +3297,39 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
     }
     setRows(prev => prev.filter((_, i) => i !== idx).map((r, i) => ({ ...r, urutan: i + 1 })));
   }
+  function handleAddKolom(newCol: Wo2Col) {
+    setKolom(prev => {
+      const maxUrutan = prev.reduce((mx, k) => Math.max(mx, k.urutan), 0);
+      return [...prev, { ...newCol, urutan: maxUrutan + 1 }];
+    });
+  }
+  function handleDeleteKolom(colId: string) {
+    setKolom(prev => prev.filter(k => k.id !== colId));
+    setDeleteHeader(null);
+  }
   async function saveAll() {
     setSaving(true);
     try {
+      await dbUpdate('work_orders', wo.id, {
+        wo2_kolom_json: JSON.stringify(kolom),
+      });
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
-        const payload = {
+        // Pull known legacy fields from data ke old columns (backward compat)
+        // + save data_json full snapshot.
+        const payload: Row = {
           work_order_id: wo.id, urutan: i + 1,
-          nama: r.nama, np: r.np, size: r.size, ket1: r.ket1, ket2: r.ket2,
-          bd: r.bd, bb: r.bb,
-          lengan_kanan: r.lengan_kanan, lengan_kiri: r.lengan_kiri,
-          lis_lengan_kanan: r.lis_lengan_kanan, lis_lengan_kiri: r.lis_lengan_kiri,
-          var_kerah: r.var_kerah, kerah: r.kerah, penjahit: r.penjahit,
+          nama: r.data.nama || '', np: r.data.np || '', size: r.data.size || '',
+          ket1: r.data.ket1 || '', ket2: r.data.ket2 || '',
+          bd: r.data.bd || '', bb: r.data.bb || '',
+          lengan_kanan: r.data.lengan_kanan || '', lengan_kiri: r.data.lengan_kiri || '',
+          lis_lengan_kanan: r.data.lis_lengan_kanan || '', lis_lengan_kiri: r.data.lis_lengan_kiri || '',
+          var_kerah: r.data.var_kerah || '', kerah: r.data.kerah || '',
+          penjahit: r.data.penjahit || '',
+          data_json: JSON.stringify(r.data),
         };
-        if (r.id) {
-          await dbUpdate('wo_ukuran_tim', r.id, payload);
-        } else {
+        if (r.id) await dbUpdate('wo_ukuran_tim', r.id, payload);
+        else {
           const newId = await dbCreate('wo_ukuran_tim', payload);
           setRows(prev => prev.map((row, idx) => idx === i ? { ...row, id: Number(newId) } : row));
         }
@@ -3270,6 +3343,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   if (loading) return <div className="h-64 bg-white/[0.03] rounded-xl animate-pulse" />;
 
   const cellCls = 'w-full bg-transparent focus:bg-white/[0.03] focus:outline-none px-2 py-1.5 text-xs text-white placeholder-slate-600';
+  const hasChildren = kolom.some(k => k.children && k.children.length > 0);
 
   return (
     <div className="space-y-4">
@@ -3279,6 +3353,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
           <p className="text-xs text-slate-500 mt-0.5">Customer: <span className="text-slate-300 font-medium">{wo.customer_nama || '-'}</span></p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setAddHeaderOpen(true)} className="text-xs font-medium text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Header</button>
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
           <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
             {saving ? 'Menyimpan...' : 'Simpan Semua'}
@@ -3286,50 +3361,61 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         </div>
       </div>
 
+      <p className="text-[11px] text-slate-500">Tip: klik header di tabel untuk hapus kolom itu.</p>
+
       <div className="overflow-x-auto rounded-xl border border-white/[0.08] bg-[#111827]">
         <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr className="text-slate-200 font-bold text-center" style={{ background: '#065f46' }}>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-10">NO</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[140px]">NAMA</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-16">NP</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-16">SIZE</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[80px]">KET</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[80px]">KET</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-16">BD</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 w-16">BB</th>
-              <th colSpan={2} className="border border-white/10 px-2 py-2">LENGAN</th>
-              <th colSpan={2} className="border border-white/10 px-2 py-2">LIS LENGAN</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[90px]">VAR KERAH</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[80px]">KERAH</th>
-              <th rowSpan={2} className="border border-white/10 px-2 py-2 min-w-[100px]">PENJAHIT</th>
-              <th rowSpan={2} className="border border-white/10 px-1 py-2 w-8"></th>
+              <th rowSpan={hasChildren ? 2 : 1} className="border border-white/10 px-2 py-2 w-10">NO</th>
+              {kolom.map(k => {
+                const cn = k.children && k.children.length > 0;
+                return (
+                  <th
+                    key={k.id}
+                    colSpan={cn ? k.children!.length : 1}
+                    rowSpan={cn ? 1 : (hasChildren ? 2 : 1)}
+                    onClick={() => setDeleteHeader({ colId: k.id, label: k.label })}
+                    title="Klik untuk hapus kolom ini"
+                    className="border border-white/10 px-2 py-2 cursor-pointer hover:bg-emerald-900/40 transition-colors min-w-[80px]"
+                  >
+                    {k.label}
+                  </th>
+                );
+              })}
+              <th rowSpan={hasChildren ? 2 : 1} className="border border-white/10 px-1 py-2 w-8"></th>
             </tr>
-            <tr className="text-slate-200 font-semibold text-center" style={{ background: '#047857' }}>
-              <th className="border border-white/10 px-2 py-1 w-16">KANAN</th>
-              <th className="border border-white/10 px-2 py-1 w-16">KIRI</th>
-              <th className="border border-white/10 px-2 py-1 w-16">KANAN</th>
-              <th className="border border-white/10 px-2 py-1 w-16">KIRI</th>
-            </tr>
+            {hasChildren && (
+              <tr className="text-slate-200 font-semibold text-center" style={{ background: '#047857' }}>
+                {kolom.flatMap(k => (
+                  k.children && k.children.length > 0
+                    ? k.children.map(c => (
+                        <th
+                          key={c.id}
+                          onClick={() => setDeleteHeader({ colId: c.id, label: `${k.label} → ${c.label}` })}
+                          title="Klik untuk hapus sub-kolom"
+                          className="border border-white/10 px-2 py-1 w-16 cursor-pointer hover:bg-emerald-800/60 transition-colors"
+                        >{c.label}</th>
+                      ))
+                    : []
+                ))}
+              </tr>
+            )}
           </thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                 <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{i + 1}</td>
-                <td className="border border-white/10"><input className={cellCls} value={r.nama} onChange={e => setField(i, 'nama', e.target.value)} placeholder="Nama..." /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.np} onChange={e => setField(i, 'np', e.target.value)} placeholder="NP" /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.size} onChange={e => setField(i, 'size', e.target.value)} placeholder="Size" /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.ket1} onChange={e => setField(i, 'ket1', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.ket2} onChange={e => setField(i, 'ket2', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.bd} onChange={e => setField(i, 'bd', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.bb} onChange={e => setField(i, 'bb', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.lengan_kanan} onChange={e => setField(i, 'lengan_kanan', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.lengan_kiri} onChange={e => setField(i, 'lengan_kiri', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.lis_lengan_kanan} onChange={e => setField(i, 'lis_lengan_kanan', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.lis_lengan_kiri} onChange={e => setField(i, 'lis_lengan_kiri', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.var_kerah} onChange={e => setField(i, 'var_kerah', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.kerah} onChange={e => setField(i, 'kerah', e.target.value)} /></td>
-                <td className="border border-white/10"><input className={cellCls} value={r.penjahit} onChange={e => setField(i, 'penjahit', e.target.value)} /></td>
+                {leafKeys.map(lk => (
+                  <td key={lk.id} className="border border-white/10">
+                    <input
+                      className={cellCls}
+                      value={r.data[lk.id] || ''}
+                      onChange={e => setCell(i, lk.id, e.target.value)}
+                      placeholder={lk.label.toLowerCase()}
+                    />
+                  </td>
+                ))}
                 <td className="border border-white/10 text-center">
                   <button onClick={() => removeRow(i)} title="Hapus baris" className="text-rose-500 hover:text-rose-300 p-1 rounded hover:bg-rose-500/10">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -3341,6 +3427,108 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {addHeaderOpen && (
+        <AddHeaderModal onCancel={() => setAddHeaderOpen(false)} onAdd={(col) => { handleAddKolom(col); setAddHeaderOpen(false); }} />
+      )}
+
+      {deleteHeader && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteHeader(null)} />
+          <div className="relative bg-[#1a1f35] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/[0.06]">
+              <h3 className="text-lg font-bold text-white">Hapus Kolom?</h3>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-slate-300">Kolom <span className="font-bold text-white">{deleteHeader.label}</span> dan semua data di kolom ini akan dihapus. Aksi ini tidak bisa di-undo setelah Simpan Semua.</p>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/[0.06]">
+              <button onClick={() => setDeleteHeader(null)} className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</button>
+              <button onClick={() => handleDeleteKolom(deleteHeader.colId)} className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold">Ya, Hapus</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddHeaderModal({ onCancel, onAdd }: {
+  onCancel: () => void;
+  onAdd: (col: Wo2Col) => void;
+}) {
+  const [mode, setMode] = useState<'single' | 'group'>('single');
+  const [label, setLabel] = useState('');
+  const [subLabels, setSubLabels] = useState<string[]>(['KANAN', 'KIRI']);
+
+  function slug(s: string): string {
+    return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || `col_${Date.now()}`;
+  }
+  function handleApply() {
+    if (!label.trim()) return;
+    if (mode === 'single') {
+      onAdd({ id: slug(label) + '_' + Date.now().toString(36).slice(-4), label: label.trim(), urutan: 0 });
+    } else {
+      const valid = subLabels.filter(s => s.trim());
+      if (valid.length < 2) return;
+      const parentId = slug(label) + '_' + Date.now().toString(36).slice(-4);
+      onAdd({
+        id: parentId,
+        label: label.trim(),
+        urutan: 0,
+        children: valid.map((s, i) => ({ id: parentId + '_' + slug(s), label: s.trim(), urutan: i + 1 })),
+      });
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-[#1a1f35] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between">
+          <h3 className="text-lg font-bold text-white">Tambah Header</h3>
+          <button onClick={onCancel} className="text-slate-500 hover:text-white p-1.5 hover:bg-white/[0.05] rounded-lg">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setMode('single')} className={`px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors ${mode === 'single' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white/[0.04] text-slate-400 hover:text-white'}`}>
+              Header Tunggal
+            </button>
+            <button type="button" onClick={() => setMode('group')} className={`px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors ${mode === 'group' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white/[0.04] text-slate-400 hover:text-white'}`}>
+              Dengan Sub-Kolom
+            </button>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1.5">{mode === 'single' ? 'Nama Header' : 'Nama Header Induk'} *</label>
+            <input value={label} onChange={e => setLabel(e.target.value)} placeholder={mode === 'single' ? 'Contoh: PANJANG' : 'Contoh: LENGAN'} className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40" />
+          </div>
+          {mode === 'group' && (
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Sub-Kolom (minimal 2)</label>
+              <div className="space-y-2">
+                {subLabels.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input value={s} onChange={e => setSubLabels(prev => prev.map((v, j) => j === i ? e.target.value : v))} placeholder={`Sub-kolom ${i + 1}`} className="flex-1 bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40" />
+                    {subLabels.length > 2 && (
+                      <button type="button" onClick={() => setSubLabels(prev => prev.filter((_, j) => j !== i))} className="text-rose-500 hover:text-rose-300 p-2 rounded hover:bg-rose-500/10">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" onClick={() => setSubLabels(prev => [...prev, ''])} className="text-xs text-blue-400 border border-blue-500/25 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors font-medium">
+                  + Tambah sub-kolom
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/[0.06]">
+          <button onClick={onCancel} className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</button>
+          <button onClick={handleApply} disabled={!label.trim()} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm font-semibold">Apply</button>
+        </div>
       </div>
     </div>
   );
