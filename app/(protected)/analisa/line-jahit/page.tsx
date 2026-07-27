@@ -118,7 +118,7 @@ export default function AnalisaLineJahitPage() {
       setAttendance((allAtt as Attendance[]).filter(a =>
         String(a.tanggal || '').slice(0, 7) === monthPrefix
       ).sort((a, b) =>
-        String(b.tanggal).localeCompare(String(a.tanggal)) || Number(b.id) - Number(a.id)
+        String(a.tanggal).localeCompare(String(b.tanggal)) || Number(a.id) - Number(b.id)
       ));
     } catch {}
     setLoading(false);

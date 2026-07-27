@@ -5,9 +5,10 @@ import { useToast } from '@/lib/toast';
 import { Pagination, paginate } from '@/lib/pagination';
 
 /* ═══ Tab config ═══ */
-type TabKey = 'customer'|'paket'|'barang'|'barang-cs'|'bank'|'gudang'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads';
+// Note: 'customer' tab dilepas — customer master sekarang cuma di
+// menu Analisa → All Customer supaya tidak duplikat entry point.
+type TabKey = 'paket'|'barang'|'barang-cs'|'bank'|'gudang'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads';
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'customer', label: 'Customer' },
   { key: 'paket', label: 'Paket' },
   { key: 'barang', label: 'Barang' },
   { key: 'barang-cs', label: 'Barang CS' },
@@ -24,7 +25,7 @@ const TABS: { key: TabKey; label: string }[] = [
 
 // Map tab key to DB table name
 const TABLE_MAP: Record<TabKey, string> = {
-  customer: 'customers', paket: 'paket', barang: 'barang', 'barang-cs': 'barang_cs',
+  paket: 'paket', barang: 'barang', 'barang-cs': 'barang_cs',
   bank: 'bank', gudang: 'gudang',
   'tipe-barang': 'tipe_barang',
   ukuran: 'ukuran', 'pecah-pola': 'pecah_pola', jabatan: 'jabatan', karyawan: 'karyawan',
@@ -102,7 +103,7 @@ function EmptyState({ label }: { label: string }) {
 type Row = Record<string, any>;
 
 export default function MasterPage() {
-  const [tab, setTab] = useState<TabKey>('customer');
+  const [tab, setTab] = useState<TabKey>('paket');
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(false);
   const [editingRow, setEditingRow] = useState<Row | null>(null);
@@ -173,7 +174,6 @@ export default function MasterPage() {
   }
 
   const info: Record<TabKey, { title: string; subtitle: string; addLabel: string; searchPlaceholder: string }> = {
-    customer:      { title: 'Master Data Customer', subtitle: 'Kelola data semua pelanggan Anda.', addLabel: 'Tambah Customer', searchPlaceholder: 'Cari customer...' },
     paket:         { title: 'Master Data Paket', subtitle: 'Kelola jenis paket produk yang ditawarkan.', addLabel: 'Tambah Paket', searchPlaceholder: 'Cari nama paket...' },
     barang:        { title: 'Master Data Barang', subtitle: 'Kelola daftar semua barang mentah untuk produksi.', addLabel: 'Tambah Barang', searchPlaceholder: 'Cari nama barang...' },
     'barang-cs':   { title: 'Master Data Barang CS', subtitle: 'Katalog barang untuk dropdown di Rincian Order CS.', addLabel: 'Tambah Barang CS', searchPlaceholder: 'Cari nama barang...' },
@@ -242,7 +242,6 @@ export default function MasterPage() {
         ) : (
             <>
               <div className="overflow-x-auto">
-                {tab === 'customer' && <TableCustomer rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'paket' && <TableSimple rows={paged.slice} col="nama" header="NAMA PAKET" onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'barang' && <TableBarang rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'barang-cs' && <TableBarangCs rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
@@ -300,7 +299,7 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
   );
 
   const labels: Record<TabKey, string> = {
-    customer: 'Customer', paket: 'Paket', barang: 'Barang', 'barang-cs': 'Barang CS',
+    paket: 'Paket', barang: 'Barang', 'barang-cs': 'Barang CS',
     bank: 'Bank', gudang: 'Gudang',
     'tipe-barang': 'Tipe Barang', ukuran: 'Ukuran', 'pecah-pola': 'Pecah Pola',
     jabatan: 'Jabatan', karyawan: 'Karyawan', promo: 'Promo', leads: 'Lead',
@@ -310,12 +309,6 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
   return (
     <Modal open={open} onClose={onClose} title={modalTitle}>
       <div className="space-y-4">
-        {tab === 'customer' && <>
-          <Field label="Nama *" value={form.nama} onChange={v => set('nama', v)} />
-          <Field label="No HP *" value={form.no_hp} onChange={v => set('no_hp', v)} placeholder="08xxxxxxxxxx" />
-          <Field label="Alamat Lengkap" value={form.alamat_lengkap} onChange={v => set('alamat_lengkap', v)} placeholder="Jalan, nomor, RT/RW" />
-          <RegionFields form={form} set={set} />
-        </>}
         {tab === 'paket' && <>
           <Field label="Nama Paket" value={form.nama} onChange={v => set('nama', v)} placeholder="e.g., KAOS" />
           <Field label="Deskripsi (Opsional)" value={form.deskripsi} onChange={v => set('deskripsi', v)} />
