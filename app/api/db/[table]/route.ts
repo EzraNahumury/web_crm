@@ -14,6 +14,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   line_jahit:        { columns: '*', searchCols: ['customer'], filterCols: ['id'] },
   line_jahit_paket:  { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
   penjahit_attendance: { columns: '*', filterCols: ['id', 'tanggal'] },
+  cs_form_leads:     { columns: '*', filterCols: ['id', 'tanggal', 'lead_id'] },
   barang:            { columns: 'b.*, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['b.id'] },
   tipe_barang:       { columns: '*', searchCols: ['nama'], filterCols: ['id'] },
   ukuran:            { columns: '*', searchCols: ['nama'], filterCols: ['id'] },

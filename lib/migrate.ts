@@ -891,6 +891,26 @@ const MIGRATIONS: Migration[] = [
         "WHERE COALESCE(wo.customer_nama, '') <> COALESCE(o.customer_nama, '')",
     ],
   },
+  {
+    // Form input harian CS Selling: jumlah leads yang masuk +
+    // closingan yang berhasil di tanggal itu, di-attribute ke
+    // satu lead (source). Append-only log — operator boleh input
+    // multiple record per (lead, tanggal) kalau perlu re-adjust.
+    name: '052_cs_form_leads',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `cs_form_leads` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`lead_id` INT UNSIGNED NOT NULL," +
+        "`tanggal` DATE NOT NULL," +
+        "`jumlah_leads` INT NOT NULL DEFAULT 0," +
+        "`jumlah_closingan` INT NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_cfl_tanggal` (`tanggal`)," +
+        "KEY `idx_cfl_lead` (`lead_id`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

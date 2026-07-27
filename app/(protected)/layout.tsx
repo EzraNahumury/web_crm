@@ -61,8 +61,12 @@ const ADMIN_NAV: SideNavItem[] = [
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
   },
   {
-    href: '/cs-selling', label: 'CS Selling',
+    label: 'CS Selling',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>,
+    children: [
+      { href: '/cs-selling', label: 'Daftar Order' },
+      { href: '/cs-selling/form-leads', label: 'Form Leads' },
+    ],
   },
   {
     label: 'Antrian Design',
@@ -160,7 +164,7 @@ const ADMIN_NAV: SideNavItem[] = [
 // Map menu names to sidebar hrefs for filtering
 const MENU_HREF_MAP: Record<string, string[]> = {
   'Dashboard': ['/dashboard'],
-  'CS Selling': ['/cs-selling'],
+  'CS Selling': ['/cs-selling', '/cs-selling/form-leads'],
   'Antrian Design': ['/antrian-design', '/antrian-design/history-reject'],
   'Approval Finance': ['/approval-finance'],
   'CS Order': ['/orders', '/orders/bukti-pembayaran'],
