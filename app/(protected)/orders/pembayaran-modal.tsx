@@ -33,6 +33,24 @@ interface Props {
   readOnly?: boolean;
 }
 
+// NB template default — dipakai saat operator buka invoice baru atau
+// pilih order yang belum punya keterangan. Operator tinggal edit /
+// hapus / tambah supaya tidak perlu ketik dari awal.
+const NB_TEMPLATE = `Note:
+·  Bahan utama:
+·  Bahan variasi PECAH POLA:
+* Bahan LIST lengan pendek : (Bahan/Rib/Rajut)
+   Bahan LIST lengan panjang : (Bahan/Rib/Rajut)
+* Bahan Kerah : (Jika kerah rajut bisa di note)
+   Size : (Reguler/Wanita/Anak)
+
+   Promo Juni:
+* Free Logo 3D Tatami
+* Free 3 Bola
+* Free 3 Jersey Tim
+* Free Ongkir
+* Cashback 5% next order (tidak bisa diubah)`;
+
 export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, readOnly = false }: Props) {
   const toast = useToast();
   const invoiceRef = useRef<HTMLDivElement>(null);
@@ -67,8 +85,9 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const [dpDesainAmount, setDpDesainAmount] = useState(0);
   const [dpDesainPaymentId, setDpDesainPaymentId] = useState<number | null>(null);
 
-  // NB
-  const [nb, setNb] = useState('');
+  // NB — default pakai template supaya operator tinggal edit / hapus /
+  // tambah bagian yang perlu, tidak ketik dari awal setiap kali.
+  const [nb, setNb] = useState(NB_TEMPLATE);
   // Diskon percentage (0-100, default 0).
   const [diskonPct, setDiskonPct] = useState(0);
   // DP Produksi percentage (0-100, default 70).
@@ -118,7 +137,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     if (!pickedOrderId) {
       // Clear so a fresh open (no seed) shows an empty invoice.
       setNama(''); setAlamat(''); setLeadId(''); setEkspNama(''); setEkspKg(''); setEkspBiaya(0);
-      setNb(''); setTrackingLink(''); setNoOrder('');
+      setNb(NB_TEMPLATE); setTrackingLink(''); setNoOrder('');
       setDpDesainAmount(0); setDpDesainPaymentId(null);
       setDiskonPct(0); setDpProdPct(70);
       setDpProdMode('pct'); setDpProdManual(0);
@@ -135,7 +154,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setEkspNama(String(o.ekspedisi_nama || ''));
     setEkspKg(o.ekspedisi_kg ? String(o.ekspedisi_kg) : '');
     setEkspBiaya(Number(o.ekspedisi_biaya) || 0);
-    setNb(String(o.keterangan || ''));
+    setNb(String(o.keterangan || NB_TEMPLATE));
     setTrackingLink(String(o.tracking_link || ''));
     setNoOrder(String(o.no_order || ''));
     // Diskon% dari order (kolom baru). Kalau tidak ada, default 0.

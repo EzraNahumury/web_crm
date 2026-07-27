@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
 // Analisa CS: konversi dari DP Design → DP Produksi.
@@ -22,13 +22,25 @@ type Row = {
 const n = (v: number | string | null | undefined) =>
   v == null || v === '' ? 0 : Number(v);
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const from = searchParams.get('from') || '';
+    const to = searchParams.get('to') || '';
+
+    const whereParts: string[] = [];
+    const params: string[] = [];
+    if (from) { whereParts.push('DATE(tanggal_order) >= ?'); params.push(from); }
+    if (to)   { whereParts.push('DATE(tanggal_order) <= ?'); params.push(to); }
+    const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+
     const orders = await query<Row>(
       `SELECT id, no_order, customer_id, customer_nama, customer_phone,
               nominal_order, dp_desain, dp_produksi, tanggal_order
        FROM orders
-       ORDER BY tanggal_order DESC, id DESC`
+       ${whereSql}
+       ORDER BY tanggal_order DESC, id DESC`,
+      params
     );
 
     let totalOrders = 0;

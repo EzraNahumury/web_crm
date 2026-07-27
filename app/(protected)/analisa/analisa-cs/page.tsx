@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
 } from 'recharts';
+import DateRangePicker, { daysAgo, today } from '../../laporan/date-range-picker';
 
 interface Totals {
   total_orders: number;
@@ -44,11 +45,17 @@ export default function AnalisaCsPage() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [sortDir, setSortDir] = useState<'newest' | 'oldest'>('newest');
+  // Default: 30 hari terakhir. Filter by tanggal_order.
+  const [from, setFrom] = useState(daysAgo(29));
+  const [to, setTo] = useState(today());
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/analisa/analisa-cs');
+      const qs = new URLSearchParams();
+      if (from) qs.set('from', from);
+      if (to) qs.set('to', to);
+      const res = await fetch(`/api/analisa/analisa-cs?${qs.toString()}`);
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Gagal memuat');
       setTotals(json.data.totals);
@@ -56,7 +63,7 @@ export default function AnalisaCsPage() {
       setError('');
     } catch (e) { setError(String(e)); }
     setLoading(false);
-  }, []);
+  }, [from, to]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -96,17 +103,22 @@ export default function AnalisaCsPage() {
       {/* Hero */}
       <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-amber-500/[0.14] via-orange-500/[0.06] to-transparent p-5 sm:p-6">
         <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
-        <div className="relative flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/25 to-amber-500/5 border border-amber-500/25 grid place-items-center shrink-0">
-            <svg className="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />
-            </svg>
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/25 to-amber-500/5 border border-amber-500/25 grid place-items-center shrink-0">
+              <svg className="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Analisa CS</h1>
+              <p className="text-[13px] text-slate-300 mt-0.5">
+                Customer yang sudah DP Design namun belum DP Produksi (funnel drop-off).
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Analisa CS</h1>
-            <p className="text-[13px] text-slate-300 mt-0.5">
-              Customer yang sudah DP Design namun belum DP Produksi (funnel drop-off).
-            </p>
+          <div className="shrink-0">
+            <DateRangePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
           </div>
         </div>
       </div>
