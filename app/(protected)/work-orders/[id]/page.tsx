@@ -13,6 +13,40 @@ const PROD_STAGES = [
   'QC Panel','Potong Kain','QC Cutting','Jahit','QC Jersey','Finishing','Pengiriman',
 ];
 
+// 14 stages sesuai template Excel AYRES APPAREL (image #454). Dipakai
+// untuk form input Penanggung Jawab per stage di WO1 dan render di
+// spec card sidebar kanan.
+const WO_PJ_STAGES = [
+  'Approval Design', 'Approval Pattern', 'Proofing',
+  'Printing Layout', 'Approval Layout', 'Printing Process',
+  'Sublim Press', 'QC panel Process', 'Fabric Cutting',
+  'QC Cutting', 'Sewing', 'QC Jersey', 'Finishing', 'Shipment',
+];
+
+const pjKey = (stage: string) => stage.toLowerCase().replace(/\s+/g, '_');
+function emptyPj(): Record<string, string> {
+  const o: Record<string, string> = {};
+  for (const s of WO_PJ_STAGES) o[pjKey(s)] = '';
+  return o;
+}
+function parsePj(json: string | null | undefined): Record<string, string> {
+  if (!json) return emptyPj();
+  try {
+    const parsed = typeof json === 'string' ? JSON.parse(json) : json;
+    const merged = emptyPj();
+    for (const k of Object.keys(merged)) {
+      if (parsed && typeof parsed[k] === 'string') merged[k] = parsed[k];
+    }
+    return merged;
+  } catch { return emptyPj(); }
+}
+
+// Section bahan body — 8 baris fixed sesuai template Excel AYRES.
+const WO_BAHAN_ROWS = [
+  'FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION',
+  'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS',
+];
+
 // Module-level — used by per-spec PDF download (TabWO1) and combined Download All PDF (parent).
 function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
   const bRows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
@@ -1310,16 +1344,11 @@ export default function WorkOrderDetailPage() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <span className={`text-xs font-medium border px-3 py-1.5 rounded-full ${st.cls}`}>{st.label}</span>
+          {/* Tombol 'Import Master Excel' dihilangkan — WO1-W4 sekarang
+              di-input langsung via web form. Handler + ref masih ada
+              untuk backward-compat kalau legacy data perlu re-import,
+              tapi UI trigger sudah tidak ditampilkan. */}
           <input ref={masterFileRef} type="file" accept=".xlsx,.xls" onChange={handleImportMaster} className="hidden" />
-          <button
-            onClick={() => masterFileRef.current?.click()}
-            disabled={importingMaster}
-            title="Upload satu Excel — sheets W1.x → WO 1 (multi spec), W2/W3/W4 → tab masing-masing"
-            className="flex items-center gap-1.5 text-xs text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 rounded-full hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 7.5m0 0L7.5 12m4.5-4.5v13.5" /></svg>
-            {importingMaster ? 'Mengimport...' : 'Import Master Excel'}
-          </button>
           {wo?.master_import_file ? (
             <a
               href={String(wo.master_import_file)}
@@ -2001,6 +2030,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       setDokDesain(fresh.dokumen_desain || null);
       setDokPattern(fresh.dokumen_pattern || null);
       setBahanRows(rows.length > 0 ? rows.map((b: Row) => ({ id: b.id, bagian: b.bagian, bahan: b.bahan })) : [{ id: 1, bagian: '', bahan: '' }]);
+      setPj(parsePj(fresh.penanggung_jawab_json));
       setEditOpen(true);
     } catch (e) { toast.error('Gagal memuat data', String(e)); }
   }
@@ -2018,6 +2048,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
         info_packing: infoPacking, webbing, font_nomor: fontNomor,
         keterangan, keterangan_jahit: keteranganJahit,
         approval_admin: approvalAdmin,
+        penanggung_jawab_json: JSON.stringify(pj),
       });
       // Delete old bahan rows for this spec (filtered server-side)
       const oldBahan = await dbGet<Row>('wo_spesifikasi_bahan', undefined, { spesifikasi_id: editSpec.id });
@@ -2043,6 +2074,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     setFontNomor(''); setKeterangan(''); setKeteranganJahit(''); setApprovalAdmin('');
     setDokDesain(null); setDokPattern(null);
     setBahanRows([{ id: 1, bagian: '', bahan: '' }]);
+    setPj(emptyPj());
   }
 
   // Form state
@@ -2065,6 +2097,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   const [uploadingPattern, setUploadingPattern] = useState(false);
   const [bahanRows, setBahanRows] = useState([{ id: 1, bagian: '', bahan: '' }]);
   const [barangList, setBarangList] = useState<Row[]>([]);
+  const [pj, setPj] = useState<Record<string, string>>(emptyPj);
   useEffect(() => { dbGet('barang').then(setBarangList).catch(() => {}); }, []);
 
   async function openCreateDrawer() {
@@ -2109,6 +2142,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
         info_packing: infoPacking, webbing, font_nomor: fontNomor,
         keterangan, keterangan_jahit: keteranganJahit,
         approval_admin: approvalAdmin, export_icc: 'JPEG-RGB 3 PASS',
+        penanggung_jawab_json: JSON.stringify(pj),
       });
       // Save bahan rows
       for (const row of bahanRows) {
@@ -2343,6 +2377,29 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 <label className={lCls}>Data Persetujuan Admin</label>
                 <input value={approvalAdmin} onChange={e => setApprovalAdmin(e.target.value)} className={iCls} />
               </div>
+
+              {/* Penanggung Jawab per Stage */}
+              <div className="border-t border-white/[0.06] pt-5">
+                <h3 className="text-sm font-bold text-white mb-3">Penanggung Jawab (14 Tahap)</h3>
+                <p className="text-[11px] text-slate-500 mb-3">Sesuai template AYRES APPAREL — nama PJ untuk tiap tahap produksi.</p>
+                <div className="space-y-2">
+                  {WO_PJ_STAGES.map((stage, i) => {
+                    const k = pjKey(stage);
+                    return (
+                      <div key={k} className="grid grid-cols-[24px_140px_1fr] gap-2 items-center">
+                        <span className="text-[11px] text-slate-500 font-mono text-right">{i + 1}.</span>
+                        <label className="text-xs text-slate-300 font-medium truncate" title={stage}>{stage}</label>
+                        <input
+                          value={pj[k] || ''}
+                          onChange={e => setPj(prev => ({ ...prev, [k]: e.target.value }))}
+                          placeholder="Nama PJ..."
+                          className="w-full bg-[#0d1117] border border-white/10 text-white text-xs rounded px-2 py-1.5 focus:outline-none focus:border-blue-500/40"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             {/* Footer */}
@@ -2450,6 +2507,29 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 <label className={lCls}>Data Persetujuan Admin</label>
                 <input value={approvalAdmin} onChange={e => setApprovalAdmin(e.target.value)} className={iCls} />
               </div>
+
+              {/* Penanggung Jawab per Stage */}
+              <div className="border-t border-white/[0.06] pt-5">
+                <h3 className="text-sm font-bold text-white mb-3">Penanggung Jawab (14 Tahap)</h3>
+                <p className="text-[11px] text-slate-500 mb-3">Sesuai template AYRES APPAREL — nama PJ untuk tiap tahap produksi.</p>
+                <div className="space-y-2">
+                  {WO_PJ_STAGES.map((stage, i) => {
+                    const k = pjKey(stage);
+                    return (
+                      <div key={k} className="grid grid-cols-[24px_140px_1fr] gap-2 items-center">
+                        <span className="text-[11px] text-slate-500 font-mono text-right">{i + 1}.</span>
+                        <label className="text-xs text-slate-300 font-medium truncate" title={stage}>{stage}</label>
+                        <input
+                          value={pj[k] || ''}
+                          onChange={e => setPj(prev => ({ ...prev, [k]: e.target.value }))}
+                          placeholder="Nama PJ..."
+                          className="w-full bg-[#0d1117] border border-white/10 text-white text-xs rounded px-2 py-1.5 focus:outline-none focus:border-blue-500/40"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
             <div className="px-6 py-4 border-t border-white/[0.06] flex items-center justify-end gap-3 shrink-0">
               <button onClick={() => { setEditOpen(false); setEditSpec(null); resetForm(); }} className="px-5 py-2.5 rounded-lg border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">Batal</button>
@@ -2512,124 +2592,144 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
               );
             })}
           </div>
-          {/* Selected spec card - displayed directly */}
+          {/* Selected spec card — mirror Excel template AYRES APPAREL (image #454). */}
           {specs.filter((spec: Row) => spec.id === selectedSpecId).map((spec: Row) => spec.imported_file ? (
             <ImportedSpecViewer key={spec.id} spec={spec} />
-          ) : (
-            <div key={spec.id}>
-              <div ref={el => { printRef.current[spec.id] = el; }} className="bg-white rounded-lg p-6 text-black max-w-4xl mx-auto mt-4">
-                  <div className="flex items-start justify-between border-b-2 border-black pb-3 mb-4">
-                    <div className="flex items-center gap-3">
-                      <img src="/logo/new logo.png" alt="AYRES" className="h-8" style={{ filter: 'brightness(0)' }} />
-                      <h3 className="text-xl font-bold">AYRES APPAREL</h3>
+          ) : (() => {
+            const bahanBySpec = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
+            const bahanMap: Record<string, string> = {};
+            for (const b of bahanBySpec) bahanMap[normBagian(String(b.bagian)).toUpperCase()] = String(b.bahan || '');
+            const pjData = parsePj(spec.penanggung_jawab_json);
+            const deadlineStr = spec.deadline
+              ? new Date(String(spec.deadline)).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+              : (wo.deadline || '-');
+            return (
+              <div key={spec.id}>
+                <div ref={el => { printRef.current[spec.id] = el; }} className="bg-white rounded-lg p-4 text-black max-w-6xl mx-auto mt-4 border border-black">
+                  {/* Top bar: AYRES APPAREL | WORK ORDER NO */}
+                  <div className="flex items-stretch border-2 border-black">
+                    <div className="flex items-center gap-3 flex-1 px-4 py-2 border-r-2 border-black">
+                      <img src="/logo/new logo.png" alt="AYRES" className="h-7" style={{ filter: 'brightness(0)' }} />
+                      <h3 className="text-2xl font-black tracking-wide">AYRES APPAREL</h3>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-slate-500">WORK ORDER NO.</p>
-                      <p className="text-base font-bold border border-black px-3 py-1 rounded">{wo.noWo}</p>
+                    <div className="flex items-center gap-2 px-3 py-2 min-w-[240px]">
+                      <span className="text-xs font-bold">WORK ORDER NO.</span>
+                      <span className="text-sm font-bold flex-1 text-right">{wo.noWo}</span>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="col-span-2">
-                      <div className="bg-blue-900 text-white text-center text-xs font-bold py-1 mb-2">DESAIN MOCK UP & PATTERN</div>
-                      <div className="grid grid-cols-2 gap-2 mb-2">
-                        <div className="border border-slate-200 rounded overflow-hidden">
-                          {spec.dokumen_desain ? (
-                            <img src={spec.dokumen_desain} alt="Desain & Pola" className="w-full h-auto object-contain" />
-                          ) : (
-                            <div className="h-40 bg-slate-100 grid place-items-center text-slate-400 text-xs">Desain & Pola</div>
-                          )}
-                        </div>
-                        <div className="border border-slate-200 rounded overflow-hidden">
-                          {spec.dokumen_pattern ? (
-                            <img src={spec.dokumen_pattern} alt="Pattern" className="w-full h-auto object-contain" />
-                          ) : (
-                            <div className="h-40 bg-slate-100 grid place-items-center text-slate-400 text-xs">Pattern / Pecah Pola</div>
-                          )}
-                        </div>
+
+                  {/* Main 3-column grid — persis layout Excel */}
+                  <div className="grid grid-cols-[220px_1fr_240px] border-2 border-black border-t-0">
+                    {/* ─── LEFT COLUMN ─── */}
+                    <div className="border-r-2 border-black flex flex-col">
+                      <div className="bg-emerald-800 text-white text-center text-[11px] font-bold py-1 border-b-2 border-black">DESAIN MOCK UP</div>
+                      <div className="border-b-2 border-black bg-white" style={{ minHeight: 220 }}>
+                        {spec.dokumen_desain ? (
+                          <img src={spec.dokumen_desain} alt="Desain Mockup" className="w-full h-full object-contain" style={{ maxHeight: 300 }} />
+                        ) : (
+                          <div className="h-[220px] grid place-items-center text-slate-300 text-xs">— gambar desain —</div>
+                        )}
                       </div>
-                      <div className="border border-black overflow-hidden mt-2 text-xs">
-                        <div className="grid grid-cols-2 border-b border-black">
-                          <div className="font-bold text-center bg-black text-white py-1 border-r border-black">Nama Customer</div>
-                          <div className="font-bold text-center bg-black text-white py-1">Nama Spesifikasi</div>
-                        </div>
-                        <div className="grid grid-cols-2">
-                          <div className="text-center py-1 border-r border-black">{wo.customer}</div>
-                          <div className="text-center py-1">{spec.nama_spesifikasi}</div>
-                        </div>
+                      <div className="border-b-2 border-black p-2" style={{ minHeight: 90 }}>
+                        <p className="text-[10px] font-bold">Keterangan Jahit :</p>
+                        <p className="text-[11px] mt-1 whitespace-pre-wrap">{spec.keterangan_jahit || ''}</p>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 mt-3">
-                        <div className="border border-black rounded p-2">
-                          <p className="text-[10px] font-bold text-red-600 bg-red-50 px-1">KETERANGAN JAHIT</p>
-                          <p className="text-xs mt-1 min-h-[140px]"></p>
-                        </div>
-                        <div className="border border-black rounded p-2">
-                          <p className="text-[10px] font-bold text-center bg-blue-900 text-white px-1">FONT & NUMBER</p>
-                          <p className="text-xs mt-1 min-h-[140px]">{spec.font_nomor || '-'}</p>
-                        </div>
+                      <div className="bg-green-200 border-b-2 border-black px-2 py-1.5">
+                        <p className="text-red-600 font-black text-sm">DEADLINE :</p>
+                        <p className="text-[11px] font-bold mt-0.5">{deadlineStr}</p>
                       </div>
-                      <div className="mt-2 bg-green-100 text-black text-xs font-bold px-2 py-1 inline-block border border-black min-w-[260px]">
-                        DEADLINE :&nbsp;
-                      </div>
-                    </div>
-                    <div className="space-y-2 text-xs">
-                      <div className="border border-black overflow-hidden">
-                        {[['NAMA', wo.customer],['PAKET', spec.paket || wo.paket],['JUMLAH', `${spec.jumlah || 0} PCS`]].map(([k,v]) => (
-                          <div key={k} className="grid grid-cols-2 border-b border-black last:border-0">
-                            <span className="font-bold px-2 py-1 border-r border-black">{k}</span>
-                            <span className="px-2 py-1 text-red-600">{v}</span>
+                      {/* Bahan table — 8 baris fixed sesuai template */}
+                      <div className="text-[10px]">
+                        {WO_BAHAN_ROWS.map((bagian, i) => (
+                          <div key={bagian} className={`grid grid-cols-[110px_1fr] ${i < WO_BAHAN_ROWS.length - 1 ? 'border-b border-black' : ''}`}>
+                            <span className="font-bold px-1.5 py-1 border-r border-black">{bagian}</span>
+                            <span className="px-1.5 py-1">{bahanMap[bagian] || ''}</span>
                           </div>
                         ))}
                       </div>
-                      <div className="border border-black overflow-hidden">
-                        <p className="text-center font-bold bg-black text-white py-1 border-b border-black">Accessories</p>
-                        {[['TAGLINE',spec.tagline],['AUTHENTIC',spec.authentic],['SIZE',spec.info_ukuran],['LOGO',spec.info_logo],['PACKING',spec.info_packing],['WEBBING',spec.webbing]].map(([k,v]) => (
-                          <div key={k} className="grid grid-cols-2 border-b border-black last:border-0">
-                            <span className="font-bold px-2 py-0.5 border-r border-black">{k}</span>
-                            <span className="px-2 py-0.5">{v || '-'}</span>
-                          </div>
-                        ))}
+                    </div>
+
+                    {/* ─── MIDDLE COLUMN ─── */}
+                    <div className="border-r-2 border-black flex flex-col">
+                      <div className="bg-black text-white text-center text-[11px] font-bold py-1 border-b-2 border-black">PATTERN</div>
+                      <div className="border-b-2 border-black bg-white flex-1" style={{ minHeight: 380 }}>
+                        {spec.dokumen_pattern ? (
+                          <img src={spec.dokumen_pattern} alt="Pattern" className="w-full h-full object-contain" style={{ maxHeight: 480 }} />
+                        ) : (
+                          <div className="h-[380px] grid place-items-center text-slate-300 text-xs">— gambar pattern —</div>
+                        )}
                       </div>
-                      <div className="border border-black overflow-hidden">
-                        <p className="text-center font-bold bg-black text-white py-1 border-b border-black">PENANGGUNG JAWAB</p>
-                        <div className="p-1.5 space-y-0">
-                          {['Approval Design','Approval Pattern',...PROD_STAGES].map((s, i) => (
-                            <p key={s} className="text-[10px] border-b border-black py-0.5 px-1 last:border-0"><span className="text-blue-600">{i + 1}. {s}</span></p>
-                          ))}
+                      <div className="grid grid-cols-2 border-b-2 border-black">
+                        <div className="border-r-2 border-black">
+                          <div className="bg-black text-white text-center text-[11px] font-bold py-1 border-b-2 border-black">Font &amp; Number</div>
+                          <div className="p-2 text-[11px] min-h-[70px] whitespace-pre-wrap">{spec.font_nomor || ''}</div>
+                        </div>
+                        <div>
+                          <div className="bg-black text-white text-center text-[11px] font-bold py-1 border-b-2 border-black">Approval Admin / Data</div>
+                          <div className="p-2 text-[11px] min-h-[70px] whitespace-pre-wrap">{spec.approval_admin || ''}</div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                  {/* Bottom: Bahan table + Approval + Export */}
-                  <div className="grid grid-cols-3 gap-4 mt-4">
-                    <div className="border border-black overflow-hidden text-xs">
-                      {(() => {
-                        const rows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
-                        return rows.length > 0 ? rows.map((b: Row, i: number) => (
-                          <div key={i} className="grid grid-cols-2 border-b border-black last:border-0">
-                            <span className="font-bold px-2 py-1 border-r border-black">{normBagian(b.bagian)}</span>
-                            <span className="px-2 py-1 text-red-600">{b.bahan || '-'}</span>
+
+                    {/* ─── RIGHT COLUMN ─── */}
+                    <div className="flex flex-col text-[11px]">
+                      {/* Customer info */}
+                      <div className="border-b-2 border-black">
+                        <p className="font-bold border-b border-black px-2 py-1">Customer</p>
+                        {[['Nama', wo.customer],['Paket', spec.paket || wo.paket],['Jumlah', `${spec.jumlah || 0}`]].map(([k, v]) => (
+                          <div key={k} className="grid grid-cols-[70px_1fr] border-b border-black last:border-0">
+                            <span className="font-semibold px-2 py-0.5">{k}</span>
+                            <span className="px-2 py-0.5 border-l border-black">{v || ''}</span>
                           </div>
-                        )) : (
-                          <div className="px-2 py-2 text-slate-400 text-center">Belum ada data bahan</div>
-                        );
-                      })()}
-                    </div>
-                    <div className="border border-black overflow-hidden text-xs">
-                      <p className="text-center font-bold bg-black text-white py-1 border-b border-black">APPROVAL ADMIN / DATA</p>
-                      <div className="p-2">
-                        <p>{spec.approval_admin || '-'}</p>
+                        ))}
                       </div>
-                    </div>
-                    <div className="border border-black overflow-hidden text-xs">
-                      <p className="text-center font-bold bg-black text-white py-1 border-b border-black">EXPORT & ICC</p>
-                      <div className="p-2">
-                        <p>{spec.export_icc || '-'}</p>
+                      {/* Accessories */}
+                      <div className="border-b-2 border-black">
+                        <p className="font-bold border-b border-black px-2 py-1">Accessories</p>
+                        {[
+                          ['Tagline', spec.tagline, 'text-red-600'],
+                          ['Authentic', spec.authentic, 'font-bold'],
+                          ['Size', spec.info_ukuran, ''],
+                          ['Logo', spec.info_logo, ''],
+                          ['Webing', spec.webbing, ''],
+                          ['Packing', spec.info_packing, ''],
+                        ].map(([k, v, cls]) => (
+                          <div key={String(k)} className="grid grid-cols-[70px_1fr] border-b border-black last:border-0">
+                            <span className={`px-2 py-0.5 ${cls}`}>{k}</span>
+                            <span className="px-2 py-0.5 border-l border-black">{v || ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {/* PENANGGUNG JAWAB — 14 stages */}
+                      <div className="border-b-2 border-black flex-1">
+                        <p className="font-bold text-center bg-white border-b-2 border-black py-1">PENANGGUNG JAWAB</p>
+                        <div>
+                          {WO_PJ_STAGES.map((stage, i) => {
+                            const nama = pjData[pjKey(stage)] || '';
+                            return (
+                              <div key={stage} className={`px-2 py-1 text-[10px] ${i < WO_PJ_STAGES.length - 1 ? 'border-b border-black' : ''}`}>
+                                <div className="font-semibold">{i + 1}. {stage}</div>
+                                {nama && <div className="text-slate-700 pl-3">{nama}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {/* EXPORT & ICC PRINT */}
+                      <div className="grid grid-cols-2">
+                        <div className="text-center border-r-2 border-black px-2 py-2 text-[10px] font-bold">
+                          EXPORT<br />&amp; ICC<br />PRINT
+                        </div>
+                        <div className="grid place-items-center px-2 py-2 text-[11px] font-bold">
+                          {spec.export_icc || 'JPEG - RGB'}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-          ))}
+            );
+          })())}
         </>
       )}
 

@@ -911,6 +911,19 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // WO1 (wo_spesifikasi) sekarang menyimpan Penanggung Jawab per 14
+    // stage produksi (Approval Design, Approval Pattern, Proofing,
+    // Printing Layout, Approval Layout, Printing Process, Sublim Press,
+    // QC panel Process, Fabric Cutting, QC Cutting, Sewing, QC Jersey,
+    // Finishing, Shipment). Disimpan sebagai JSON supaya kalau nanti
+    // urutan / nama stage berubah, tinggal edit di layer aplikasi tanpa
+    // migrate schema.
+    name: '053_wo_spesifikasi_penanggung_jawab',
+    up: [
+      "ALTER TABLE `wo_spesifikasi` ADD COLUMN `penanggung_jawab_json` LONGTEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
