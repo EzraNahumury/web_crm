@@ -59,6 +59,14 @@ export default function AntrianDesignPage() {
   // Order yang mau di-reject (buka modal). null = modal ditutup.
   const [rejectingOrder, setRejectingOrder] = useState<Row | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  // Order yang mau di-isi keterangan keterlambatan (klik chip Terlambat SLA).
+  const [slaNoteOrder, setSlaNoteOrder] = useState<Row | null>(null);
+  const [slaNote, setSlaNote] = useState('');
+  const [slaNoteSaving, setSlaNoteSaving] = useState(false);
+  // Sort mode untuk list order per stage. 'deadline' = ASC by target selesai
+  // (pattern default). 'newest' = tanggal_order terbaru dulu. 'oldest' =
+  // tanggal_order terlama dulu.
+  const [sortMode, setSortMode] = useState<'deadline' | 'newest' | 'oldest'>('deadline');
 
   useEffect(() => { setSearch(''); }, [activeTab]);
 
@@ -160,25 +168,31 @@ export default function AntrianDesignPage() {
       String(o.customer_nama || '').toLowerCase().includes(q)
       || String(o.no_order || '').toLowerCase().includes(q)
     );
-    // Sort by target selesai final ASC (deadline paling dekat naik ke
-    // atas). Kalau design_awal_at kosong → fallback ke estimasi_deadline
-    // dari CS Selling. Order tanpa target sama sekali diletakkan paling
-    // bawah supaya operator fokus ke yang paling urgent.
     return filtered.slice().sort((a, b) => {
-      const baseA = String(a.design_awal_at || '').slice(0, 10);
-      const baseB = String(b.design_awal_at || '').slice(0, 10);
-      const targetA = baseA
-        ? (computeDesignStageTargets(baseA, holidays)['REVISI_3'] || '')
-        : String(a.estimasi_deadline || '').slice(0, 10);
-      const targetB = baseB
-        ? (computeDesignStageTargets(baseB, holidays)['REVISI_3'] || '')
-        : String(b.estimasi_deadline || '').slice(0, 10);
-      if (!targetA && !targetB) return 0;
-      if (!targetA) return 1;
-      if (!targetB) return -1;
-      return targetA.localeCompare(targetB);
+      if (sortMode === 'deadline') {
+        // Deadline paling dekat naik ke atas. Kalau design_awal_at kosong,
+        // fallback ke estimasi_deadline dari CS Selling. Order tanpa target
+        // sama sekali diletakkan paling bawah.
+        const baseA = String(a.design_awal_at || '').slice(0, 10);
+        const baseB = String(b.design_awal_at || '').slice(0, 10);
+        const targetA = baseA
+          ? (computeDesignStageTargets(baseA, holidays)['REVISI_3'] || '')
+          : String(a.estimasi_deadline || '').slice(0, 10);
+        const targetB = baseB
+          ? (computeDesignStageTargets(baseB, holidays)['REVISI_3'] || '')
+          : String(b.estimasi_deadline || '').slice(0, 10);
+        if (!targetA && !targetB) return 0;
+        if (!targetA) return 1;
+        if (!targetB) return -1;
+        return targetA.localeCompare(targetB);
+      }
+      // Sort by tanggal_order (fallback ke created_at kalau tidak ada).
+      const tA = String(a.tanggal_order || a.created_at || '').slice(0, 10);
+      const tB = String(b.tanggal_order || b.created_at || '').slice(0, 10);
+      const cmp = tA.localeCompare(tB);
+      return sortMode === 'newest' ? -cmp : cmp;
     });
-  }, [antrianFiltered, activeTab, search, holidays]);
+  }, [antrianFiltered, activeTab, search, holidays, sortMode]);
 
   // Auto-jump ke stage pertama yang punya match kalau global search
   // baru diketik dan tab aktif kosong. UX: ketik → langsung ke step
@@ -261,6 +275,26 @@ export default function AntrianDesignPage() {
     // toast dependency intentionally omitted supaya tidak re-fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, lateSummary.terlambat, lateSummary.hariH]);
+
+  function openSlaNoteModal(order: Row) {
+    setSlaNoteOrder(order);
+    setSlaNote(String(order.keterlambatan_reason || ''));
+  }
+
+  async function saveSlaNote() {
+    if (!slaNoteOrder) return;
+    setSlaNoteSaving(true);
+    try {
+      await dbUpdate('orders', Number(slaNoteOrder.id), {
+        keterlambatan_reason: slaNote.trim() || null,
+      });
+      toast.success('Tersimpan', 'Keterangan keterlambatan disimpan.');
+      setSlaNoteOrder(null);
+      setSlaNote('');
+      await fetchData();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSlaNoteSaving(false);
+  }
 
   async function advanceToRevisi(order: Row) {
     const cur = order.design_stage as DesignStage;
@@ -370,6 +404,7 @@ export default function AntrianDesignPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <SortDropdown value={sortMode} onChange={setSortMode} />
             {lateSummary.terlambat > 0 && (
               <div className="flex items-center gap-2 bg-red-500/[0.12] border border-red-500/40 rounded-xl px-3 py-2 shadow-lg shadow-red-500/10">
                 <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 grid place-items-center text-red-200">
@@ -558,6 +593,7 @@ export default function AntrianDesignPage() {
                 onRevisi={() => advanceToRevisi(o)}
                 onSelesai={() => finalize(o)}
                 onReject={() => openRejectModal(o)}
+                onEditSlaNote={() => openSlaNoteModal(o)}
               />
             ))}
           </div>
@@ -573,6 +609,149 @@ export default function AntrianDesignPage() {
           onCancel={closeRejectModal}
           onSubmit={submitReject}
         />
+      )}
+
+      {slaNoteOrder && (
+        <SlaNoteModal
+          order={slaNoteOrder}
+          note={slaNote}
+          setNote={setSlaNote}
+          saving={slaNoteSaving}
+          onCancel={() => { if (!slaNoteSaving) { setSlaNoteOrder(null); setSlaNote(''); } }}
+          onSubmit={saveSlaNote}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   SlaNoteModal — dialog untuk isi keterangan keterlambatan SLA.
+   Muncul saat operator klik chip 'Terlambat SLA' / 'Lewat Deadline'.
+   ───────────────────────────────────────────────────────────────────── */
+function SlaNoteModal({
+  order, note, setNote, saving, onCancel, onSubmit,
+}: {
+  order: Row;
+  note: string;
+  setNote: (v: string) => void;
+  saving: boolean;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-[#1a1f35] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-gradient-to-r from-red-500/[0.10] to-transparent">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/25 grid place-items-center">
+              <svg className="w-5 h-5 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Keterangan Keterlambatan</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                <span className="text-fuchsia-300 font-semibold">{order.no_order}</span> · {order.customer_nama || '(Tanpa nama)'}
+              </p>
+            </div>
+          </div>
+          <button onClick={onCancel} disabled={saving} className="text-slate-500 hover:text-white transition-colors p-1.5 hover:bg-white/[0.05] rounded-lg disabled:opacity-50">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="p-6 space-y-3">
+          <label className="block text-[11px] font-medium text-slate-400">Alasan keterlambatan</label>
+          <textarea
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder="Contoh: revisi warna dari customer, menunggu approval, dll..."
+            rows={4}
+            autoFocus
+            className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-red-500/40 resize-none"
+          />
+          <p className="text-[11px] text-slate-500">Keterangan akan muncul di sebelah chip Terlambat SLA supaya tim lain langsung tahu situasinya. Kosongkan untuk hapus keterangan.</p>
+        </div>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/[0.06] bg-white/[0.015]">
+          <button onClick={onCancel} disabled={saving} className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.04] disabled:opacity-50">
+            Batal
+          </button>
+          <button onClick={onSubmit} disabled={saving} className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-sm font-semibold">
+            {saving ? 'Menyimpan...' : 'Simpan Keterangan'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   SortDropdown — pilih urutan list order antrian design.
+   ───────────────────────────────────────────────────────────────────── */
+function SortDropdown({ value, onChange }: {
+  value: 'deadline' | 'newest' | 'oldest';
+  onChange: (v: 'deadline' | 'newest' | 'oldest') => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+  const labels: Record<typeof value, string> = {
+    deadline: 'Deadline Terdekat',
+    newest: 'Terbaru Dulu',
+    oldest: 'Terlama Dulu',
+  };
+  const opts: { key: typeof value; label: string; desc: string }[] = [
+    { key: 'deadline', label: 'Deadline Terdekat', desc: 'Target selesai paling dekat naik ke atas' },
+    { key: 'newest', label: 'Terbaru Dulu', desc: 'Tanggal order terbaru di atas' },
+    { key: 'oldest', label: 'Terlama Dulu', desc: 'Tanggal order paling lama di atas' },
+  ];
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        title="Urutkan list order"
+        className="flex items-center gap-2 bg-[#111827] border border-white/10 hover:bg-white/[0.04] rounded-xl px-3 py-2.5 text-xs font-medium text-slate-300 transition-colors"
+      >
+        <svg className="w-4 h-4 text-fuchsia-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h9.75m4.5-4.5v12m0 0l-3.75-3.75M17.25 21L21 17.25" />
+        </svg>
+        <span>Sort: {labels[value]}</span>
+        <svg className={`w-3 h-3 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 right-0 w-64 bg-[#0d1117] border border-white/10 rounded-lg shadow-xl overflow-hidden">
+          {opts.map(o => (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => { onChange(o.key); setOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 transition-colors ${o.key === value ? 'bg-fuchsia-600/20 text-fuchsia-200' : 'text-slate-300 hover:bg-white/[0.04]'}`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold">{o.label}</span>
+                {o.key === value && (
+                  <svg className="w-3.5 h-3.5 text-fuchsia-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">{o.desc}</p>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -658,7 +837,7 @@ function RejectReasonModal({
 }
 
 function OrderCard({
-  order, leadName, todayIso, holidays, busy, onRevisi, onSelesai, onReject,
+  order, leadName, todayIso, holidays, busy, onRevisi, onSelesai, onReject, onEditSlaNote,
 }: {
   order: Row;
   leadName: string;
@@ -668,6 +847,7 @@ function OrderCard({
   onRevisi: () => void;
   onSelesai: () => void;
   onReject: () => void;
+  onEditSlaNote: () => void;
 }) {
   const currentStage = order.design_stage as DesignStage;
   const isSelesai = currentStage === 'SELESAI';
@@ -713,25 +893,41 @@ function OrderCard({
             <span className={`text-sm font-semibold ${isDangerLate ? 'text-red-100' : 'text-white'}`}>{order.customer_nama || '(Tanpa nama)'}</span>
 
             {isDangerLate && finalLate === 'terlambat' && (
-              <span
-                title={`Target final ${fmtDateLabel(targetSelesaiFinal)} — sudah lewat`}
-                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border border-red-500/50 text-white bg-red-500/40 whitespace-nowrap"
+              <button
+                type="button"
+                onClick={onEditSlaNote}
+                title={`Target final ${fmtDateLabel(targetSelesaiFinal)} — sudah lewat. Klik untuk isi/edit keterangan.`}
+                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border border-red-500/50 text-white bg-red-500/40 hover:bg-red-500/60 transition-colors whitespace-nowrap cursor-pointer"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
                 Lewat Deadline
-              </span>
+              </button>
             )}
             {finalLate !== 'terlambat' && lateStatus === 'terlambat' && !isSelesai && (
-              <span
-                title={`Target stage ini ${fmtDateLabel(targetStage)}`}
-                className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-red-500/40 text-red-300 bg-red-500/15 whitespace-nowrap"
+              <button
+                type="button"
+                onClick={onEditSlaNote}
+                title={`Target stage ini ${fmtDateLabel(targetStage)}. Klik untuk isi/edit keterangan.`}
+                className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-red-500/40 text-red-300 bg-red-500/15 hover:bg-red-500/30 transition-colors whitespace-nowrap cursor-pointer"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
                 Terlambat SLA
+              </button>
+            )}
+            {order.keterlambatan_reason && (isDangerLate || (lateStatus === 'terlambat' && !isSelesai)) && (
+              <span
+                onClick={onEditSlaNote}
+                title="Klik untuk edit keterangan"
+                className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md border border-slate-500/40 text-slate-200 bg-slate-500/10 hover:bg-slate-500/20 transition-colors cursor-pointer max-w-[380px] truncate"
+              >
+                <svg className="w-3 h-3 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                </svg>
+                <span className="truncate">{String(order.keterlambatan_reason)}</span>
               </span>
             )}
             {finalLate !== 'terlambat' && lateStatus === 'warning' && !isSelesai && (

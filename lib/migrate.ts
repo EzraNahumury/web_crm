@@ -980,6 +980,16 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `wo_ukuran_tim` ADD COLUMN `data_json` LONGTEXT NULL",
     ],
   },
+  {
+    // Antrian Design: operator bisa isi alasan keterlambatan SLA per
+    // order. Klik chip 'Terlambat SLA' di card → popup textarea →
+    // simpan ke kolom ini. Muncul di sebelah chip sebagai badge kecil
+    // supaya rekan setim bisa langsung tau kenapa telat.
+    name: '057_orders_keterlambatan_reason',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `keterlambatan_reason` TEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
