@@ -3288,6 +3288,14 @@ function flatLeafKeys(kolom: Wo2Col[]): { id: string; label: string; parent?: st
   return out;
 }
 
+// Urutan size garment. Value yang tidak match ditaruh paling bawah.
+const WO2_SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL', '8XL', '9XL', '10XL'];
+function sizeSortIndex(v: string): number {
+  const u = String(v || '').toUpperCase().trim();
+  const idx = WO2_SIZE_ORDER.indexOf(u);
+  return idx === -1 ? 999 : idx;
+}
+
 function TabDetailUkuranTim({ wo }: { wo: Row }) {
   const toast = useToast();
   const [rows, setRows] = useState<UkuranRow[]>([]);
@@ -3296,6 +3304,9 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   const [loading, setLoading] = useState(true);
   const [addHeaderOpen, setAddHeaderOpen] = useState(false);
   const [deleteHeader, setDeleteHeader] = useState<{ colId: string; label: string } | null>(null);
+  // Sort by size — cycle: null → asc → desc → null. Cuma dipakai untuk
+  // display order; setCell/removeRow tetap acuannya index original di rows.
+  const [sortBySize, setSortBySize] = useState<'asc' | 'desc' | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -3338,6 +3349,17 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const leafKeys = useMemo(() => flatLeafKeys(kolom), [kolom]);
+
+  // Row list untuk display — di-sort by size kalau sortBySize aktif.
+  // Original rows array tidak berubah; displayRows cuma tampilan.
+  const displayRows = useMemo(() => {
+    if (!sortBySize) return rows;
+    return rows.slice().sort((a, b) => {
+      const ai = sizeSortIndex(String(a.data.size || ''));
+      const bi = sizeSortIndex(String(b.data.size || ''));
+      return sortBySize === 'asc' ? ai - bi : bi - ai;
+    });
+  }, [rows, sortBySize]);
 
   function setCell(idx: number, key: string, val: string) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, data: { ...r.data, [key]: val } } : r));
@@ -3473,6 +3495,50 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
               <th rowSpan={hasChildren ? 2 : 1} className="border border-white/10 px-2 py-2 w-10">NO</th>
               {kolom.map(k => {
                 const cn = k.children && k.children.length > 0;
+                // SIZE column punya perilaku spesial: klik = sort, delete
+                // via icon × kecil di corner (hover-visible).
+                const isSizeCol = k.id === 'size';
+                if (isSizeCol) {
+                  return (
+                    <th
+                      key={k.id}
+                      colSpan={cn ? k.children!.length : 1}
+                      rowSpan={cn ? 1 : (hasChildren ? 2 : 1)}
+                      onClick={() => setSortBySize(cur => cur === 'asc' ? 'desc' : cur === 'desc' ? null : 'asc')}
+                      title={`Klik untuk sort by size (${sortBySize === 'asc' ? 'ascending — klik lagi jadi descending' : sortBySize === 'desc' ? 'descending — klik lagi hilangkan sort' : 'urutan XS → S → M → L → XL → dst'})`}
+                      className="border border-white/10 px-2 py-2 cursor-pointer hover:bg-emerald-900/40 transition-colors min-w-[80px] relative group"
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {k.label}
+                        {sortBySize === 'asc' && (
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                          </svg>
+                        )}
+                        {sortBySize === 'desc' && (
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                          </svg>
+                        )}
+                        {sortBySize === null && (
+                          <svg className="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12" />
+                          </svg>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); setDeleteHeader({ colId: k.id, label: k.label }); }}
+                        title="Hapus kolom SIZE"
+                        className="absolute top-1 right-1 w-4 h-4 rounded-full grid place-items-center text-slate-400 hover:text-white hover:bg-rose-500/40 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </th>
+                  );
+                }
                 return (
                   <th
                     key={k.id}
@@ -3506,9 +3572,13 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
             )}
           </thead>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{i + 1}</td>
+            {displayRows.map((r, displayIdx) => {
+              // Original index di rows — pakai indexOf karena r adalah
+              // object reference dari rows (sort tidak clone objectnya).
+              const i = rows.indexOf(r);
+              return (
+              <tr key={i === -1 ? `d-${displayIdx}` : i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{displayIdx + 1}</td>
                 {leafKeys.map(lk => (
                   <td key={lk.id} className="border border-white/10">
                     <input
@@ -3528,7 +3598,8 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
