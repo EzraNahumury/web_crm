@@ -3342,6 +3342,39 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   function setCell(idx: number, key: string, val: string) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, data: { ...r.data, [key]: val } } : r));
   }
+
+  // Paste dari Excel (TSV multi-cell). Deteksi tab / newline → distribusikan
+  // value ke row+col mulai dari cell yang di-paste. Auto-tambah baris kalau
+  // pasted data lebih panjang dari row yang tersedia.
+  function handleCellPaste(e: React.ClipboardEvent<HTMLInputElement>, rowIdx: number, colId: string) {
+    const text = e.clipboardData.getData('text');
+    if (!text.includes('\t') && !text.includes('\n')) return; // single cell paste — biarin normal
+    e.preventDefault();
+    const lines = text.replace(/\r/g, '').split('\n');
+    // Drop trailing empty line (Excel biasanya kasih 1 \n di akhir).
+    while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    if (lines.length === 0) return;
+    const colStart = leafKeys.findIndex(lk => lk.id === colId);
+    if (colStart < 0) return;
+    setRows(prev => {
+      const next = prev.slice();
+      for (let j = 0; j < lines.length; j++) {
+        const cells = lines[j].split('\t');
+        const targetRowIdx = rowIdx + j;
+        while (targetRowIdx >= next.length) {
+          next.push({ id: null, urutan: next.length + 1, data: {} });
+        }
+        const merged = { ...next[targetRowIdx].data };
+        for (let k = 0; k < cells.length; k++) {
+          const targetColIdx = colStart + k;
+          if (targetColIdx >= leafKeys.length) break; // ga muat, stop
+          merged[leafKeys[targetColIdx].id] = cells[k];
+        }
+        next[targetRowIdx] = { ...next[targetRowIdx], data: merged };
+      }
+      return next;
+    });
+  }
   function addRow() {
     setRows(prev => [...prev, { id: null, urutan: prev.length + 1, data: {} }]);
   }
@@ -3431,7 +3464,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-500">Tip: klik header di tabel untuk hapus kolom itu.</p>
+      <p className="text-[11px] text-slate-500">Tip: klik header untuk hapus kolom · Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus.</p>
 
       <div className="overflow-x-auto rounded-xl border border-white/[0.08] bg-[#111827]">
         <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
@@ -3482,6 +3515,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                       className={cellCls}
                       value={r.data[lk.id] || ''}
                       onChange={e => setCell(i, lk.id, e.target.value)}
+                      onPaste={e => handleCellPaste(e, i, lk.id)}
                       placeholder={lk.label.toLowerCase()}
                     />
                   </td>
@@ -3675,6 +3709,41 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
   function setField(idx: number, field: keyof PengirimanRow, val: string | number) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
   }
+
+  // Order kolom yang bisa di-paste. Checklist skip (checkbox, tidak
+  // masuk dalam TSV Excel).
+  const PENGIRIMAN_PASTE_FIELDS: (keyof PengirimanRow)[] = ['nama', 'np', 'ukuran', 'keterangan'];
+
+  function handleCellPaste(e: React.ClipboardEvent<HTMLInputElement>, rowIdx: number, field: keyof PengirimanRow) {
+    const text = e.clipboardData.getData('text');
+    if (!text.includes('\t') && !text.includes('\n')) return;
+    e.preventDefault();
+    const lines = text.replace(/\r/g, '').split('\n');
+    while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    if (lines.length === 0) return;
+    const colStart = PENGIRIMAN_PASTE_FIELDS.indexOf(field);
+    if (colStart < 0) return;
+    setRows(prev => {
+      const next = prev.slice();
+      for (let j = 0; j < lines.length; j++) {
+        const cells = lines[j].split('\t');
+        const targetRowIdx = rowIdx + j;
+        while (targetRowIdx >= next.length) {
+          next.push({ id: null, urutan: next.length + 1, nama: '', np: '', ukuran: '', keterangan: '', checklist: 0 });
+        }
+        const merged = { ...next[targetRowIdx] };
+        for (let k = 0; k < cells.length; k++) {
+          const targetColIdx = colStart + k;
+          if (targetColIdx >= PENGIRIMAN_PASTE_FIELDS.length) break;
+          const key = PENGIRIMAN_PASTE_FIELDS[targetColIdx];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (merged as any)[key] = cells[k];
+        }
+        next[targetRowIdx] = merged;
+      }
+      return next;
+    });
+  }
   function addRow() {
     setRows(prev => [...prev, { id: null, urutan: prev.length + 1, nama: '', np: '', ukuran: '', keterangan: '', checklist: 0 }]);
   }
@@ -3720,7 +3789,10 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-white">Form Pengiriman</h2>
+        <div>
+          <h2 className="text-lg font-bold text-white">Form Pengiriman</h2>
+          <p className="text-[11px] text-slate-500 mt-0.5">Tip: copy dari Excel lalu paste di cell mana saja untuk isi banyak baris sekaligus.</p>
+        </div>
         <div className="flex items-center gap-2">
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
           <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
@@ -3747,10 +3819,10 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
               {rows.map((r, i) => (
                 <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                   <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{i + 1}</td>
-                  <td className="border border-white/10"><input className={cellCls} value={r.nama} onChange={e => setField(i, 'nama', e.target.value)} placeholder="Nama..." /></td>
-                  <td className="border border-white/10"><input className={cellCls} value={r.np} onChange={e => setField(i, 'np', e.target.value)} /></td>
-                  <td className="border border-white/10"><input className={cellCls} value={r.ukuran} onChange={e => setField(i, 'ukuran', e.target.value)} /></td>
-                  <td className="border border-white/10"><input className={cellCls} value={r.keterangan} onChange={e => setField(i, 'keterangan', e.target.value)} /></td>
+                  <td className="border border-white/10"><input className={cellCls} value={r.nama} onChange={e => setField(i, 'nama', e.target.value)} onPaste={e => handleCellPaste(e, i, 'nama')} placeholder="Nama..." /></td>
+                  <td className="border border-white/10"><input className={cellCls} value={r.np} onChange={e => setField(i, 'np', e.target.value)} onPaste={e => handleCellPaste(e, i, 'np')} /></td>
+                  <td className="border border-white/10"><input className={cellCls} value={r.ukuran} onChange={e => setField(i, 'ukuran', e.target.value)} onPaste={e => handleCellPaste(e, i, 'ukuran')} /></td>
+                  <td className="border border-white/10"><input className={cellCls} value={r.keterangan} onChange={e => setField(i, 'keterangan', e.target.value)} onPaste={e => handleCellPaste(e, i, 'keterangan')} /></td>
                   <td className="border border-white/10 text-center">
                     <input type="checkbox" checked={r.checklist === 1} onChange={e => setField(i, 'checklist', e.target.checked ? 1 : 0)} className="w-4 h-4 accent-emerald-500 cursor-pointer" />
                   </td>
