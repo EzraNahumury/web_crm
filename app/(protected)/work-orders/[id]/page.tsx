@@ -3307,6 +3307,9 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   // Sort by size — cycle: null → asc → desc → null. Cuma dipakai untuk
   // display order; setCell/removeRow tetap acuannya index original di rows.
   const [sortBySize, setSortBySize] = useState<'asc' | 'desc' | null>(null);
+  // Sort by KET (keterangan) — primary sort untuk grouping. Kalau
+  // sortBySize juga aktif, size jadi secondary sort dalam group KET.
+  const [sortByKet, setSortByKet] = useState<{ colId: string; dir: 'asc' | 'desc' } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -3350,16 +3353,31 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
 
   const leafKeys = useMemo(() => flatLeafKeys(kolom), [kolom]);
 
-  // Row list untuk display — di-sort by size kalau sortBySize aktif.
-  // Original rows array tidak berubah; displayRows cuma tampilan.
+  // Row list untuk display — di-sort 2 level. Kalau sortByKet aktif,
+  // itu jadi primary sort (group by KET). Kalau sortBySize juga aktif,
+  // jadi secondary sort dalam tiap group KET. Original rows array tidak
+  // berubah; displayRows cuma tampilan.
   const displayRows = useMemo(() => {
-    if (!sortBySize) return rows;
+    if (!sortBySize && !sortByKet) return rows;
     return rows.slice().sort((a, b) => {
-      const ai = sizeSortIndex(String(a.data.size || ''));
-      const bi = sizeSortIndex(String(b.data.size || ''));
-      return sortBySize === 'asc' ? ai - bi : bi - ai;
+      if (sortByKet) {
+        const ka = String(a.data[sortByKet.colId] || '').toLowerCase().trim();
+        const kb = String(b.data[sortByKet.colId] || '').toLowerCase().trim();
+        // Empty ket taruh di paling bawah supaya group berisi di atas.
+        const aE = ka === '' ? 1 : 0;
+        const bE = kb === '' ? 1 : 0;
+        if (aE !== bE) return aE - bE;
+        const cmp = ka.localeCompare(kb);
+        if (cmp !== 0) return sortByKet.dir === 'asc' ? cmp : -cmp;
+      }
+      if (sortBySize) {
+        const ai = sizeSortIndex(String(a.data.size || ''));
+        const bi = sizeSortIndex(String(b.data.size || ''));
+        return sortBySize === 'asc' ? ai - bi : bi - ai;
+      }
+      return 0;
     });
-  }, [rows, sortBySize]);
+  }, [rows, sortBySize, sortByKet]);
 
   function setCell(idx: number, key: string, val: string) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, data: { ...r.data, [key]: val } } : r));
@@ -3495,32 +3513,43 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
               <th rowSpan={hasChildren ? 2 : 1} className="border border-white/10 px-2 py-2 w-10">NO</th>
               {kolom.map(k => {
                 const cn = k.children && k.children.length > 0;
-                // SIZE column punya perilaku spesial: klik = sort, delete
-                // via icon × kecil di corner (hover-visible).
+                // SIZE + KET columns: klik = sort, delete via icon × corner.
                 const isSizeCol = k.id === 'size';
-                if (isSizeCol) {
+                const isKetCol = k.id.startsWith('ket');
+                if (isSizeCol || isKetCol) {
+                  const curDir = isSizeCol ? sortBySize : (sortByKet?.colId === k.id ? sortByKet.dir : null);
+                  const cycleSort = isSizeCol
+                    ? () => setSortBySize(cur => cur === 'asc' ? 'desc' : cur === 'desc' ? null : 'asc')
+                    : () => setSortByKet(cur => {
+                        if (cur?.colId !== k.id) return { colId: k.id, dir: 'asc' };
+                        if (cur.dir === 'asc') return { colId: k.id, dir: 'desc' };
+                        return null;
+                      });
+                  const sortTip = isSizeCol
+                    ? (curDir === 'asc' ? 'ascending — klik lagi jadi descending' : curDir === 'desc' ? 'descending — klik lagi hilangkan sort' : 'urutan XS → S → M → L → XL → dst')
+                    : (curDir === 'asc' ? 'A → Z, klik lagi jadi Z → A' : curDir === 'desc' ? 'Z → A, klik lagi hilangkan sort' : 'grouping berdasarkan nilai KET (A → Z)');
                   return (
                     <th
                       key={k.id}
                       colSpan={cn ? k.children!.length : 1}
                       rowSpan={cn ? 1 : (hasChildren ? 2 : 1)}
-                      onClick={() => setSortBySize(cur => cur === 'asc' ? 'desc' : cur === 'desc' ? null : 'asc')}
-                      title={`Klik untuk sort by size (${sortBySize === 'asc' ? 'ascending — klik lagi jadi descending' : sortBySize === 'desc' ? 'descending — klik lagi hilangkan sort' : 'urutan XS → S → M → L → XL → dst'})`}
+                      onClick={cycleSort}
+                      title={`Klik untuk sort (${sortTip})`}
                       className="border border-white/10 px-2 py-2 cursor-pointer hover:bg-emerald-900/40 transition-colors min-w-[80px] relative group"
                     >
                       <span className="inline-flex items-center gap-1">
                         {k.label}
-                        {sortBySize === 'asc' && (
+                        {curDir === 'asc' && (
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
                           </svg>
                         )}
-                        {sortBySize === 'desc' && (
+                        {curDir === 'desc' && (
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                           </svg>
                         )}
-                        {sortBySize === null && (
+                        {curDir === null && (
                           <svg className="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12" />
                           </svg>
@@ -3529,7 +3558,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                       <button
                         type="button"
                         onClick={e => { e.stopPropagation(); setDeleteHeader({ colId: k.id, label: k.label }); }}
-                        title="Hapus kolom SIZE"
+                        title={`Hapus kolom ${k.label}`}
                         className="absolute top-1 right-1 w-4 h-4 rounded-full grid place-items-center text-slate-400 hover:text-white hover:bg-rose-500/40 opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
