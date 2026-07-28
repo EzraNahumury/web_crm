@@ -2211,6 +2211,46 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     setSaving(false);
   }
 
+  // Auto-fill 6 field aksesoris (Tagline/Authentic/Info Ukuran/Info Logo/
+  // Info Packing/Webbing) berdasarkan nama paket. Kalau paket mengandung
+  // keyword STANDAR/CLASSIC/PRO, isi sesuai template AYRES. Operator
+  // tetap bisa edit setiap field setelah auto-fill.
+  function applyPaketTemplate(paketName: string) {
+    const up = String(paketName || '').toUpperCase();
+    // Common defaults untuk 3 varian
+    const common = {
+      tagline: 'Ayres',
+      infoUkuran: 'Ayres',
+      infoLogo: '3D Tatami',
+      infoPacking: 'Ayres',
+      webbing: 'Ayres',
+    };
+    if (up.includes('STANDAR')) {
+      setTagline(common.tagline);
+      setAuthentic('Tanpa authentic');
+      setInfoUkuran(common.infoUkuran);
+      setInfoLogo(common.infoLogo);
+      setInfoPacking(common.infoPacking);
+      setWebbing(common.webbing);
+    } else if (up.includes('CLASSIC') || up.includes('KLASIK')) {
+      setTagline(common.tagline);
+      setAuthentic('Ayress woven');
+      setInfoUkuran(common.infoUkuran);
+      setInfoLogo(common.infoLogo);
+      setInfoPacking(common.infoPacking);
+      setWebbing(common.webbing);
+    } else if (up.includes('PRO')) {
+      setTagline(common.tagline);
+      setAuthentic('Ayress hologram');
+      setInfoUkuran(common.infoUkuran);
+      setInfoLogo(common.infoLogo);
+      setInfoPacking(common.infoPacking);
+      setWebbing(common.webbing);
+    }
+    // Paket lain (JAKET/KAOS/ROMPI/WARRIOR/etc) tidak auto-fill supaya
+    // tidak nge-overwrite value yang mungkin sudah diisi operator.
+  }
+
   function resetForm() {
     setNamaSpec(''); setPaket(''); setJumlah(''); setTagline(''); setAuthentic('');
     setInfoUkuran(''); setInfoLogo(''); setInfoPacking(''); setWebbing('');
@@ -2425,7 +2465,16 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className={lCls}>Paket</label>
-                      <select value={paket} onChange={e => setPaket(e.target.value)} className={sCls}>
+                      <select
+                        value={paket}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setPaket(v);
+                          if (v) applyPaketTemplate(v);
+                        }}
+                        title="Pilih paket — kalau STANDAR/CLASSIC/PRO, aksesoris & detail otomatis ke-isi template"
+                        className={sCls}
+                      >
                         <option value="">Pilih paket</option>
                         {paketList.map(p => <option key={p.id as number} value={p.nama as string}>{p.nama as string}</option>)}
                       </select>
@@ -2489,7 +2538,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>Ayres Pattern Lab</option><option>polos</option><option>custom</option></select></div>
-                    <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress rubber</option><option>Ayress woven</option><option>Custom</option><option>Tanpa authentic</option></select></div>
+                    <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress rubber</option><option>Ayress woven</option><option>Ayress hologram</option><option>Custom</option><option>Tanpa authentic</option></select></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className={lCls}>Info Ukuran</label><select value={infoUkuran} onChange={e => setInfoUkuran(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option><option>reseller</option></select></div>
@@ -2605,7 +2654,16 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className={lCls}>Paket</label>
-                      <select value={paket} onChange={e => setPaket(e.target.value)} className={sCls}>
+                      <select
+                        value={paket}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setPaket(v);
+                          if (v) applyPaketTemplate(v);
+                        }}
+                        title="Pilih paket — kalau STANDAR/CLASSIC/PRO, aksesoris & detail otomatis ke-isi template"
+                        className={sCls}
+                      >
                         <option value="">Pilih paket</option>
                         {paketList.map(p => <option key={p.id as number} value={p.nama as string}>{p.nama as string}</option>)}
                       </select>
@@ -2639,7 +2697,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className={lCls}>Tagline</label><select value={tagline} onChange={e => setTagline(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>Ayres Pattern Lab</option><option>polos</option><option>custom</option></select></div>
-                    <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress rubber</option><option>Ayress woven</option><option>Custom</option><option>Tanpa authentic</option></select></div>
+                    <div><label className={lCls}>Authentic</label><select value={authentic} onChange={e => setAuthentic(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayress rubber</option><option>Ayress woven</option><option>Ayress hologram</option><option>Custom</option><option>Tanpa authentic</option></select></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className={lCls}>Info Ukuran</label><select value={infoUkuran} onChange={e => setInfoUkuran(e.target.value)} className={sCls}><option value="">Pilih...</option><option>Ayres</option><option>polos</option><option>custom</option><option>reseller</option></select></div>
