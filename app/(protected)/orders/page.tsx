@@ -136,7 +136,7 @@ export default function OrdersPage() {
   const [riskFilter, setRiskFilter] = useState('ALL');
   const [monthFilter, setMonthFilter] = useState('');
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 10;
+  const [PAGE_SIZE, setPageSize] = useState(10);
   const [selected, setSelected] = useState<Order | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -574,7 +574,14 @@ export default function OrdersPage() {
             </tbody>
           </table>
         </div>
-        <Pagination current={page} total={totalPages} count={filtered.length} onChange={setPage} />
+        <Pagination
+          current={page}
+          total={totalPages}
+          count={filtered.length}
+          pageSize={PAGE_SIZE}
+          onChange={setPage}
+          onPageSizeChange={size => { setPageSize(size); setPage(1); }}
+        />
       </div>
 
       <CreateOrderDrawer open={createOpen} onClose={() => setCreateOpen(false)} />

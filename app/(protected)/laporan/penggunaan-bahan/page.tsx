@@ -24,6 +24,8 @@ export default function PenggunaanBahanPage() {
   const [loading, setLoading] = useState(true);
   const [aggPage, setAggPage] = useState(1);
   const [rincianPage, setRincianPage] = useState(1);
+  const [aggPageSize, setAggPageSize] = useState(10);
+  const [rincianPageSize, setRincianPageSize] = useState(10);
 
   async function fetchData() {
     setLoading(true);
@@ -83,8 +85,8 @@ export default function PenggunaanBahanPage() {
   }, [filtered, barangList]);
 
   // Pagination slices
-  const agg = paginate(aggregated, aggPage);
-  const rincian = paginate(filtered, rincianPage);
+  const agg = paginate(aggregated, aggPage, aggPageSize);
+  const rincian = paginate(filtered, rincianPage, rincianPageSize);
 
   return (
     <div className="space-y-5">
@@ -171,7 +173,7 @@ export default function PenggunaanBahanPage() {
                 </tbody>
               </table>
             </div>
-            <Pagination current={agg.current} total={agg.total} count={agg.count} onChange={setAggPage} />
+            <Pagination current={agg.current} total={agg.total} count={agg.count} pageSize={aggPageSize} onChange={setAggPage} onPageSizeChange={s => { setAggPageSize(s); setAggPage(1); }} />
           </>
         )}
       </div>
@@ -213,7 +215,7 @@ export default function PenggunaanBahanPage() {
                 </tbody>
               </table>
             </div>
-            <Pagination current={rincian.current} total={rincian.total} count={rincian.count} onChange={setRincianPage} />
+            <Pagination current={rincian.current} total={rincian.total} count={rincian.count} pageSize={rincianPageSize} onChange={setRincianPage} onPageSizeChange={s => { setRincianPageSize(s); setRincianPage(1); }} />
           </>
         )}
       </div>

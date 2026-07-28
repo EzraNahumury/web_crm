@@ -38,6 +38,8 @@ export default function StokPage() {
 
   const [aktualPage, setAktualPage] = useState(1);
   const [adjPage, setAdjPage] = useState(1);
+  const [aktualPageSize, setAktualPageSize] = useState(10);
+  const [adjPageSize, setAdjPageSize] = useState(10);
   const toast = useToast();
 
   useEffect(() => { setAktualPage(1); }, [search]);
@@ -89,8 +91,8 @@ export default function StokPage() {
       || m.kode.toLowerCase().includes(search.toLowerCase())
   ), [stokDisplay, search]);
 
-  const aktualPaged = paginate(filtered, aktualPage);
-  const adjPaged = paginate(adjustments, adjPage);
+  const aktualPaged = paginate(filtered, aktualPage, aktualPageSize);
+  const adjPaged = paginate(adjustments, adjPage, adjPageSize);
 
   // ─── Overview stats ───
   const totalMasuk = useMemo(
@@ -455,7 +457,7 @@ export default function StokPage() {
                 </tbody>
               </table>
             </div>
-            <Pagination current={aktualPaged.current} total={aktualPaged.total} count={aktualPaged.count} onChange={setAktualPage} />
+            <Pagination current={aktualPaged.current} total={aktualPaged.total} count={aktualPaged.count} pageSize={aktualPageSize} onChange={setAktualPage} onPageSizeChange={s => { setAktualPageSize(s); setAktualPage(1); }} />
           </div>
         </div>
       )}
@@ -533,7 +535,7 @@ export default function StokPage() {
                 </tbody>
               </table>
             </div>
-            <Pagination current={adjPaged.current} total={adjPaged.total} count={adjPaged.count} onChange={setAdjPage} />
+            <Pagination current={adjPaged.current} total={adjPaged.total} count={adjPaged.count} pageSize={adjPageSize} onChange={setAdjPage} onPageSizeChange={s => { setAdjPageSize(s); setAdjPage(1); }} />
           </div>
         </div>
       )}

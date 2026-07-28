@@ -111,6 +111,7 @@ export default function MasterPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const toast = useToast();
   // Extra data for dropdowns
   const [jabatanList, setJabatanList] = useState<Row[]>([]);
@@ -141,7 +142,7 @@ export default function MasterPage() {
   useEffect(() => { setPage(1); }, [search, tab]);
 
   // Pagination slice for current rows
-  const paged = paginate(rows, page);
+  const paged = paginate(rows, page, pageSize);
 
   async function handleDelete(id: number) {
     const yes = await toast.confirm({ title: 'Hapus Data?', message: 'Data ini akan dihapus permanen.', type: 'danger', confirmText: 'Ya, Hapus' });
@@ -255,7 +256,7 @@ export default function MasterPage() {
                 {tab === 'promo' && <TablePromo rows={paged.slice} fmtDate={fmtDate} onEdit={handleEdit} onDelete={handleDelete} />}
                 {tab === 'leads' && <TableLeads rows={paged.slice} onEdit={handleEdit} onDelete={handleDelete} />}
               </div>
-              <Pagination current={paged.current} total={paged.total} count={paged.count} onChange={setPage} />
+              <Pagination current={paged.current} total={paged.total} count={paged.count} pageSize={pageSize} onChange={setPage} onPageSizeChange={s => { setPageSize(s); setPage(1); }} />
             </>
           )}
         </div>

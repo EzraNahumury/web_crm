@@ -41,6 +41,7 @@ export default function WorkOrdersPage() {
   const [editKeterangan, setEditKeterangan] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const router = useRouter();
   const toast = useToast();
 
@@ -319,7 +320,7 @@ export default function WorkOrdersPage() {
 
   // Reset to page 1 when filters change
   useEffect(() => { setPage(1); }, [search, customerFilter]);
-  const paged = paginate(filtered, page);
+  const paged = paginate(filtered, page, pageSize);
 
   if (loading) return (
     <div className="space-y-4">
@@ -495,7 +496,7 @@ export default function WorkOrdersPage() {
             </tbody>
           </table>
         </div>
-        <Pagination current={paged.current} total={paged.total} count={paged.count} onChange={setPage} />
+        <Pagination current={paged.current} total={paged.total} count={paged.count} pageSize={pageSize} onChange={setPage} onPageSizeChange={s => { setPageSize(s); setPage(1); }} />
       </div>
 
       {/* Modal Buat WO */}

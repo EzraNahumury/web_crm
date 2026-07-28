@@ -816,6 +816,7 @@ export default function CsSellingPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // When editOrder is set, the drawer opens in edit mode with the row's
   // data pre-filled. Closing the drawer clears it, so opening "Buat
@@ -929,7 +930,7 @@ export default function CsSellingPage() {
   // Reset page saat search berubah supaya tidak stuck di halaman kosong.
   useEffect(() => { setPage(1); }, [search]);
 
-  const paged = paginate(filtered, page);
+  const paged = paginate(filtered, page, pageSize);
 
   const paymentsByOrder = useMemo(() => {
     const m: Record<number, Row[]> = {};
@@ -1156,7 +1157,9 @@ export default function CsSellingPage() {
           current={paged.current}
           total={paged.total}
           count={paged.count}
+          pageSize={pageSize}
           onChange={setPage}
+          onPageSizeChange={s => { setPageSize(s); setPage(1); }}
         />
       </div>
 

@@ -1,6 +1,8 @@
 'use client';
+import { useEffect, useRef, useState } from 'react';
 
 export const DEFAULT_PAGE_SIZE = 10;
+export const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100, 250];
 
 /**
  * Slice array for current page. Always returns a safe page (clamped to total pages).
@@ -22,10 +24,21 @@ type PaginationProps = {
   count: number;
   pageSize?: number;
   onChange: (page: number) => void;
+  // Kalau di-set, tampilkan dropdown 'Rows' di pojok kanan. Callback ini
+  // yang harus reset page ke 1 dan update state pageSize di caller.
+  onPageSizeChange?: (size: number) => void;
+  pageSizeOptions?: number[];
 };
 
-export function Pagination({ current, total, count, pageSize = DEFAULT_PAGE_SIZE, onChange }: PaginationProps) {
-  if (count <= pageSize) return null;
+export function Pagination({
+  current, total, count, pageSize = DEFAULT_PAGE_SIZE, onChange,
+  onPageSizeChange, pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+}: PaginationProps) {
+  // Kalau tidak butuh pagination sama sekali (semua row muat di 1 halaman)
+  // DAN tidak ada onPageSizeChange, skip render. Kalau ada selector, tetap
+  // render supaya user bisa ubah page size.
+  if (count <= pageSize && !onPageSizeChange) return null;
+
   const startIdx = (current - 1) * pageSize + 1;
   const endIdx = Math.min(current * pageSize, count);
   const btn = 'inline-flex items-center justify-center w-8 h-8 text-xs font-medium rounded-lg transition-colors';
@@ -46,34 +59,92 @@ export function Pagination({ current, total, count, pageSize = DEFAULT_PAGE_SIZE
 
   return (
     <div className="px-6 py-3 border-t border-white/[0.06] flex items-center justify-between flex-wrap gap-3">
-      <span className="text-xs text-slate-500">Menampilkan {startIdx}–{endIdx} dari {count}</span>
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => onChange(Math.max(1, current - 1))}
-          disabled={current === 1}
-          className={`${btn} text-slate-400 border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-not-allowed`}
-          aria-label="Halaman sebelumnya"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
-        </button>
-        {pageNums.map((p, i) => p === 'ellipsis' ? (
-          <span key={`e-${i}`} className="px-1 text-xs text-slate-500">…</span>
-        ) : (
-          <button
-            key={p}
-            onClick={() => onChange(p)}
-            className={`${btn} ${p === current ? 'bg-blue-600 text-white' : 'text-slate-400 border border-white/10 hover:bg-white/[0.04]'}`}
-          >{p}</button>
-        ))}
-        <button
-          onClick={() => onChange(Math.min(total, current + 1))}
-          disabled={current === total}
-          className={`${btn} text-slate-400 border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-not-allowed`}
-          aria-label="Halaman berikutnya"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
-        </button>
+      <span className="text-xs text-slate-500">
+        {count > 0 ? `Menampilkan ${startIdx}–${endIdx} dari ${count}` : 'Tidak ada data'}
+      </span>
+      <div className="flex items-center gap-3">
+        {total > 1 && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onChange(Math.max(1, current - 1))}
+              disabled={current === 1}
+              className={`${btn} text-slate-400 border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-not-allowed`}
+              aria-label="Halaman sebelumnya"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+            </button>
+            {pageNums.map((p, i) => p === 'ellipsis' ? (
+              <span key={`e-${i}`} className="px-1 text-xs text-slate-500">…</span>
+            ) : (
+              <button
+                key={p}
+                onClick={() => onChange(p)}
+                className={`${btn} ${p === current ? 'bg-blue-600 text-white' : 'text-slate-400 border border-white/10 hover:bg-white/[0.04]'}`}
+              >{p}</button>
+            ))}
+            <button
+              onClick={() => onChange(Math.min(total, current + 1))}
+              disabled={current === total}
+              className={`${btn} text-slate-400 border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-not-allowed`}
+              aria-label="Halaman berikutnya"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+            </button>
+          </div>
+        )}
+        {onPageSizeChange && (
+          <PageSizeSelector value={pageSize} options={pageSizeOptions} onChange={onPageSizeChange} />
+        )}
       </div>
+    </div>
+  );
+}
+
+function PageSizeSelector({ value, options, onChange }: {
+  value: number; options: number[]; onChange: (size: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+  return (
+    <div ref={wrapRef} className="relative flex items-center gap-2">
+      <span className="text-xs text-slate-500">Rows</span>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-[#0d1117] text-xs text-slate-300 hover:bg-white/[0.04] transition-colors tabular-nums"
+      >
+        <span>{value}</span>
+        <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-30 bottom-full right-0 mb-1 w-24 bg-[#0d1117] border border-white/10 rounded-lg shadow-xl overflow-hidden">
+          {options.map(opt => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => { onChange(opt); setOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-xs tabular-nums flex items-center justify-between transition-colors ${opt === value ? 'bg-blue-600/20 text-blue-300' : 'text-slate-300 hover:bg-white/[0.04]'}`}
+            >
+              <span>{opt}</span>
+              {opt === value && (
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
