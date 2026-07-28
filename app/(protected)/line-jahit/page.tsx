@@ -661,28 +661,6 @@ export default function LineJahitPage() {
                     })()}
                     <td className="border border-slate-400 px-1 py-2"></td>
                   </tr>
-                  {/* Row 2: konversi poin ke rupiah (× BASE_RATE_POIN) */}
-                  {(() => {
-                    const totalTgt = Object.values(targetByDate).reduce((a, b) => a + b, 0);
-                    const totalRp = rows.reduce((s, r) => s + realisasiPoin(r, paketList), 0);
-                    const diffPoin = totalRp - totalTgt;
-                    const tgtRupiah = totalTgt * BASE_RATE_POIN;
-                    const realRupiah = totalRp * BASE_RATE_POIN;
-                    const diffRupiah = diffPoin * BASE_RATE_POIN;
-                    const isPositive = diffRupiah >= 0;
-                    const sign = isPositive ? '+' : '−';
-                    return (
-                      <tr className="bg-yellow-100 text-slate-800 text-xs font-semibold">
-                        <td colSpan={2 + paketCount * 2} className="border border-slate-400 px-3 py-2 text-right uppercase tracking-wide">Total (Rp)</td>
-                        <td className="border border-slate-400 px-2 py-2 text-center tabular-nums text-emerald-700">{fmtRupiah(tgtRupiah)}</td>
-                        <td className="border border-slate-400 px-2 py-2 text-center tabular-nums text-sky-700">{fmtRupiah(realRupiah)}</td>
-                        <td className={`border border-slate-400 px-2 py-2 text-center tabular-nums ${isPositive ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {sign}{fmtRupiah(Math.abs(diffRupiah))}
-                        </td>
-                        <td className="border border-slate-400 px-1 py-2"></td>
-                      </tr>
-                    );
-                  })()}
                 </tfoot>
               )}
             </table>
