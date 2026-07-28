@@ -73,6 +73,37 @@ export function totalDurasiDesign(): number {
   return DESIGN_STAGE_ORDER.reduce((s, k) => s + DESIGN_DURATIONS[k], 0);
 }
 
+/**
+ * Deadline stage SAAT INI, dihitung dari kapan order masuk stage
+ * tersebut (bukan dari baseline design_awal_at).
+ *
+ * Kenapa: kalau order lama tertinggal di Awal lalu baru dipindah ke
+ * Revisi 1 hari ini, seharusnya operator dapat 1 hari kerja fresh
+ * untuk Revisi 1, bukan langsung terlambat karena target REVISI_1
+ * dari baseline sudah lewat.
+ *
+ * Parameter:
+ *   stageStartedISO — tanggal saat order masuk stage saat ini
+ *                     (dari orders.design_stage_started_at). Kalau
+ *                     null / kosong, fallback ke baselineISO.
+ *   stage           — nama stage saat ini.
+ *   baselineISO     — fallback kalau stageStartedISO kosong. Biasanya
+ *                     dipakai untuk stage AWAL yang mulai dari finance
+ *                     approve DP Design.
+ */
+export function computeCurrentStageDeadline(
+  stageStartedISO: string,
+  stage: DesignStage,
+  holidays: Set<string>,
+  baselineISO?: string,
+): string {
+  const start = stageStartedISO || baselineISO || '';
+  if (!start) return '';
+  const d = DESIGN_DURATIONS[stage] ?? 0;
+  if (d <= 0) return start;
+  return addBusinessDays(start, d, holidays);
+}
+
 export type LateStatus = 'aman' | 'warning' | 'terlambat';
 
 export function classifyLateDesign(

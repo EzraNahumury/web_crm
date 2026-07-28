@@ -7,6 +7,7 @@ import {
   DESIGN_STAGE_LABELS,
   DESIGN_DURATIONS,
   computeDesignStageTargets,
+  computeCurrentStageDeadline,
   classifyLateDesign,
   totalDurasiDesign,
   nextRevisiStage,
@@ -125,6 +126,9 @@ export default function AntrianDesignPage() {
   }, [antrianFiltered]);
 
   // Jumlah order terlambat SLA per stage — dipakai badge merah di tab.
+  // Baseline stage saat ini = design_stage_started_at (kalau ada) supaya
+  // SLA per-stage mereset saat order pindah stage. Fallback ke
+  // design_awal_at untuk order lama yang belum punya stage_started_at.
   // SELESAI skip karena sudah tidak butuh warning lagi.
   const stageLateCounts = useMemo(() => {
     const today = todayIsoLocal();
@@ -135,9 +139,12 @@ export default function AntrianDesignPage() {
       const stage = o.design_stage as DesignStage;
       if (stage === 'SELESAI' || !(stage in c)) continue;
       const baseline = String(o.design_awal_at || '').slice(0, 10);
-      if (!baseline) continue;
-      const targets = computeDesignStageTargets(baseline, holidays);
-      const tStage = targets[stage];
+      const stageStart = String(o.design_stage_started_at || '').slice(0, 10);
+      if (!baseline && !stageStart) continue;
+      // Deadline stage saat ini — dari stage_started_at kalau ada.
+      const tStage = computeCurrentStageDeadline(stageStart, stage, holidays, baseline);
+      // Deadline final tetap dari baseline design_awal_at.
+      const targets = baseline ? computeDesignStageTargets(baseline, holidays) : ({} as Record<DesignStage, string>);
       const tFinal = targets['REVISI_3'];
       const stageLate = tStage ? classifyLateDesign(tStage, today) === 'terlambat' : false;
       const finalLate = tFinal ? classifyLateDesign(tFinal, today) === 'terlambat' : false;
@@ -198,9 +205,10 @@ export default function AntrianDesignPage() {
     let n = 0;
     for (const o of activeOrders) {
       const baseline = String(o.design_awal_at || '').slice(0, 10);
-      if (!baseline) continue;
-      const targets = computeDesignStageTargets(baseline, holidays);
-      const tStage = targets[activeTab];
+      const stageStart = String(o.design_stage_started_at || '').slice(0, 10);
+      if (!baseline && !stageStart) continue;
+      const tStage = computeCurrentStageDeadline(stageStart, activeTab, holidays, baseline);
+      const targets = baseline ? computeDesignStageTargets(baseline, holidays) : ({} as Record<DesignStage, string>);
       const tFinal = targets['REVISI_3'];
       const stageLate = tStage ? classifyLateDesign(tStage, todayIso) === 'terlambat' : false;
       const finalLate = tFinal ? classifyLateDesign(tFinal, todayIso) === 'terlambat' : false;
@@ -218,9 +226,10 @@ export default function AntrianDesignPage() {
       const stage = o.design_stage as DesignStage;
       if (stage === 'SELESAI') continue;
       const baseline = String(o.design_awal_at || '').slice(0, 10);
-      if (!baseline) continue;
-      const targets = computeDesignStageTargets(baseline, holidays);
-      const tStage = targets[stage];
+      const stageStart = String(o.design_stage_started_at || '').slice(0, 10);
+      if (!baseline && !stageStart) continue;
+      const tStage = computeCurrentStageDeadline(stageStart, stage, holidays, baseline);
+      const targets = baseline ? computeDesignStageTargets(baseline, holidays) : ({} as Record<DesignStage, string>);
       const tFinal = targets['REVISI_3'];
       const stageLate = tStage ? classifyLateDesign(tStage, todayIso) : 'aman';
       const finalLate = tFinal ? classifyLateDesign(tFinal, todayIso) : 'aman';
@@ -665,11 +674,18 @@ function OrderCard({
   const isRevisi3 = currentStage === 'REVISI_3';
 
   const baselineIso = String(order.design_awal_at || '').slice(0, 10);
+  const stageStartedIso = String(order.design_stage_started_at || '').slice(0, 10);
   const targets = useMemo(
     () => baselineIso ? computeDesignStageTargets(baselineIso, holidays) : ({} as Record<DesignStage, string>),
     [baselineIso, holidays],
   );
-  const targetStage = targets[currentStage] || '';
+  // Deadline stage saat ini pakai stage_started_at supaya per-stage SLA
+  // reset tiap kali order pindah. Kalau stage_started_at kosong (order
+  // legacy), fallback ke deadline dari baseline.
+  const targetStage = useMemo(
+    () => computeCurrentStageDeadline(stageStartedIso, currentStage, holidays, baselineIso),
+    [stageStartedIso, currentStage, holidays, baselineIso],
+  );
   const targetSelesaiFinal = targets['REVISI_3'] || '';
   const lateStatus = targetStage ? classifyLateDesign(targetStage, todayIso) : 'aman';
   const finalLate = targetSelesaiFinal ? classifyLateDesign(targetSelesaiFinal, todayIso) : 'aman';
