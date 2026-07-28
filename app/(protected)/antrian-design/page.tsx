@@ -404,7 +404,6 @@ export default function AntrianDesignPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            <SortDropdown value={sortMode} onChange={setSortMode} />
             {lateSummary.terlambat > 0 && (
               <div className="flex items-center gap-2 bg-red-500/[0.12] border border-red-500/40 rounded-xl px-3 py-2 shadow-lg shadow-red-500/10">
                 <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 grid place-items-center text-red-200">
@@ -533,22 +532,25 @@ export default function AntrianDesignPage() {
               )}
             </div>
           </div>
-          {activeLateCount > 0 && (
-            <div
-              title="Jumlah order di stage ini yang sudah lewat target SLA (stage aktif atau final). Cek chip merah di daftar antrian."
-              className="flex items-center gap-2 shrink-0 bg-red-500/[0.12] border border-red-500/40 rounded-xl px-3 py-2 shadow-lg shadow-red-500/10"
-            >
-              <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 grid place-items-center text-red-200">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                </svg>
+          <div className="flex items-center gap-2 shrink-0">
+            <SortDropdown value={sortMode} onChange={setSortMode} />
+            {activeLateCount > 0 && (
+              <div
+                title="Jumlah order di stage ini yang sudah lewat target SLA (stage aktif atau final). Cek chip merah di daftar antrian."
+                className="flex items-center gap-2 shrink-0 bg-red-500/[0.12] border border-red-500/40 rounded-xl px-3 py-2 shadow-lg shadow-red-500/10"
+              >
+                <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 grid place-items-center text-red-200">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-red-300 uppercase tracking-widest">Terlambat SLA</p>
+                  <p className="text-lg font-bold text-white leading-tight tabular-nums">{activeLateCount} order</p>
+                </div>
               </div>
-              <div>
-                <p className="text-[10px] font-bold text-red-300 uppercase tracking-widest">Terlambat SLA</p>
-                <p className="text-lg font-bold text-white leading-tight tabular-nums">{activeLateCount} order</p>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         <div className="relative w-full">
