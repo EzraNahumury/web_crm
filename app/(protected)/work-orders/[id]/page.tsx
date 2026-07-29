@@ -3607,6 +3607,42 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
     );
   }
 
+  function getWo2PrimaryKetValue(data: Record<string, string>) {
+    const ketKey = leafKeys.find(lk => lk.id.startsWith('ket') || lk.label.trim().toUpperCase() === 'KET')?.id;
+    return (ketKey ? data[ketKey] : '') || data.ket1 || data.ket2 || '';
+  }
+
+  async function syncWo2RowsToWo3() {
+    const existing = await dbGet<Row>('wo_pengiriman', undefined, { work_order_id: wo.id });
+    const existingSorted = existing.slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
+
+    for (let i = 0; i < rows.length; i++) {
+      const source = rows[i];
+      const target = existingSorted[i];
+      const payload: Row = {
+        work_order_id: wo.id,
+        urutan: i + 1,
+        nama: source.data.nama || '',
+        np: source.data.np || '',
+        ukuran: source.data.size || '',
+        keterangan: getWo2PrimaryKetValue(source.data),
+        checklist: Number(target?.checklist) || 0,
+      };
+
+      if (target?.id) await dbUpdate('wo_pengiriman', Number(target.id), payload);
+      else await dbCreate('wo_pengiriman', payload);
+    }
+
+    // Delete row WO3 yang extra (kalau WO2 lebih pendek). Ini bikin
+    // WO3 tetap sinkron dengan WO2 — bukan cuma nambah tapi juga cleanup.
+    for (let i = rows.length; i < existingSorted.length; i++) {
+      const extra = existingSorted[i];
+      if (extra?.id) {
+        try { await dbDelete('wo_pengiriman', Number(extra.id)); } catch {}
+      }
+    }
+  }
+
   // Paste dari Excel (TSV multi-cell). Deteksi tab / newline → distribusikan
   // value ke row+col mulai dari cell yang di-paste. Auto-tambah baris kalau
   // pasted data lebih panjang dari row yang tersedia.
@@ -3700,7 +3736,8 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
           setRows(prev => prev.map((row, idx) => idx === i ? { ...row, id: Number(newId) } : row));
         }
       }
-      toast.success('Tersimpan', 'Detail ukuran tim disimpan.');
+      await syncWo2RowsToWo3();
+      toast.success('Tersimpan', 'Detail ukuran tim disimpan dan WO 3 diperbarui.');
       await fetchAll();
     } catch (e) { toast.error('Gagal', String(e)); }
     setSaving(false);
@@ -3727,7 +3764,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik icon X untuk hapus kolom. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus.</p>
+      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik icon X untuk hapus kolom. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
 
       <div className="overflow-x-auto rounded-xl border border-white/[0.08] bg-[#111827]">
         <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
