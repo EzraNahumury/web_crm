@@ -65,19 +65,23 @@ export default function BuktiPembayaranPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Bukti Pembayaran candidates: CS_SELLING orders whose Rincian is done
-  // (status has moved past SELLING → PENDING/CONFIRMED/IN_PROGRESS) and
-  // whose Bukti step hasn't been marked complete yet. Once bukti_uploaded
-  // flips to 1 they leave this queue.
+  // Bukti Pembayaran candidates:
+  //   • CS_SELLING orders whose Rincian is done (status > SELLING) dan
+  //     belum upload bukti (bukti_uploaded !== 1), ATAU
+  //   • Order yang sudah upload bukti tapi ditolak Finance
+  //     (finance_status === 'REJECTED') — perlu re-upload dengan bukti
+  //     baru. Catatan Finance tampil di form supaya CS tahu alasannya.
   const candidateOrders = useMemo(() => {
     return orders
       .filter(o => {
         const via = String(o.created_via || '').toUpperCase();
         const st = String(o.status || '').toUpperCase();
         const bu = Number(o.bukti_uploaded);
-        return via === 'CS_SELLING'
-          && st !== 'SELLING' && st !== 'DONE'
-          && bu !== 1;
+        const fs = String(o.finance_status || '').toUpperCase();
+        if (via !== 'CS_SELLING') return false;
+        if (st === 'SELLING' || st === 'DONE') return false;
+        if (fs === 'REJECTED') return true; // ditolak Finance → re-upload
+        return bu !== 1;
       })
       .sort((a, b) => Number(b.id) - Number(a.id));
   }, [orders]);
@@ -400,6 +404,31 @@ export default function BuktiPembayaranPage() {
             <span>Customer: <strong className="text-slate-300">{pickedOrder.customer_nama}</strong></span>
             <span>No HP: <strong className="text-slate-300">{pickedOrder.customer_phone || '-'}</strong></span>
             <span>Tgl Order: <strong className="text-slate-300">{fmtDate(pickedOrder.tanggal_order)}</strong></span>
+          </div>
+        )}
+
+        {pickedOrder && String(pickedOrder.finance_status || '').toUpperCase() === 'REJECTED' && (
+          <div className="rounded-xl border border-rose-500/40 bg-rose-500/[0.08] p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-lg bg-rose-500/20 border border-rose-500/40 grid place-items-center shrink-0">
+                <svg className="w-5 h-5 text-rose-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-rose-300 mb-1">Catatan Finance</p>
+                <p className="text-sm text-white whitespace-pre-wrap">{String(pickedOrder.finance_notes || '(Tidak ada catatan)').trim()}</p>
+                {pickedOrder.finance_approved_by && (
+                  <p className="text-[11px] text-rose-300/70 mt-2">
+                    Ditolak oleh <strong className="text-rose-200">{String(pickedOrder.finance_approved_by)}</strong>
+                    {pickedOrder.finance_approved_at && (
+                      <> pada {new Date(String(pickedOrder.finance_approved_at)).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</>
+                    )}
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-400 mt-2">Upload bukti baru + simpan untuk kirim ulang ke Approval Finance.</p>
+              </div>
+            </div>
           </div>
         )}
       </div>
