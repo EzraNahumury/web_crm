@@ -3300,8 +3300,15 @@ function TabWO2({ wo }: { wo: Row; gudangItems: Row[]; specs: Row[]; specBahan: 
 /* ═══ Tab WO 2 — Detail Ukuran Tim (image #464) — kolom dynamic ═══ */
 type Wo2Col = {
   id: string; label: string; urutan: number;
-  children?: { id: string; label: string; urutan: number }[];
+  children?: Wo2ChildCol[];
 };
+type Wo2ChildCol = { id: string; label: string; urutan: number };
+type Wo2HeaderDrag =
+  | { kind: 'column'; id: string }
+  | { kind: 'child'; parentId: string; id: string };
+type Wo2HeaderDrop =
+  | { kind: 'column'; id: string; edge: 'before' | 'after' }
+  | { kind: 'child'; parentId: string; id: string; edge: 'before' | 'after' };
 
 // Kolom default = 13 kolom sesuai template Excel AYRES. id nya match
 // nama kolom legacy di wo_ukuran_tim supaya value existing tetap ke-read.
@@ -3326,15 +3333,55 @@ const DEFAULT_WO2_KOLOM: Wo2Col[] = [
   { id: 'penjahit', label: 'PENJAHIT', urutan: 12 },
 ];
 
+function assignWo2Urutan(cols: Wo2Col[]): Wo2Col[] {
+  return cols.map((col, idx) => ({
+    ...col,
+    urutan: idx + 1,
+    children: col.children?.map((child, childIdx) => ({ ...child, urutan: childIdx + 1 })),
+  }));
+}
+
+function orderWo2Kolom(cols: Wo2Col[]): Wo2Col[] {
+  const ordered = cols
+    .map((col, idx) => {
+      const urutan = Number(col.urutan);
+      return { col, idx, urutan: Number.isFinite(urutan) && urutan > 0 ? urutan : idx + 1 };
+    })
+    .sort((a, b) => a.urutan - b.urutan || a.idx - b.idx)
+    .map(({ col }) => ({
+      ...col,
+      children: col.children
+        ? col.children
+            .map((child, idx) => {
+              const urutan = Number(child.urutan);
+              return { child, idx, urutan: Number.isFinite(urutan) && urutan > 0 ? urutan : idx + 1 };
+            })
+            .sort((a, b) => a.urutan - b.urutan || a.idx - b.idx)
+            .map(({ child }) => child)
+        : undefined,
+    }));
+  return assignWo2Urutan(ordered);
+}
+
+function moveWo2Item<T>(items: T[], fromIndex: number, toIndex: number, edge: 'before' | 'after'): T[] {
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return items;
+  const next = items.slice();
+  const [moved] = next.splice(fromIndex, 1);
+  let insertAt = edge === 'after' ? toIndex + 1 : toIndex;
+  if (fromIndex < insertAt) insertAt -= 1;
+  next.splice(insertAt, 0, moved);
+  return next;
+}
+
 type UkuranRow = { id: number | null; urutan: number; data: Record<string, string> };
 
 function parseWo2Kolom(raw: string | null | undefined): Wo2Col[] {
-  if (!raw) return DEFAULT_WO2_KOLOM.slice();
+  if (!raw) return assignWo2Urutan(DEFAULT_WO2_KOLOM.slice());
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed as Wo2Col[];
+    if (Array.isArray(parsed) && parsed.length > 0) return orderWo2Kolom(parsed as Wo2Col[]);
   } catch {}
-  return DEFAULT_WO2_KOLOM.slice();
+  return assignWo2Urutan(DEFAULT_WO2_KOLOM.slice());
 }
 
 // Flatten config jadi list leaf keys (untuk header row 2 dan tbody cells).
@@ -3372,6 +3419,9 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   // Sort by KET (keterangan) — primary sort untuk grouping. Kalau
   // sortBySize juga aktif, size jadi secondary sort dalam group KET.
   const [sortByKet, setSortByKet] = useState<{ colId: string; dir: 'asc' | 'desc' } | null>(null);
+  const [draggedHeader, setDraggedHeader] = useState<Wo2HeaderDrag | null>(null);
+  const [headerDrop, setHeaderDrop] = useState<Wo2HeaderDrop | null>(null);
+  const suppressHeaderClickRef = useRef(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -3445,6 +3495,118 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, data: { ...r.data, [key]: val } } : r));
   }
 
+  function getHeaderDropEdge(e: React.DragEvent<HTMLElement>): 'before' | 'after' {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
+  }
+
+  function beginHeaderDrag(e: React.DragEvent<HTMLTableCellElement>, payload: Wo2HeaderDrag) {
+    suppressHeaderClickRef.current = false;
+    setDraggedHeader(payload);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', payload.kind === 'column' ? payload.id : payload.parentId + ':' + payload.id);
+  }
+
+  function endHeaderDrag() {
+    setDraggedHeader(null);
+    setHeaderDrop(null);
+    window.setTimeout(() => {
+      suppressHeaderClickRef.current = false;
+    }, 0);
+  }
+
+  function handleColumnDragOver(e: React.DragEvent<HTMLTableCellElement>, targetId: string) {
+    if (!draggedHeader || draggedHeader.kind !== 'column') return;
+    if (draggedHeader.id === targetId) {
+      setHeaderDrop(null);
+      return;
+    }
+    e.preventDefault();
+    suppressHeaderClickRef.current = true;
+    e.dataTransfer.dropEffect = 'move';
+    const edge = getHeaderDropEdge(e);
+    setHeaderDrop(prev => (
+      prev?.kind === 'column' && prev.id === targetId && prev.edge === edge
+        ? prev
+        : { kind: 'column', id: targetId, edge }
+    ));
+  }
+
+  function handleColumnDrop(e: React.DragEvent<HTMLTableCellElement>, targetId: string) {
+    if (!draggedHeader || draggedHeader.kind !== 'column' || draggedHeader.id === targetId) return;
+    e.preventDefault();
+    suppressHeaderClickRef.current = true;
+    const edge = getHeaderDropEdge(e);
+    setKolom(prev => {
+      const fromIndex = prev.findIndex(col => col.id === draggedHeader.id);
+      const toIndex = prev.findIndex(col => col.id === targetId);
+      return assignWo2Urutan(moveWo2Item(prev, fromIndex, toIndex, edge));
+    });
+    setDraggedHeader(null);
+    setHeaderDrop(null);
+  }
+
+  function handleChildDragOver(e: React.DragEvent<HTMLTableCellElement>, parentId: string, targetId: string) {
+    if (!draggedHeader || draggedHeader.kind !== 'child' || draggedHeader.parentId !== parentId) return;
+    if (draggedHeader.id === targetId) {
+      setHeaderDrop(null);
+      return;
+    }
+    e.preventDefault();
+    suppressHeaderClickRef.current = true;
+    e.dataTransfer.dropEffect = 'move';
+    const edge = getHeaderDropEdge(e);
+    setHeaderDrop(prev => (
+      prev?.kind === 'child' && prev.parentId === parentId && prev.id === targetId && prev.edge === edge
+        ? prev
+        : { kind: 'child', parentId, id: targetId, edge }
+    ));
+  }
+
+  function handleChildDrop(e: React.DragEvent<HTMLTableCellElement>, parentId: string, targetId: string) {
+    if (!draggedHeader || draggedHeader.kind !== 'child' || draggedHeader.parentId !== parentId || draggedHeader.id === targetId) return;
+    e.preventDefault();
+    suppressHeaderClickRef.current = true;
+    const edge = getHeaderDropEdge(e);
+    setKolom(prev => assignWo2Urutan(prev.map(col => {
+      if (col.id !== parentId || !col.children) return col;
+      const fromIndex = col.children.findIndex(child => child.id === draggedHeader.id);
+      const toIndex = col.children.findIndex(child => child.id === targetId);
+      return { ...col, children: moveWo2Item(col.children, fromIndex, toIndex, edge) };
+    })));
+    setDraggedHeader(null);
+    setHeaderDrop(null);
+  }
+
+  function headerDropMarker(target: Wo2HeaderDrop) {
+    const active = headerDrop
+      && headerDrop.kind === target.kind
+      && headerDrop.id === target.id
+      && headerDrop.edge === target.edge
+      && (target.kind === 'column' || (headerDrop.kind === 'child' && headerDrop.parentId === target.parentId));
+    if (!active) return null;
+    return (
+      <span
+        className={`pointer-events-none absolute top-0 bottom-0 ${target.edge === 'before' ? 'left-0' : 'right-0'} w-1 bg-sky-300 shadow-[0_0_8px_rgba(125,211,252,0.85)]`}
+      />
+    );
+  }
+
+  function headerDeleteButton(colId: string, label: string, title: string) {
+    return (
+      <button
+        type="button"
+        onClick={e => { e.stopPropagation(); setDeleteHeader({ colId, label }); }}
+        title={title}
+        className="absolute top-1 right-1 w-4 h-4 rounded-full grid place-items-center text-slate-300 hover:text-white hover:bg-rose-500/50 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+      >
+        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    );
+  }
+
   // Paste dari Excel (TSV multi-cell). Deteksi tab / newline → distribusikan
   // value ke row+col mulai dari cell yang di-paste. Auto-tambah baris kalau
   // pasted data lebih panjang dari row yang tersedia.
@@ -3489,26 +3651,25 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   }
   function handleAddKolom(newCol: Wo2Col) {
     setKolom(prev => {
-      const maxUrutan = prev.reduce((mx, k) => Math.max(mx, k.urutan), 0);
-      return [...prev, { ...newCol, urutan: maxUrutan + 1 }];
+      return assignWo2Urutan([...prev, { ...newCol, urutan: prev.length + 1 }]);
     });
   }
   function handleDeleteKolom(colId: string) {
     setKolom(prev => {
       // Case 1: colId adalah parent (top-level) → drop parent + semua child.
       if (prev.some(k => k.id === colId)) {
-        return prev.filter(k => k.id !== colId);
+        return assignWo2Urutan(prev.filter(k => k.id !== colId));
       }
       // Case 2: colId adalah child → cari parent yang punya, drop child itu.
       // Kalau setelah drop parent-nya jadi kosong (0 children), drop parent juga.
-      return prev.map(k => {
+      return assignWo2Urutan(prev.map(k => {
         if (k.children && k.children.some(c => c.id === colId)) {
           const remaining = k.children.filter(c => c.id !== colId);
           if (remaining.length === 0) return null;
           return { ...k, children: remaining };
         }
         return k;
-      }).filter((k): k is Wo2Col => k !== null);
+      }).filter((k): k is Wo2Col => k !== null));
     });
     setDeleteHeader(null);
   }
@@ -3566,7 +3727,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-500">Tip: klik header untuk hapus kolom · Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus.</p>
+      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik icon X untuk hapus kolom. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus.</p>
 
       <div className="overflow-x-auto rounded-xl border border-white/[0.08] bg-[#111827]">
         <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
@@ -3575,6 +3736,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
               <th rowSpan={hasChildren ? 2 : 1} className="border border-white/10 px-2 py-2 w-10">NO</th>
               {kolom.map(k => {
                 const cn = k.children && k.children.length > 0;
+                const isDragging = draggedHeader?.kind === 'column' && draggedHeader.id === k.id;
                 // SIZE + KET columns: klik = sort, delete via icon × corner.
                 const isSizeCol = k.id === 'size';
                 const isKetCol = k.id.startsWith('ket');
@@ -3588,19 +3750,35 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                         return null;
                       });
                   const sortTip = isSizeCol
-                    ? (curDir === 'asc' ? 'ascending — klik lagi jadi descending' : curDir === 'desc' ? 'descending — klik lagi hilangkan sort' : 'urutan XS → S → M → L → XL → dst')
-                    : (curDir === 'asc' ? 'A → Z, klik lagi jadi Z → A' : curDir === 'desc' ? 'Z → A, klik lagi hilangkan sort' : 'grouping berdasarkan nilai KET (A → Z)');
+                    ? (curDir === 'asc' ? 'ascending, klik lagi jadi descending' : curDir === 'desc' ? 'descending, klik lagi hilangkan sort' : 'urutan XS ke S ke M ke L ke XL dan seterusnya')
+                    : (curDir === 'asc' ? 'A ke Z, klik lagi jadi Z ke A' : curDir === 'desc' ? 'Z ke A, klik lagi hilangkan sort' : 'grouping berdasarkan nilai KET A ke Z');
                   return (
                     <th
                       key={k.id}
                       colSpan={cn ? k.children!.length : 1}
                       rowSpan={cn ? 1 : (hasChildren ? 2 : 1)}
-                      onClick={cycleSort}
-                      title={`Klik untuk sort (${sortTip})`}
-                      className="border border-white/10 px-2 py-2 cursor-pointer hover:bg-emerald-900/40 transition-colors min-w-[80px] relative group"
+                      draggable
+                      onDragStart={e => beginHeaderDrag(e, { kind: 'column', id: k.id })}
+                      onDragOver={e => handleColumnDragOver(e, k.id)}
+                      onDrop={e => handleColumnDrop(e, k.id)}
+                      onDragEnd={endHeaderDrag}
+                      onClick={() => {
+                        if (suppressHeaderClickRef.current) {
+                          suppressHeaderClickRef.current = false;
+                          return;
+                        }
+                        cycleSort();
+                      }}
+                      title={`Drag untuk ubah posisi. Klik untuk sort (${sortTip})`}
+                      className={`border border-white/10 px-2 py-2 hover:bg-emerald-900/40 transition-colors min-w-[80px] relative group select-none cursor-grab active:cursor-grabbing ${isDragging ? 'opacity-60' : ''}`}
                     >
-                      <span className="inline-flex items-center gap-1">
-                        {k.label}
+                      {headerDropMarker({ kind: 'column', id: k.id, edge: 'before' })}
+                      {headerDropMarker({ kind: 'column', id: k.id, edge: 'after' })}
+                      <span className="inline-flex items-center justify-center gap-1.5 pl-1 pr-5">
+                        <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                          <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm9-13a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm1 5a1 1 0 11-2 0 1 1 0 012 0z" />
+                        </svg>
+                        <span>{k.label}</span>
                         {curDir === 'asc' && (
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
@@ -3617,16 +3795,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                           </svg>
                         )}
                       </span>
-                      <button
-                        type="button"
-                        onClick={e => { e.stopPropagation(); setDeleteHeader({ colId: k.id, label: k.label }); }}
-                        title={`Hapus kolom ${k.label}`}
-                        className="absolute top-1 right-1 w-4 h-4 rounded-full grid place-items-center text-slate-400 hover:text-white hover:bg-rose-500/40 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
+                      {headerDeleteButton(k.id, k.label, `Hapus kolom ${k.label}`)}
                     </th>
                   );
                 }
@@ -3635,11 +3804,23 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                     key={k.id}
                     colSpan={cn ? k.children!.length : 1}
                     rowSpan={cn ? 1 : (hasChildren ? 2 : 1)}
-                    onClick={() => setDeleteHeader({ colId: k.id, label: k.label })}
-                    title="Klik untuk hapus kolom ini"
-                    className="border border-white/10 px-2 py-2 cursor-pointer hover:bg-emerald-900/40 transition-colors min-w-[80px]"
+                    draggable
+                    onDragStart={e => beginHeaderDrag(e, { kind: 'column', id: k.id })}
+                    onDragOver={e => handleColumnDragOver(e, k.id)}
+                    onDrop={e => handleColumnDrop(e, k.id)}
+                    onDragEnd={endHeaderDrag}
+                    title="Drag untuk ubah posisi. Icon X untuk hapus kolom."
+                    className={`border border-white/10 px-2 py-2 hover:bg-emerald-900/40 transition-colors min-w-[80px] relative group select-none cursor-grab active:cursor-grabbing ${isDragging ? 'opacity-60' : ''}`}
                   >
-                    {k.label}
+                    {headerDropMarker({ kind: 'column', id: k.id, edge: 'before' })}
+                    {headerDropMarker({ kind: 'column', id: k.id, edge: 'after' })}
+                    <span className="inline-flex items-center justify-center gap-1.5 pl-1 pr-5">
+                      <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm9-13a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm1 5a1 1 0 11-2 0 1 1 0 012 0z" />
+                      </svg>
+                      <span>{k.label}</span>
+                    </span>
+                    {headerDeleteButton(k.id, k.label, `Hapus kolom ${k.label}`)}
                   </th>
                 );
               })}
@@ -3649,14 +3830,31 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
               <tr className="text-slate-200 font-semibold text-center" style={{ background: '#047857' }}>
                 {kolom.flatMap(k => (
                   k.children && k.children.length > 0
-                    ? k.children.map(c => (
-                        <th
-                          key={c.id}
-                          onClick={() => setDeleteHeader({ colId: c.id, label: `${k.label} → ${c.label}` })}
-                          title="Klik untuk hapus sub-kolom"
-                          className="border border-white/10 px-2 py-1 w-16 cursor-pointer hover:bg-emerald-800/60 transition-colors"
-                        >{c.label}</th>
-                      ))
+                    ? k.children.map(c => {
+                        const isChildDragging = draggedHeader?.kind === 'child' && draggedHeader.parentId === k.id && draggedHeader.id === c.id;
+                        return (
+                          <th
+                            key={c.id}
+                            draggable
+                            onDragStart={e => beginHeaderDrag(e, { kind: 'child', parentId: k.id, id: c.id })}
+                            onDragOver={e => handleChildDragOver(e, k.id, c.id)}
+                            onDrop={e => handleChildDrop(e, k.id, c.id)}
+                            onDragEnd={endHeaderDrag}
+                            title="Drag untuk ubah urutan sub-kolom. Icon X untuk hapus sub-kolom."
+                            className={`border border-white/10 px-2 py-1 w-16 hover:bg-emerald-800/60 transition-colors relative group select-none cursor-grab active:cursor-grabbing ${isChildDragging ? 'opacity-60' : ''}`}
+                          >
+                            {headerDropMarker({ kind: 'child', parentId: k.id, id: c.id, edge: 'before' })}
+                            {headerDropMarker({ kind: 'child', parentId: k.id, id: c.id, edge: 'after' })}
+                            <span className="inline-flex items-center justify-center gap-1 pl-1 pr-5">
+                              <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm9-13a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm1 5a1 1 0 11-2 0 1 1 0 012 0z" />
+                              </svg>
+                              <span>{c.label}</span>
+                            </span>
+                            {headerDeleteButton(c.id, `${k.label} -> ${c.label}`, `Hapus sub-kolom ${c.label}`)}
+                          </th>
+                        );
+                      })
                     : []
                 ))}
               </tr>
