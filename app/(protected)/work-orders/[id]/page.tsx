@@ -2159,6 +2159,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       setKeterangan(fresh.keterangan || '');
       setKeteranganJahit(fresh.keterangan_jahit || '');
       setApprovalAdmin(fresh.approval_admin || '');
+      setDeadline(String(fresh.deadline || '').slice(0, 10));
       setDokDesain(fresh.dokumen_desain || null);
       setDokPattern(fresh.dokumen_pattern || null);
       // Bahan section = 8 baris FIXED. Lookup existing bahan dari
@@ -2186,6 +2187,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
         nama_spesifikasi: namaSpec,
         paket: paket || null,
         jumlah: Number(jumlah) || 0,
+        deadline: deadline || null,
         dokumen_desain: dokDesain || null, dokumen_pattern: dokPattern || null,
         tagline, authentic, info_ukuran: infoUkuran, info_logo: infoLogo,
         info_packing: infoPacking, webbing, font_nomor: fontNomor,
@@ -2254,7 +2256,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   function resetForm() {
     setNamaSpec(''); setPaket(''); setJumlah(''); setTagline(''); setAuthentic('');
     setInfoUkuran(''); setInfoLogo(''); setInfoPacking(''); setWebbing('');
-    setFontNomor(''); setKeterangan(''); setKeteranganJahit(''); setApprovalAdmin('');
+    setFontNomor(''); setKeterangan(''); setKeteranganJahit(''); setApprovalAdmin(''); setDeadline('');
     setDokDesain(null); setDokPattern(null);
     setBahanRows(WO_BAHAN_ROWS.map((bagian, i) => ({ id: i + 1, bagian, bahan: '' })));
     setPj(emptyPj());
@@ -2274,6 +2276,8 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   const [keterangan, setKeterangan] = useState('');
   const [keteranganJahit, setKeteranganJahit] = useState('');
   const [approvalAdmin, setApprovalAdmin] = useState('');
+  // Deadline per spec sheet — user isi manual, tidak auto-fill dari WO.
+  const [deadline, setDeadline] = useState('');
   const [dokDesain, setDokDesain] = useState<string | null>(null);
   const [dokPattern, setDokPattern] = useState<string | null>(null);
   const [uploadingDesain, setUploadingDesain] = useState(false);
@@ -2326,7 +2330,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
         nama_spesifikasi: namaSpec,
         paket: paket || null,
         jumlah: Number(jumlah) || 0,
-        deadline: (() => { const d = wo.deadlineRaw || wo.deadline; return d ? new Date(d).toISOString().split('T')[0] : null; })(),
+        deadline: deadline || null,
         dokumen_desain: dokDesain || null, dokumen_pattern: dokPattern || null,
         tagline, authentic, info_ukuran: infoUkuran, info_logo: infoLogo,
         info_packing: infoPacking, webbing, font_nomor: fontNomor,
@@ -2481,7 +2485,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                     </div>
                     <div><label className={lCls}>Jumlah</label><input type="number" min={0} value={jumlah} onChange={e => setJumlah(e.target.value)} className={iCls} placeholder="0" /></div>
                   </div>
-                  <div><label className={lCls}>Deadline</label><input className={iCls} defaultValue={wo.deadline} readOnly /></div>
+                  <div><label className={lCls}>Deadline</label><input type="date" className={`${iCls} date-input`} value={deadline} onChange={e => setDeadline(e.target.value)} placeholder="Opsional" /></div>
                 </div>
               </div>
 
@@ -2670,7 +2674,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                     </div>
                     <div><label className={lCls}>Jumlah</label><input type="number" min={0} value={jumlah} onChange={e => setJumlah(e.target.value)} className={iCls} placeholder="0" /></div>
                   </div>
-                  <div><label className={lCls}>Deadline</label><input className={iCls} value={freshWo.deadline} readOnly /></div>
+                  <div><label className={lCls}>Deadline</label><input type="date" className={`${iCls} date-input`} value={deadline} onChange={e => setDeadline(e.target.value)} placeholder="Opsional" /></div>
                 </div>
               </div>
               <div className="border-t border-white/[0.06] pt-5">
