@@ -49,6 +49,8 @@ export default function BuktiPembayaranPage() {
   const [keteranganTanpaDp, setKeteranganTanpaDp] = useState('');
   const [dragOverId, setDragOverId] = useState<number | null>(null);
   const inputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  // Lightbox untuk lihat bukti full-size. null = tertutup.
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -573,20 +575,66 @@ export default function BuktiPembayaranPage() {
                       />
                     </label>
                   ) : (
-                    <div className="space-y-2">
+                    <label
+                      onDragEnter={(e) => { e.preventDefault(); setDragOverId(r.paymentId); }}
+                      onDragOver={(e) => { e.preventDefault(); setDragOverId(r.paymentId); }}
+                      onDragLeave={(e) => {
+                        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                        setDragOverId(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverId(null);
+                        const f = e.dataTransfer.files?.[0];
+                        if (f) handleFile(r.paymentId, f);
+                      }}
+                      className={`block space-y-2 border-2 border-dashed rounded-lg p-3 cursor-pointer transition-colors ${
+                        isDragging
+                          ? 'border-blue-500/60 bg-blue-500/10'
+                          : 'border-transparent hover:border-white/15 hover:bg-white/[0.02]'
+                      }`}
+                    >
+                      <input
+                        ref={el => { inputRefs.current[r.paymentId] = el; }}
+                        type="file"
+                        accept="image/*,application/pdf"
+                        className="hidden"
+                        onChange={(e) => onFileChange(r.paymentId, e)}
+                      />
                       <div className="flex items-center gap-2">
                         <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         <span className="text-xs text-slate-300 truncate">{activeName}</span>
+                        <span className={`ml-auto text-[10px] shrink-0 ${isDragging ? 'text-blue-300' : 'text-slate-500'}`}>
+                          {isDragging ? 'Lepas untuk ganti' : 'Klik atau drop file baru untuk ganti'}
+                        </span>
                       </div>
                       {(activeBukti.startsWith('data:image')
                         || /\.(png|jpe?g|gif|webp)$/i.test(activeName)
                         || activeBukti.startsWith('/api/files/')) && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={activeBukti} alt="Bukti TF" className="max-h-40 rounded border border-white/10" />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setLightbox({ url: activeBukti, name: activeName });
+                          }}
+                          title="Klik untuk lihat gambar full-size"
+                          className="block group relative"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={activeBukti} alt="Bukti TF" className="max-h-40 rounded border border-white/10 group-hover:border-white/30 transition-colors" />
+                          <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center text-white text-xs font-medium">
+                            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            Lihat
+                          </span>
+                        </button>
                       )}
-                    </div>
+                    </label>
                   )}
                 </div>
               );
@@ -603,6 +651,42 @@ export default function BuktiPembayaranPage() {
               {saving ? 'Menyimpan...' : 'Simpan & Kirim ke Finance'}
             </button>
           </div>
+        </div>
+      )}
+
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-sm flex items-center justify-center p-6"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white grid place-items-center transition-colors z-10"
+            aria-label="Tutup"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <a
+            href={lightbox.url}
+            download={lightbox.name}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-4 left-4 text-xs font-medium text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors flex items-center gap-2 z-10"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Download
+          </a>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightbox.url}
+            alt={lightbox.name}
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          />
         </div>
       )}
     </div>
