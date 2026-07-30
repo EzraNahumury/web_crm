@@ -847,10 +847,27 @@ async function renderHtmlToImage(html: string, width = 1400): Promise<{ data: st
   doc.open();
   doc.write(`<html><head><style>*{box-sizing:border-box;margin:0;padding:0;text-decoration:none!important;font-style:normal!important}body{background:#fff}</style></head><body>${html}</body></html>`);
   doc.close();
-  await new Promise(r => setTimeout(r, 1000));
-  const canvas = await html2canvas(doc.body, { scale: 2.5, useCORS: true, backgroundColor: '#ffffff', windowWidth: width });
+  // Tunggu semua gambar loaded (capped 1.5s per gambar) daripada
+  // fixed 1000ms tidur. Kalau tidak ada gambar (jarang), langsung
+  // lanjut. Extra 30ms buffer buat reflow terakhir.
+  const imgs = Array.from(doc.querySelectorAll('img')) as HTMLImageElement[];
+  if (imgs.length > 0) {
+    await Promise.all(imgs.map(img => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      return new Promise<void>(resolve => {
+        const t = setTimeout(resolve, 1500);
+        const done = () => { clearTimeout(t); resolve(); };
+        img.addEventListener('load', done, { once: true });
+        img.addEventListener('error', done, { once: true });
+      });
+    }));
+  }
+  await new Promise(r => setTimeout(r, 30));
+  // Scale 2.0 masih crisp untuk print A4 landscape @1400px width.
+  // JPEG 0.85 kira-kira 3-5x lebih kecil dari PNG (banyak solid area).
+  const canvas = await html2canvas(doc.body, { scale: 2.0, useCORS: true, backgroundColor: '#ffffff', windowWidth: width });
   document.body.removeChild(iframe);
-  return { data: canvas.toDataURL('image/png'), w: canvas.width, h: canvas.height };
+  return { data: canvas.toDataURL('image/jpeg', 0.85), w: canvas.width, h: canvas.height };
 }
 
 function compressImage(file: File, maxSize = 1600, quality = 0.8): Promise<string> {
@@ -1088,15 +1105,33 @@ export default function WorkOrderDetailPage() {
       const paket = wo.paket || '';
 
       // === WO 1: Spec sheets (image-based, one page per spec) ===
-      for (const spec of freshSpecs) {
-        if (!firstPage) pdf.addPage();
-        firstPage = false;
-        const html = buildWoSpecHtml(spec, woData, freshSpecBahan);
-        const { data: imgData, w, h } = await renderHtmlToImage(html, 1400);
-        const contentW = pageW - margin * 2;
-        const imgRatio = h / w;
-        const contentH = Math.min(contentW * imgRatio, pageH - margin * 2);
-        pdf.addImage(imgData, 'PNG', margin, margin, contentW, contentH);
+      // Render 2 spec paralel supaya iframe layout + html2canvas rasterize
+      // overlap. Cap 2 concurrent — lebih dari itu iframe DOM ops thrashing.
+      const renderConcurrently = async <T,>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<{ data: string; w: number; h: number }>) => {
+        const results: { data: string; w: number; h: number }[] = new Array(items.length);
+        let cursor = 0;
+        const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+          while (cursor < items.length) {
+            const i = cursor++;
+            results[i] = await fn(items[i], i);
+          }
+        });
+        await Promise.all(workers);
+        return results;
+      };
+      if (freshSpecs.length > 0) {
+        const specImages = await renderConcurrently(freshSpecs, 2, async (spec: Row) => {
+          const html = buildWoSpecHtml(spec, woData, freshSpecBahan);
+          return await renderHtmlToImage(html, 1400);
+        });
+        for (const { data: imgData, w, h } of specImages) {
+          if (!firstPage) pdf.addPage();
+          firstPage = false;
+          const contentW = pageW - margin * 2;
+          const imgRatio = h / w;
+          const contentH = Math.min(contentW * imgRatio, pageH - margin * 2);
+          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+        }
       }
 
       // === WO 2: Detail Ukuran Tim ===
@@ -1766,27 +1801,16 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     const spec = specs.find((s: Row) => String(s.id) === String(specId));
     if (!spec) return;
     try {
-      const html2canvas = (await import('html2canvas')).default;
       const { jsPDF } = await import('jspdf');
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;left:-9999px;width:1400px;border:none';
-      document.body.appendChild(iframe);
-      const doc = iframe.contentDocument!;
-      doc.open();
-      doc.write(`<html><head><style>*{box-sizing:border-box;margin:0;padding:0;text-decoration:none!important;font-style:normal!important}body{background:#fff}</style></head><body>${buildSpecHtml(spec)}</body></html>`);
-      doc.close();
-      await new Promise(r => setTimeout(r, 1200));
-      const canvas = await html2canvas(doc.body, { scale: 3, useCORS: true, backgroundColor: '#ffffff', windowWidth: 1400 });
-      document.body.removeChild(iframe);
-      const imgData = canvas.toDataURL('image/png');
+      const { data: imgData, w, h } = await renderHtmlToImage(buildSpecHtml(spec), 1400);
       const pdf = new jsPDF('l', 'mm', 'a4');
       const pageW = 297;
       const pageH = 210;
       const margin = 5;
       const contentW = pageW - margin * 2;
-      const imgRatio = canvas.height / canvas.width;
+      const imgRatio = h / w;
       const contentH = Math.min(contentW * imgRatio, pageH - margin * 2);
-      pdf.addImage(imgData, 'PNG', margin, margin, contentW, contentH);
+      pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
 
       const fileName = `Spesifikasi-${wo.noWo}.pdf`;
       const blob = pdf.output('blob');
