@@ -134,35 +134,49 @@ function buildWoTableHtml(opts: {
   headerBg?: string;
   headerColor?: string;
   extraHtml?: string;
+  columnAlign?: ('left' | 'center' | 'right')[];
+  columnWidth?: (string | undefined)[];
 }) {
   const FONT = "'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Arial Unicode MS', 'Noto Sans', 'Noto Sans Arabic', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', Tahoma, Arial, sans-serif";
   const headerBg = opts.headerBg || '#065f46';
   const headerColor = opts.headerColor || '#ffffff';
 
-  const renderCell = (c: TableCell, tag: 'th' | 'td', extraStyle = '') => {
+  const renderThCell = (c: TableCell, colIdx: number, extraStyle = '') => {
+    const width = opts.columnWidth?.[colIdx];
+    const widthStyle = width ? `width:${width};` : '';
     if (typeof c === 'object' && c !== null && 'content' in c) {
       const cs = c.colSpan ? ` colspan="${c.colSpan}"` : '';
       const rs = c.rowSpan ? ` rowspan="${c.rowSpan}"` : '';
-      return `<${tag}${cs}${rs} style="${extraStyle}">${escapeHtml(String(c.content))}</${tag}>`;
+      return `<th${cs}${rs} style="${extraStyle}${widthStyle}">${escapeHtml(String(c.content))}</th>`;
     }
-    return `<${tag} style="${extraStyle}">${escapeHtml(String(c))}</${tag}>`;
+    return `<th style="${extraStyle}${widthStyle}">${escapeHtml(String(c))}</th>`;
   };
 
-  const thStyle = `border:1px solid #000;padding:6px 4px;background:${headerBg};color:${headerColor};font-size:10px;font-weight:800;text-align:center;`;
-  const tdStyle = `border:1px solid #000;padding:5px 6px;font-size:10px;text-align:left;vertical-align:middle;`;
+  const renderTdCell = (c: TableCell, colIdx: number) => {
+    const align = opts.columnAlign?.[colIdx] || 'center';
+    const style = `border:1px solid #000;padding:3px 6px;font-size:10px;text-align:${align};vertical-align:middle;line-height:1.3;`;
+    if (typeof c === 'object' && c !== null && 'content' in c) {
+      const cs = c.colSpan ? ` colspan="${c.colSpan}"` : '';
+      const rs = c.rowSpan ? ` rowspan="${c.rowSpan}"` : '';
+      return `<td${cs}${rs} style="${style}">${escapeHtml(String(c.content))}</td>`;
+    }
+    return `<td style="${style}">${escapeHtml(String(c))}</td>`;
+  };
+
+  const thStyle = `border:1px solid #000;padding:6px 4px;background:${headerBg};color:${headerColor};font-size:10px;font-weight:800;text-align:center;vertical-align:middle;`;
 
   const headHtml = opts.head.map(row =>
-    `<tr>${row.map(c => renderCell(c, 'th', thStyle)).join('')}</tr>`
+    `<tr>${row.map((c, i) => renderThCell(c, i, thStyle)).join('')}</tr>`
   ).join('');
 
   const bodyHtml = opts.body.map(row =>
-    `<tr>${row.map(c => renderCell(c, 'td', tdStyle)).join('')}</tr>`
+    `<tr>${row.map((c, i) => renderTdCell(c, i)).join('')}</tr>`
   ).join('');
 
   return `<div style="background:#fff;padding:24px;font-family:${FONT};color:#000;width:1200px;-webkit-font-smoothing:antialiased">
   <div style="font-size:16px;font-weight:800;margin-bottom:4px">${escapeHtml(opts.title)}</div>
   ${opts.subtitle ? `<div style="font-size:11px;color:#334155;margin-bottom:12px">${escapeHtml(opts.subtitle)}</div>` : '<div style="margin-bottom:12px"></div>'}
-  <table style="width:100%;border-collapse:collapse;border:1px solid #000">
+  <table style="width:100%;border-collapse:collapse;border:1px solid #000;table-layout:auto">
     <thead>${headHtml}</thead>
     <tbody>${bodyHtml}</tbody>
   </table>
@@ -228,9 +242,9 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     const nama = pjData[pjKey(stage)] || '';
     const isLast = i === WO_PJ_STAGES.length - 1;
     return `
-      <div style="padding:6px 8px;font-size:10px;${isLast ? '' : 'border-bottom:1px solid #000'};line-height:1.35">
+      <div style="padding:7px 10px;font-size:10px;${isLast ? '' : 'border-bottom:1px solid #000'};line-height:1.4;display:flex;flex-direction:column;justify-content:center;min-height:26px">
         <div style="font-weight:700">${i + 1}. ${stage}</div>
-        ${nama ? `<div style="color:#334155;padding-left:12px;margin-top:2px">${nama}</div>` : ''}
+        ${nama ? `<div style="color:#334155;padding-left:14px;margin-top:2px">${nama}</div>` : ''}
       </div>`;
   }).join('');
 
@@ -297,28 +311,28 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
 
     <!-- ─── RIGHT COLUMN ─── -->
     <div style="display:flex;flex-direction:column;font-size:11px">
-      <!-- Customer -->
+      <!-- Customer — flex + align-items:center supaya text center vertikal, min-height konsisten -->
       <div style="border-bottom:2px solid #000">
-        <div style="font-weight:800;border-bottom:1px solid #000;padding:4px 8px">Customer</div>
+        <div style="font-weight:800;border-bottom:1px solid #000;padding:5px 8px;text-align:center">Customer</div>
         ${customerRows.map(([k, v]) => `
-          <div style="display:grid;grid-template-columns:70px 1fr;border-bottom:1px solid #000">
-            <span style="font-weight:700;padding:3px 8px">${k}</span>
-            <span style="padding:3px 8px;border-left:1px solid #000">${v || ''}</span>
+          <div style="display:grid;grid-template-columns:70px 1fr;border-bottom:1px solid #000;min-height:26px">
+            <span style="font-weight:700;padding:0 8px;display:flex;align-items:center">${k}</span>
+            <span style="padding:0 8px;border-left:1px solid #000;display:flex;align-items:center;line-height:1.3">${v || ''}</span>
           </div>`).join('')}
       </div>
       <!-- Accessories -->
       <div style="border-bottom:2px solid #000">
-        <div style="font-weight:800;border-bottom:1px solid #000;padding:4px 8px">Accessories</div>
+        <div style="font-weight:800;border-bottom:1px solid #000;padding:5px 8px;text-align:center">Accessories</div>
         ${accRows.map(([k, v, cls]) => `
-          <div style="display:grid;grid-template-columns:70px 1fr;border-bottom:1px solid #000">
-            <span style="padding:3px 8px;${cls}">${k}</span>
-            <span style="padding:3px 8px;border-left:1px solid #000">${v || ''}</span>
+          <div style="display:grid;grid-template-columns:70px 1fr;border-bottom:1px solid #000;min-height:26px">
+            <span style="padding:0 8px;display:flex;align-items:center;${cls}">${k}</span>
+            <span style="padding:0 8px;border-left:1px solid #000;display:flex;align-items:center;line-height:1.3">${v || ''}</span>
           </div>`).join('')}
       </div>
-      <!-- PENANGGUNG JAWAB -->
-      <div style="border-bottom:2px solid #000;flex:1">
-        <div style="font-weight:800;text-align:center;background:#fff;border-bottom:2px solid #000;padding:4px 0">PENANGGUNG JAWAB</div>
-        ${pjRowsHtml}
+      <!-- PENANGGUNG JAWAB — flex column dengan align-items:center untuk visual balance -->
+      <div style="border-bottom:2px solid #000;flex:1;display:flex;flex-direction:column">
+        <div style="font-weight:800;text-align:center;background:#fff;border-bottom:2px solid #000;padding:5px 0">PENANGGUNG JAWAB</div>
+        <div style="flex:1">${pjRowsHtml}</div>
       </div>
       <!-- EXPORT & ICC PRINT | JPEG - RGB -->
       <div style="display:grid;grid-template-columns:1fr 1fr">
@@ -1383,12 +1397,31 @@ export default function WorkOrderDetailPage() {
           const merged = { ...legacy, ...dj };
           return [String(i + 1), ...leafIds.map(k => merged[k] || '')];
         });
+        // Kolom NO center, NAMA left, KET* left, PENJAHIT left, sisanya center.
+        const wo2ColAlign: ('left' | 'center')[] = ['center'];
+        for (const id of leafIds) {
+          const low = id.toLowerCase();
+          if (low === 'nama' || low.startsWith('ket') || low === 'penjahit') wo2ColAlign.push('left');
+          else wo2ColAlign.push('center');
+        }
+        // Column widths untuk kolom sempit: NO 32px, NP 40px, SIZE 40px, BD/BB 40px.
+        const wo2ColWidth: (string | undefined)[] = ['32px'];
+        for (const id of leafIds) {
+          const low = id.toLowerCase();
+          if (low === 'np' || low === 'size' || low === 'bd' || low === 'bb' || low.includes('lengan') || low === 'kerah') {
+            wo2ColWidth.push('55px');
+          } else {
+            wo2ColWidth.push(undefined);
+          }
+        }
         const wo2Html = buildWoTableHtml({
           title: `DETAIL UKURAN TIM — ${customer}`,
           subtitle: `No WO: ${woName}`,
           head,
           body,
           headerBg: '#065f46',
+          columnAlign: wo2ColAlign,
+          columnWidth: wo2ColWidth,
         });
         try {
           const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo2Html, 1100);
@@ -1596,14 +1629,17 @@ export default function WorkOrderDetailPage() {
         const bonus = String(freshWoData.pengiriman_bonus || '');
         const FONT = "'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Arial Unicode MS', 'Noto Sans', 'Noto Sans Arabic', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', Tahoma, Arial, sans-serif";
         const wo3Rows = freshShip.slice().sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan));
+        // Padding compact 3px 5px + vertical-align middle + line-height 1.3
+        // supaya row tight tapi text tetap breathing space + center vertikal.
+        const td = 'border:1px solid #000;padding:3px 5px;font-size:10px;vertical-align:middle;line-height:1.3;';
         const tableBodyHtml = wo3Rows.map((r: Row, i: number) => `
           <tr>
-            <td style="border:1px solid #000;padding:4px 6px;font-size:10px;text-align:center">${i + 1}</td>
-            <td style="border:1px solid #000;padding:4px 6px;font-size:10px">${escapeHtml(String(r.nama || ''))}</td>
-            <td style="border:1px solid #000;padding:4px 6px;font-size:10px;text-align:center">${escapeHtml(String(r.np || ''))}</td>
-            <td style="border:1px solid #000;padding:4px 6px;font-size:10px;text-align:center">${escapeHtml(String(r.ukuran || ''))}</td>
-            <td style="border:1px solid #000;padding:4px 6px;font-size:10px">${escapeHtml(String(r.keterangan || ''))}</td>
-            <td style="border:1px solid #000;padding:4px 6px;font-size:10px;text-align:center">${(r.checklist === 1 || r.checklist === true) ? '✓' : ''}</td>
+            <td style="${td}text-align:center">${i + 1}</td>
+            <td style="${td}text-align:left">${escapeHtml(String(r.nama || ''))}</td>
+            <td style="${td}text-align:center">${escapeHtml(String(r.np || ''))}</td>
+            <td style="${td}text-align:center">${escapeHtml(String(r.ukuran || ''))}</td>
+            <td style="${td}text-align:left">${escapeHtml(String(r.keterangan || ''))}</td>
+            <td style="${td}text-align:center">${(r.checklist === 1 || r.checklist === true) ? '✓' : ''}</td>
           </tr>`).join('');
 
         const wo3Html = `<div style="background:#fff;padding:24px;font-family:${FONT};color:#000;width:1200px;-webkit-font-smoothing:antialiased">
@@ -1672,6 +1708,8 @@ export default function WorkOrderDetailPage() {
           body: wo4Body,
           headerBg: '#f59e0b',
           headerColor: '#0f172a',
+          columnAlign: ['center', 'left', 'left', 'left', 'right'],
+          columnWidth: ['40px', '180px', undefined, '120px', '90px'],
         });
         try {
           const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo4Html, 1100);
