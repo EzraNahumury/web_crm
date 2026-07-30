@@ -152,6 +152,7 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/analisa/all-customer', label: 'All Customer' },
       { href: '/analisa/data-reseller', label: 'Data Reseller' },
       { href: '/analisa/grafik-cs', label: 'Grafik CS' },
+      { href: '/analisa/grafik-leads', label: 'Grafik Leads' },
       { href: '/analisa/line-jahit', label: 'Line Jahit' },
       { href: '/analisa/analisa-cs', label: 'Analisa CS' },
     ],
@@ -180,7 +181,7 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'Stok': ['/stok'],
   'Settings': ['/setting'],
   'Master Data': ['/master'],
-  'Analisa': ['/analisa/grafik', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/grafik-cs', '/analisa/line-jahit', '/analisa/analisa-cs'],
+  'Analisa': ['/analisa/grafik', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/analisa-cs'],
 };
 
 function AdminLayout({ user, logout, children }: {
