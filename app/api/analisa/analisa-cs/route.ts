@@ -121,6 +121,74 @@ export async function GET(req: NextRequest) {
       ? Math.round((belumDpProduksi / totalOrders) * 1000) / 10
       : 0;
 
+    // ─── Perbandingan Harian ──────────────────────────────────────────
+    // Query 2 series per hari:
+    //   masuk    = count new order dari CS Selling per DATE(tanggal_order)
+    //   rincian  = count order_payments tipe='nominal_order' per
+    //              DATE(created_at) — moment CS Order fill rincian.
+    // Kedua query pakai range filter yang sama supaya konsisten dengan
+    // KPI di atas.
+    type DailyMasuk = { d: string; c: number };
+    type DailyRincian = { d: string; c: number };
+    const masukRows = await query<DailyMasuk>(
+      `SELECT DATE(tanggal_order) AS d, COUNT(*) AS c
+       FROM orders
+       ${whereSql}
+       GROUP BY DATE(tanggal_order)`,
+      params,
+    );
+    // Rincian di-filter by DATE(payments.created_at) IN range yang sama.
+    // Bukan pakai tanggal_order karena user butuh 'per hari rincian
+    // dibuat' — bisa beda dari tanggal order masuk.
+    const rincianParts: string[] = ["tipe = 'nominal_order'"];
+    const rincianParams: string[] = [];
+    if (from) { rincianParts.push('DATE(created_at) >= ?'); rincianParams.push(from); }
+    if (to)   { rincianParts.push('DATE(created_at) <= ?'); rincianParams.push(to); }
+    const rincianRows = await query<DailyRincian>(
+      `SELECT DATE(created_at) AS d, COUNT(*) AS c
+       FROM order_payments
+       WHERE ${rincianParts.join(' AND ')}
+       GROUP BY DATE(created_at)`,
+      rincianParams,
+    );
+
+    // Merge jadi series unified. Build set of all dates yang muncul
+    // di kedua query, sort ASC.
+    const byDate = new Map<string, { masuk: number; rincian: number }>();
+    for (const r of masukRows) {
+      const key = String(r.d).slice(0, 10);
+      if (!key || key === '0000-00-00') continue;
+      const cur = byDate.get(key) || { masuk: 0, rincian: 0 };
+      cur.masuk = Number(r.c) || 0;
+      byDate.set(key, cur);
+    }
+    for (const r of rincianRows) {
+      const key = String(r.d).slice(0, 10);
+      if (!key || key === '0000-00-00') continue;
+      const cur = byDate.get(key) || { masuk: 0, rincian: 0 };
+      cur.rincian = Number(r.c) || 0;
+      byDate.set(key, cur);
+    }
+    // Kalau ada range from-to, fill missing days dengan 0 supaya chart
+    // tidak lompat. Kalau tidak, cuma dates yang ada data.
+    const daily: Array<{ tanggal: string; masuk: number; rincian: number }> = [];
+    if (from && to) {
+      const start = new Date(from + 'T00:00:00');
+      const end = new Date(to + 'T00:00:00');
+      for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
+        const d = new Date(t);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const v = byDate.get(key) || { masuk: 0, rincian: 0 };
+        daily.push({ tanggal: key, masuk: v.masuk, rincian: v.rincian });
+      }
+    } else {
+      const keys = Array.from(byDate.keys()).sort();
+      for (const k of keys) {
+        const v = byDate.get(k)!;
+        daily.push({ tanggal: k, masuk: v.masuk, rincian: v.rincian });
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -137,6 +205,7 @@ export async function GET(req: NextRequest) {
           potensi_kekurangan: potensiKekurangan,
         },
         pending,
+        daily,
       },
     });
   } catch (err) {

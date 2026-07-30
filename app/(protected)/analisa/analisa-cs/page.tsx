@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
 import DateRangePicker, { daysAgo, today } from '../../laporan/date-range-picker';
 
@@ -29,6 +30,18 @@ interface Pending {
   tanggal_order: string;
 }
 
+interface DailyPoint {
+  tanggal: string;
+  masuk: number;
+  rincian: number;
+}
+
+function fmtDayLabel(iso: string): string {
+  const [, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  if (!m || !d) return iso;
+  return `${d}/${m}`;
+}
+
 function fmtRupiah(n: number): string {
   return 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
 }
@@ -46,6 +59,7 @@ export default function AnalisaCsPage() {
     total_nilai_order: 0, total_dp_design_tercatat: 0, potensi_kekurangan: 0,
   });
   const [pending, setPending] = useState<Pending[]>([]);
+  const [daily, setDaily] = useState<DailyPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -65,6 +79,7 @@ export default function AnalisaCsPage() {
       if (!json.success) throw new Error(json.error || 'Gagal memuat');
       setTotals(json.data.totals);
       setPending(json.data.pending);
+      setDaily(json.data.daily || []);
       setError('');
     } catch (e) { setError(String(e)); }
     setLoading(false);
@@ -221,6 +236,9 @@ export default function AnalisaCsPage() {
         </div>
       </div>
 
+      {/* Perbandingan Harian: masuk (CS Selling) vs rincian dibuat (CS Order) */}
+      <DailyComparisonChart daily={daily} />
+
       {/* Table list pending */}
       <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="p-4 border-b border-white/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -319,6 +337,90 @@ function KpiCard({ label, value, sub, accent, highlight }: {
       <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">{label}</p>
       <p className={`text-2xl font-bold mt-1 tabular-nums text-white`}>{value}</p>
       {sub && <p className={`text-xs mt-1 font-medium ${c.accent}`}>{sub}</p>}
+    </div>
+  );
+}
+
+function DailyComparisonChart({ daily }: { daily: DailyPoint[] }) {
+  const totalMasuk = daily.reduce((s, p) => s + p.masuk, 0);
+  const totalRincian = daily.reduce((s, p) => s + p.rincian, 0);
+  const conversionPct = totalMasuk > 0 ? (totalRincian / totalMasuk) * 100 : 0;
+  const chartData = daily.map(p => ({ ...p, label: fmtDayLabel(p.tanggal) }));
+  return (
+    <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-semibold text-white">Perbandingan Harian: Masuk vs Rincian Dibuat</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Biru = customer baru masuk dari CS Selling. Emerald = rincian pembayaran dibuat CS Order.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-200 px-3 py-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">Masuk</span>
+            <span className="text-sm font-bold tabular-nums">{totalMasuk.toLocaleString('id-ID')}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 px-3 py-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">Rincian</span>
+            <span className="text-sm font-bold tabular-nums">{totalRincian.toLocaleString('id-ID')}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-200 px-3 py-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">Konv</span>
+            <span className="text-sm font-bold tabular-nums">{totalMasuk > 0 ? conversionPct.toFixed(1) : '—'}%</span>
+          </span>
+        </div>
+      </div>
+      <div className="p-4">
+        {chartData.length === 0 ? (
+          <div className="py-16 text-center text-sm text-slate-500">
+            Belum ada data di periode ini.
+          </div>
+        ) : (
+          <div style={{ width: '100%', height: 320 }}>
+            <ResponsiveContainer>
+              <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+                <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" />
+                <XAxis dataKey="label" stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} width={32} />
+                <Tooltip content={<DailyTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                <Legend wrapperStyle={{ paddingTop: 4, fontSize: 11 }} formatter={(v) => <span style={{ color: '#cbd5e1' }}>{v}</span>} />
+                <Line type="monotone" name="Masuk (CS Selling)" dataKey="masuk" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                <Line type="monotone" name="Rincian Dibuat (CS Order)" dataKey="rincian" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DailyTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number; color: string }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const masuk = Number(payload.find(p => p.name.startsWith('Masuk'))?.value || 0);
+  const rincian = Number(payload.find(p => p.name.startsWith('Rincian'))?.value || 0);
+  const konv = masuk > 0 ? (rincian / masuk) * 100 : 0;
+  return (
+    <div className="rounded-lg bg-[#0c1120] border border-white/[0.1] px-3 py-2 shadow-xl min-w-[180px]">
+      <p className="text-xs text-slate-400 mb-1">Tgl {label}</p>
+      <div className="space-y-0.5">
+        {payload.map(p => (
+          <div key={p.name} className="flex items-center gap-2 text-xs">
+            <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: p.color }} />
+            <span className="text-slate-300 flex-1">{p.name}</span>
+            <span className="text-white font-semibold tabular-nums">{Number(p.value).toLocaleString('id-ID')}</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-2 text-xs pt-1 mt-1 border-t border-white/[0.06]">
+          <span className="w-2 h-2 rounded-sm shrink-0 bg-fuchsia-400" />
+          <span className="text-slate-300 flex-1">Konversi hari itu</span>
+          <span className="text-fuchsia-300 font-semibold tabular-nums">{masuk > 0 ? konv.toFixed(1) : '—'}%</span>
+        </div>
+      </div>
     </div>
   );
 }
