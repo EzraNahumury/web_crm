@@ -122,111 +122,215 @@ function FillHandle({ onStart, active }: { onStart: () => void; active: boolean 
   );
 }
 
+// Helper: bangun HTML tabel siap render via html2canvas. Dipakai WO2/3/4
+// supaya bebas Unicode font issue (jspdf-autotable pakai helvetica yang
+// non-Unicode).
+type TableCell = string | number | { content: string; colSpan?: number; rowSpan?: number };
+function buildWoTableHtml(opts: {
+  title: string;
+  subtitle?: string;
+  head: TableCell[][];
+  body: (string | number)[][];
+  headerBg?: string;
+  headerColor?: string;
+  extraHtml?: string;
+}) {
+  const FONT = "'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Arial Unicode MS', 'Noto Sans', 'Noto Sans Arabic', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', Tahoma, Arial, sans-serif";
+  const headerBg = opts.headerBg || '#065f46';
+  const headerColor = opts.headerColor || '#ffffff';
+
+  const renderCell = (c: TableCell, tag: 'th' | 'td', extraStyle = '') => {
+    if (typeof c === 'object' && c !== null && 'content' in c) {
+      const cs = c.colSpan ? ` colspan="${c.colSpan}"` : '';
+      const rs = c.rowSpan ? ` rowspan="${c.rowSpan}"` : '';
+      return `<${tag}${cs}${rs} style="${extraStyle}">${escapeHtml(String(c.content))}</${tag}>`;
+    }
+    return `<${tag} style="${extraStyle}">${escapeHtml(String(c))}</${tag}>`;
+  };
+
+  const thStyle = `border:1px solid #000;padding:6px 4px;background:${headerBg};color:${headerColor};font-size:10px;font-weight:800;text-align:center;`;
+  const tdStyle = `border:1px solid #000;padding:5px 6px;font-size:10px;text-align:left;vertical-align:middle;`;
+
+  const headHtml = opts.head.map(row =>
+    `<tr>${row.map(c => renderCell(c, 'th', thStyle)).join('')}</tr>`
+  ).join('');
+
+  const bodyHtml = opts.body.map(row =>
+    `<tr>${row.map(c => renderCell(c, 'td', tdStyle)).join('')}</tr>`
+  ).join('');
+
+  return `<div style="background:#fff;padding:24px;font-family:${FONT};color:#000;width:1200px;-webkit-font-smoothing:antialiased">
+  <div style="font-size:16px;font-weight:800;margin-bottom:4px">${escapeHtml(opts.title)}</div>
+  ${opts.subtitle ? `<div style="font-size:11px;color:#334155;margin-bottom:12px">${escapeHtml(opts.subtitle)}</div>` : '<div style="margin-bottom:12px"></div>'}
+  <table style="width:100%;border-collapse:collapse;border:1px solid #000">
+    <thead>${headHtml}</thead>
+    <tbody>${bodyHtml}</tbody>
+  </table>
+  ${opts.extraHtml || ''}
+</div>`;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[ch] as string));
+}
+
 // Module-level — used by per-spec PDF download (TabWO1) and combined Download All PDF (parent).
+// Rewrite: mirror layout view WO1 di UI (reference image AYRES APPAREL template).
+// Fix issues:
+//   1. Unicode font support (Arab / Mandarin / Kanji / dll) via font stack yang
+//      punya Segoe UI (Windows) + Apple system + Noto fallback.
+//   2. Image object-fit:contain (bukan cover) supaya tidak stretch/crop.
+//   3. Penanggung Jawab pakai solid border (bukan dashed) + row spacing lebih lega.
+//   4. Bahan table: 8 baris fixed (FRONT BODY, BACK BODY, dst) sesuai template.
+//   5. DEADLINE + Keterangan Jahit side-by-side.
 function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
   const bRows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
-  const stages = ['Approval Design','Approval Pattern',...PROD_STAGES];
-  const acc = [['TAGLINE',spec.tagline],['AUTHENTIC',spec.authentic],['SIZE',spec.info_ukuran],['LOGO',spec.info_logo],['PACKING',spec.info_packing],['WEBBING',spec.webbing]];
-  const PRIMARY = '#0f172a';
-  const ACCENT = '#dc2626';
-  const BORDER = '#cbd5e1';
-  const SOFT = '#f8fafc';
-  const ROW_H = 30;
+  const bahanMap: Record<string, string> = {};
+  for (const b of bRows) bahanMap[normBagian(String(b.bagian)).toUpperCase()] = String(b.bahan || '');
+  const pjData = parsePj(spec.penanggung_jawab_json);
 
-  const desainImg = spec.dokumen_desain ? `<img src="${spec.dokumen_desain}" style="width:100%;height:100%;object-fit:cover;display:block"/>` : `<div style="width:100%;height:100%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:14px">Desain</div>`;
-  const patternImg = spec.dokumen_pattern ? `<img src="${spec.dokumen_pattern}" style="width:100%;height:100%;object-fit:cover;display:block"/>` : `<div style="width:100%;height:100%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:14px">Pattern</div>`;
+  // Font stack yang cover Latin + Arab + Mandarin + Kanji + Cyrillic.
+  // Segoe UI (Windows), -apple-system (macOS), Noto Sans (fallback).
+  // Tanpa ini text non-Latin balik jadi kotak/tanda tanya di canvas.
+  const FONT = "'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Arial Unicode MS', 'Noto Sans', 'Noto Sans Arabic', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', Tahoma, Arial, sans-serif";
 
-  const td = `border:1px solid ${BORDER};padding:0;height:${ROW_H}px;`;
-  const flexL = `display:flex;align-items:center;height:${ROW_H}px;padding:0 12px;line-height:1.2;`;
-  const flexC = `display:flex;align-items:center;justify-content:center;height:${ROW_H}px;padding:0 12px;line-height:1.2;`;
-  const HDR = (txt: string, extraTd = '') => `<td style="${td}background:${PRIMARY};${extraTd}"><div style="${flexC}color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">${txt}</div></td>`;
-  const LBL = (txt: string, extraTd = '') => `<td style="${td}background:${SOFT};${extraTd}"><div style="${flexL}color:${PRIMARY};font-size:11px;font-weight:700">${txt}</div></td>`;
-  const VAL = (txt: string, extraTd = '', innerExtra = '') => `<td style="${td}${extraTd}"><div style="${flexL}color:${PRIMARY};font-size:11px;${innerExtra}">${txt}</div></td>`;
-  const VALc = (txt: string, extraTd = '', innerExtra = '') => `<td style="${td}${extraTd}"><div style="${flexC}color:${PRIMARY};font-size:11px;${innerExtra}">${txt}</div></td>`;
+  const desainImg = spec.dokumen_desain
+    ? `<img src="${spec.dokumen_desain}" style="max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto"/>`
+    : `<div style="color:#94a3b8;font-size:11px;text-align:center;padding:80px 0">— gambar desain —</div>`;
+  const patternImg = spec.dokumen_pattern
+    ? `<img src="${spec.dokumen_pattern}" style="max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto"/>`
+    : `<div style="color:#94a3b8;font-size:11px;text-align:center;padding:150px 0">— gambar pattern —</div>`;
 
-  return `<div style="background:#fff;padding:30px 36px;font-family:Arial,Helvetica,sans-serif;color:${PRIMARY};width:1400px;-webkit-font-smoothing:antialiased">
-<table style="width:100%;border-collapse:collapse;margin-bottom:20px"><tr>
-  <td style="vertical-align:bottom">
-    <div style="display:flex;align-items:center;gap:12px">
-      <img src="${location.origin}/logo/new logo.png" style="height:34px" onerror="this.style.display='none'"/>
-      <span style="font-size:26px;font-weight:800;color:${PRIMARY};letter-spacing:-0.3px">AYRES APPAREL</span>
+  const accRows = [
+    ['Tagline', spec.tagline, 'color:#dc2626'],
+    ['Authentic', spec.authentic, 'font-weight:800'],
+    ['Size', spec.info_ukuran, ''],
+    ['Logo', spec.info_logo, ''],
+    ['Webing', spec.webbing, ''],
+    ['Packing', spec.info_packing, ''],
+  ] as [string, string, string][];
+
+  const customerRows = [
+    ['Nama', wo.customer || ''],
+    ['Paket', spec.paket || wo.paket || ''],
+    ['Jumlah', `${spec.jumlah || 0}`],
+  ];
+
+  const bahanRowsHtml = WO_BAHAN_ROWS.map((bagian) => `
+    <div style="display:grid;grid-template-columns:110px 1fr;border-bottom:1px solid #000">
+      <span style="font-weight:800;padding:5px 6px;border-right:1px solid #000;font-size:10px">${bagian}</span>
+      <span style="padding:5px 6px;font-size:10px;color:#dc2626;font-weight:700">${bahanMap[bagian] || ''}</span>
+    </div>`).join('');
+
+  const pjRowsHtml = WO_PJ_STAGES.map((stage, i) => {
+    const nama = pjData[pjKey(stage)] || '';
+    const isLast = i === WO_PJ_STAGES.length - 1;
+    return `
+      <div style="padding:6px 8px;font-size:10px;${isLast ? '' : 'border-bottom:1px solid #000'};line-height:1.35">
+        <div style="font-weight:700">${i + 1}. ${stage}</div>
+        ${nama ? `<div style="color:#334155;padding-left:12px;margin-top:2px">${nama}</div>` : ''}
+      </div>`;
+  }).join('');
+
+  return `<div style="background:#fff;padding:16px;color:#000;font-family:${FONT};width:1200px;-webkit-font-smoothing:antialiased">
+<div style="border:2px solid #000;background:#fff">
+  <!-- Top bar: AYRES APPAREL | WORK ORDER NO -->
+  <div style="display:flex;align-items:stretch;border-bottom:2px solid #000">
+    <div style="display:flex;align-items:center;gap:10px;flex:1;padding:8px 14px;border-right:2px solid #000">
+      <img src="${location.origin}/logo/new logo.png" alt="AYRES" style="height:26px;filter:brightness(0)" onerror="this.style.display='none'"/>
+      <span style="font-size:22px;font-weight:900;letter-spacing:1px">AYRES APPAREL</span>
     </div>
-    <div style="height:3px;background:${PRIMARY};margin-top:12px"></div>
-  </td>
-  <td style="vertical-align:bottom;text-align:right;width:230px">
-    <div style="font-size:9px;color:#64748b;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Work Order No.</div>
-    <div style="font-size:20px;font-weight:800;color:${PRIMARY};border:2.5px solid ${PRIMARY};padding:14px 32px;display:inline-block;line-height:1">${wo.noWo}</div>
-  </td>
-</tr></table>
-<table style="width:100%;border-collapse:separate;border-spacing:14px 0"><tr>
-  <td style="width:60%;vertical-align:top;padding:0">
-    <div style="background:${PRIMARY};height:${ROW_H}px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase">Desain Mock Up &amp; Pattern</div>
-    <div style="display:flex;gap:10px;height:520px;margin-top:8px">
-      <div style="flex:1;border:1px solid ${BORDER};overflow:hidden">${desainImg}</div>
-      <div style="flex:1;border:1px solid ${BORDER};overflow:hidden">${patternImg}</div>
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;min-width:240px">
+      <span style="font-size:11px;font-weight:800">WORK ORDER NO.</span>
+      <span style="font-size:12px;font-weight:800;flex:1;text-align:right">${wo.noWo || ''}</span>
     </div>
-    <table style="width:100%;border-collapse:collapse;margin-top:10px">
-      <tr>${HDR('Nama Customer', 'width:50%')}${HDR('Nama Spesifikasi')}</tr>
-      <tr>${VALc(wo.customer, '', `color:${ACCENT};font-weight:700;font-size:12px`)}${VALc(spec.nama_spesifikasi, '', `color:${ACCENT};font-weight:700;font-size:12px`)}</tr>
-    </table>
-    <table style="width:100%;border-collapse:separate;border-spacing:10px 0;margin-top:10px"><tr>
-      <td style="width:50%;vertical-align:top;padding:0">
-        <div style="border:1px solid ${BORDER};overflow:hidden">
-          <div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:center;color:${ACCENT};font-size:11px;font-weight:700;letter-spacing:0.6px;background:#fef2f2;border-bottom:1px solid ${BORDER};text-transform:uppercase">Keterangan Jahit</div>
-          <div style="min-height:160px;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}"></div>
+  </div>
+
+  <!-- Main 3-column grid: [340 | 1fr | 240] -->
+  <div style="display:grid;grid-template-columns:340px 1fr 240px">
+    <!-- ─── LEFT COLUMN ─── -->
+    <div style="border-right:2px solid #000;display:flex;flex-direction:column">
+      <!-- DESAIN MOCK UP header -->
+      <div style="background:#065f46;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">DESAIN MOCK UP</div>
+      <!-- Image -->
+      <div style="border-bottom:2px solid #000;background:#fff;min-height:220px;display:flex;align-items:center;justify-content:center;padding:4px">
+        ${desainImg}
+      </div>
+      <!-- DEADLINE (kiri) + Keterangan Jahit (kanan) -->
+      <div style="display:grid;grid-template-columns:110px 1fr;border-bottom:2px solid #000">
+        <div style="background:#bbf7d0;border-right:2px solid #000;padding:6px 8px">
+          <div style="color:#dc2626;font-weight:900;font-size:13px">DEADLINE :</div>
         </div>
-      </td>
-      <td style="width:50%;vertical-align:top;padding:0">
-        <div style="border:1px solid ${BORDER};overflow:hidden">
-          <div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:center;background:${PRIMARY};color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Font &amp; Number</div>
-          <div style="min-height:160px;padding:8px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.font_nomor || '-'}</div>
+        <div style="padding:6px 8px;min-height:90px">
+          <div style="font-size:10px;font-weight:800">Keterangan Jahit :</div>
+          <div style="font-size:10px;margin-top:2px;white-space:pre-wrap">${spec.keterangan_jahit || ''}</div>
         </div>
-      </td>
-    </tr></table>
-  </td>
-  <td style="width:40%;vertical-align:top;padding:0">
-    <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
-      <tr>${LBL('NAMA', 'width:32%')}${VAL(wo.customer, '', `color:${ACCENT};font-weight:700`)}</tr>
-      <tr>${LBL('PAKET')}${VAL(spec.paket || wo.paket, '', `color:${ACCENT};font-weight:700`)}</tr>
-      <tr>${LBL('JUMLAH')}${VAL(`${spec.jumlah || 0} PCS`, '', `color:${ACCENT};font-weight:700`)}</tr>
-    </table>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
-      <tr><td colspan="2" style="${td}background:${PRIMARY}"><div style="${flexC}color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Accessories</div></td></tr>
-      ${acc.map(([k,v], i) => `<tr>${LBL(k as string, `width:34%;${i % 2 === 1 ? 'background:#eef2f7' : ''}`)}${VAL((v as string) || '-', i % 2 === 1 ? 'background:#fafbfc' : '')}</tr>`).join('')}
-    </table>
-    <table style="width:100%;border-collapse:collapse">
-      <tr>${HDR('Penanggung Jawab')}</tr>
-      <tr><td style="border:1px solid ${BORDER};padding:8px 10px">
-        <table style="width:100%;border-collapse:collapse">
-          ${stages.map((s, i) => `<tr><td style="padding:5px 2px;font-size:10.5px;color:#1e3a8a;font-weight:500;${i < stages.length - 1 ? `border-bottom:1px dashed ${BORDER};` : ''}line-height:1.2"><span style="display:inline-block;width:24px;color:#94a3b8;font-weight:700">${String(i+1).padStart(2,'0')}</span>${s}</td></tr>`).join('')}
-        </table>
-      </td></tr>
-    </table>
-  </td>
-</tr></table>
-<table style="width:100%;border-collapse:separate;border-spacing:14px 0;margin-top:16px"><tr>
-  <td style="vertical-align:top;width:34%;padding:0">
-    ${bRows.length > 0 ? `<table style="width:100%;border-collapse:collapse">
-      <tr><td colspan="2" style="${td}background:${PRIMARY}"><div style="${flexC}color:#fff;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase">Bahan</div></td></tr>
-      ${bRows.map((r: Row, i: number) => `<tr>${LBL(normBagian(r.bagian), `width:50%;${i % 2 === 1 ? 'background:#eef2f7' : ''}`)}${VAL(r.bahan || '-', i % 2 === 1 ? 'background:#fafbfc' : '', `color:${ACCENT};font-weight:700`)}</tr>`).join('')}
-    </table>` : `<table style="width:100%;border-collapse:collapse"><tr>${HDR('Bahan')}</tr><tr><td style="border:1px solid ${BORDER};padding:14px;text-align:center;color:#94a3b8;font-size:11px">Tidak ada data bahan</td></tr></table>`}
-  </td>
-  <td style="vertical-align:top;width:33%;padding:0">
-    <table style="width:100%;border-collapse:collapse">
-      <tr>${HDR('Approval Admin / Data')}</tr>
-      <tr><td style="border:1px solid ${BORDER};padding:0"><div style="min-height:90px;display:flex;align-items:center;padding:10px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.approval_admin || '-'}</div></td></tr>
-    </table>
-  </td>
-  <td style="vertical-align:top;width:33%;padding:0">
-    <table style="width:100%;border-collapse:collapse">
-      <tr>${HDR('Export & ICC')}</tr>
-      <tr><td style="border:1px solid ${BORDER};padding:0"><div style="min-height:90px;display:flex;align-items:center;padding:10px 12px;font-size:11px;line-height:1.4;color:${PRIMARY}">${spec.export_icc || '-'}</div></td></tr>
-    </table>
-  </td>
-</tr></table>
-<div style="margin-top:18px;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:#94a3b8">
-  <div>Ayres Apparel &middot; Lembar Spesifikasi Produksi</div>
-  <div>Dicetak: ${new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
+      </div>
+      <!-- Bahan table -->
+      <div style="flex:1;display:flex;flex-direction:column">
+        ${bahanRowsHtml}
+      </div>
+    </div>
+
+    <!-- ─── MIDDLE COLUMN ─── -->
+    <div style="border-right:2px solid #000;display:flex;flex-direction:column">
+      <!-- PATTERN header -->
+      <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">PATTERN</div>
+      <!-- Pattern image -->
+      <div style="border-bottom:2px solid #000;background:#fff;flex:1;min-height:380px;display:flex;align-items:center;justify-content:center;padding:4px">
+        ${patternImg}
+      </div>
+      <!-- Font & Number | Approval Admin -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:2px solid #000">
+        <div style="border-right:2px solid #000">
+          <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">Font &amp; Number</div>
+          <div style="padding:6px 8px;font-size:10px;min-height:70px;white-space:pre-wrap">${spec.font_nomor || ''}</div>
+        </div>
+        <div>
+          <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">Approval Admin / Data</div>
+          <div style="padding:6px 8px;font-size:10px;min-height:70px;white-space:pre-wrap">${spec.approval_admin || ''}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── RIGHT COLUMN ─── -->
+    <div style="display:flex;flex-direction:column;font-size:11px">
+      <!-- Customer -->
+      <div style="border-bottom:2px solid #000">
+        <div style="font-weight:800;border-bottom:1px solid #000;padding:4px 8px">Customer</div>
+        ${customerRows.map(([k, v]) => `
+          <div style="display:grid;grid-template-columns:70px 1fr;border-bottom:1px solid #000">
+            <span style="font-weight:700;padding:3px 8px">${k}</span>
+            <span style="padding:3px 8px;border-left:1px solid #000">${v || ''}</span>
+          </div>`).join('')}
+      </div>
+      <!-- Accessories -->
+      <div style="border-bottom:2px solid #000">
+        <div style="font-weight:800;border-bottom:1px solid #000;padding:4px 8px">Accessories</div>
+        ${accRows.map(([k, v, cls]) => `
+          <div style="display:grid;grid-template-columns:70px 1fr;border-bottom:1px solid #000">
+            <span style="padding:3px 8px;${cls}">${k}</span>
+            <span style="padding:3px 8px;border-left:1px solid #000">${v || ''}</span>
+          </div>`).join('')}
+      </div>
+      <!-- PENANGGUNG JAWAB -->
+      <div style="border-bottom:2px solid #000;flex:1">
+        <div style="font-weight:800;text-align:center;background:#fff;border-bottom:2px solid #000;padding:4px 0">PENANGGUNG JAWAB</div>
+        ${pjRowsHtml}
+      </div>
+      <!-- EXPORT & ICC PRINT | JPEG - RGB -->
+      <div style="display:grid;grid-template-columns:1fr 1fr">
+        <div style="text-align:center;border-right:2px solid #000;padding:8px;font-size:10px;font-weight:800">
+          EXPORT<br/>&amp; ICC<br/>PRINT
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;padding:8px;font-size:11px;font-weight:800">
+          ${spec.export_icc || 'JPEG - RGB'}
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 </div>`;
 }
@@ -838,18 +942,33 @@ function ImportedSpecViewer({ spec }: { spec: Row }) {
 }
 
 // Render an HTML string into an off-screen iframe and capture as canvas.
-async function renderHtmlToImage(html: string, width = 1400): Promise<{ data: string; w: number; h: number }> {
+async function renderHtmlToImage(html: string, width = 1200): Promise<{ data: string; w: number; h: number }> {
   const html2canvas = (await import('html2canvas')).default;
   const iframe = document.createElement('iframe');
   iframe.style.cssText = `position:fixed;left:-9999px;width:${width}px;border:none`;
   document.body.appendChild(iframe);
   const doc = iframe.contentDocument!;
   doc.open();
-  doc.write(`<html><head><style>*{box-sizing:border-box;margin:0;padding:0;text-decoration:none!important;font-style:normal!important}body{background:#fff}</style></head><body>${html}</body></html>`);
+  // Font stack Unicode-friendly di root. Kalau iframe doc ini reset,
+  // buat sure browser tetap pakai font yang capable Arabic/Mandarin/Kanji.
+  // Segoe UI di Windows (built-in) support Arab + Han unified.
+  // Load Noto Sans dari Google Fonts kalau ada network — fallback ke
+  // system font kalau offline.
+  doc.write(`<html><head>
+<style>
+  @font-face {
+    font-family: 'NotoUnicode';
+    src: local('Segoe UI'), local('Arial Unicode MS'), local('Apple SD Gothic Neo'), local('Helvetica Neue'), local('Arial');
+    unicode-range: U+0000-FFFF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; text-decoration: none !important; font-style: normal !important; }
+  body { background: #fff; font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Arial Unicode MS', 'Helvetica Neue', Tahoma, Arial, sans-serif; }
+  img { -webkit-user-drag: none; }
+</style>
+</head><body>${html}</body></html>`);
   doc.close();
   // Tunggu semua gambar loaded (capped 1.5s per gambar) daripada
-  // fixed 1000ms tidur. Kalau tidak ada gambar (jarang), langsung
-  // lanjut. Extra 30ms buffer buat reflow terakhir.
+  // fixed 1000ms tidur. Kalau tidak ada gambar (jarang), langsung lanjut.
   const imgs = Array.from(doc.querySelectorAll('img')) as HTMLImageElement[];
   if (imgs.length > 0) {
     await Promise.all(imgs.map(img => {
@@ -862,12 +981,22 @@ async function renderHtmlToImage(html: string, width = 1400): Promise<{ data: st
       });
     }));
   }
+  // Tunggu font ready (cepat kalau font system, ~5ms). Ini penting
+  // buat non-Latin script — kalau font belum siap, char tampil kotak.
+  try { await (doc as unknown as { fonts?: { ready: Promise<void> } }).fonts?.ready; } catch {}
   await new Promise(r => setTimeout(r, 30));
-  // Scale 2.0 masih crisp untuk print A4 landscape @1400px width.
-  // JPEG 0.85 kira-kira 3-5x lebih kecil dari PNG (banyak solid area).
-  const canvas = await html2canvas(doc.body, { scale: 2.0, useCORS: true, backgroundColor: '#ffffff', windowWidth: width });
+  // Scale 2.0 crisp untuk print A4 landscape @1200px width = 2400px ≈ 200 DPI.
+  // JPEG 0.82 kompresi optimum (0.85 file terlalu besar, 0.75 blur).
+  const canvas = await html2canvas(doc.body, {
+    scale: 2.0,
+    useCORS: true,
+    backgroundColor: '#ffffff',
+    windowWidth: width,
+    logging: false,
+    imageTimeout: 0,
+  });
   document.body.removeChild(iframe);
-  return { data: canvas.toDataURL('image/jpeg', 0.85), w: canvas.width, h: canvas.height };
+  return { data: canvas.toDataURL('image/jpeg', 0.82), w: canvas.width, h: canvas.height };
 }
 
 function compressImage(file: File, maxSize = 1600, quality = 0.8): Promise<string> {
@@ -1120,9 +1249,12 @@ export default function WorkOrderDetailPage() {
         return results;
       };
       if (freshSpecs.length > 0) {
-        const specImages = await renderConcurrently(freshSpecs, 2, async (spec: Row) => {
+        // Concurrency 3: hardware modern typically handles 3 iframe DOMs +
+        // rasterize dengan aman. Kalau ada 5+ spec, ini bikin waktu total
+        // turun signifikan (5 spec paralel 3 = 2 batch, vs sequential = 5 batch).
+        const specImages = await renderConcurrently(freshSpecs, 3, async (spec: Row) => {
           const html = buildWoSpecHtml(spec, woData, freshSpecBahan);
-          return await renderHtmlToImage(html, 1400);
+          return await renderHtmlToImage(html, 1200);
         });
         for (const { data: imgData, w, h } of specImages) {
           if (!firstPage) pdf.addPage();
@@ -1134,22 +1266,13 @@ export default function WorkOrderDetailPage() {
         }
       }
 
-      // === WO 2: Detail Ukuran Tim ===
+      // === WO 2: Detail Ukuran Tim === (rendered via HTML → image supaya
+      // Unicode text seperti nama Arab/Mandarin tidak hancur di PDF).
       if (freshUkuran.length > 0) {
-        if (!firstPage) pdf.addPage();
-        firstPage = false;
-        pdf.setFontSize(14);
-        pdf.text(`DETAIL UKURAN TIM - ${customer.toUpperCase()}`, 14, 18);
-        pdf.setFontSize(10);
-        pdf.text(`No WO: ${woName}`, 14, 26);
-
-        // Load kolom config dari work_orders (atau default).
         const kolom = parseWo2Kolom(freshWoData.wo2_kolom_json as string);
         const hasGrpChildren = kolom.some((k: Wo2Col) => k.children && k.children.length > 0);
-        // Build head — row 1 parent, row 2 children (kalau ada grouped).
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const headRow1: any[] = [{ content: 'NO', rowSpan: hasGrpChildren ? 2 : 1 }];
-        const headRow2: string[] = [];
+        const headRow1: TableCell[] = [{ content: 'NO', rowSpan: hasGrpChildren ? 2 : 1 }];
+        const headRow2: TableCell[] = [];
         for (const k of kolom) {
           if (k.children && k.children.length > 0) {
             headRow1.push({ content: k.label, colSpan: k.children.length });
@@ -1159,7 +1282,6 @@ export default function WorkOrderDetailPage() {
           }
         }
         const head = hasGrpChildren ? [headRow1, headRow2] : [headRow1];
-        // Flatten leaf keys (id) untuk map value per row.
         const leafIds: string[] = [];
         for (const k of kolom) {
           if (k.children && k.children.length > 0) for (const c of k.children) leafIds.push(c.id);
@@ -1168,7 +1290,6 @@ export default function WorkOrderDetailPage() {
         const body = freshUkuran.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => {
           let dj: Record<string, string> = {};
           if (r.data_json) { try { dj = JSON.parse(String(r.data_json)) || {}; } catch {} }
-          // Merge legacy + data_json (data_json wins).
           const legacy: Record<string, string> = {
             nama: String(r.nama || ''), np: String(r.np || ''), size: String(r.size || ''),
             ket1: String(r.ket1 || ''), ket2: String(r.ket2 || ''),
@@ -1181,15 +1302,19 @@ export default function WorkOrderDetailPage() {
           const merged = { ...legacy, ...dj };
           return [String(i + 1), ...leafIds.map(k => merged[k] || '')];
         });
-        autoTable(pdf, {
-          startY: 32,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          head: head as any,
+        const wo2Html = buildWoTableHtml({
+          title: `DETAIL UKURAN TIM — ${customer}`,
+          subtitle: `No WO: ${woName}`,
+          head,
           body,
-          styles: { fontSize: 8, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
-          headStyles: { fillColor: [6, 95, 70], halign: 'center', valign: 'middle', textColor: 255, lineWidth: 0.3, lineColor: [0, 0, 0] },
-          bodyStyles: { halign: 'center' },
+          headerBg: '#065f46',
         });
+        const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo2Html, 1200);
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        const contentW = pageW - margin * 2;
+        const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
+        pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
       }
 
       // === WO 3 LEGACY (dead code — WO3 sekarang Form Pengiriman, handled below).
@@ -1378,106 +1503,74 @@ export default function WorkOrderDetailPage() {
         });
       }
 
-      // === WO 3: Form Pengiriman + PROMO/BONUS ===
+      // === WO 3: Form Pengiriman + PROMO/BONUS === (HTML → image, Unicode-safe)
       if (freshShip.length > 0 || freshWoData.pengiriman_promo || freshWoData.pengiriman_bonus) {
-        if (!firstPage) pdf.addPage();
-        firstPage = false;
-        pdf.setFontSize(14);
-        pdf.text(`FORM PENGIRIMAN - ${customer.toUpperCase()}`, 14, 18);
-        pdf.setFontSize(10);
-        pdf.text(`No WO: ${woName} · Paket: ${paket}`, 14, 26);
-
-        autoTable(pdf, {
-          startY: 32,
-          head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'CHECK']],
-          body: freshShip.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
-            String(i + 1),
-            String(r.nama || ''),
-            String(r.np || ''),
-            String(r.ukuran || ''),
-            String(r.keterangan || ''),
-            (r.checklist === 1 || r.checklist === true) ? 'v' : '',
-          ]),
-          styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
-          headStyles: { fillColor: [6, 95, 70], textColor: 255, halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
-          bodyStyles: { halign: 'center' },
-          columnStyles: { 1: { halign: 'left' }, 4: { halign: 'left' } },
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let curY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
-        // PROMO + BONUS boxes side by side (di bawah tabel).
         const promo = String(freshWoData.pengiriman_promo || '');
         const bonus = String(freshWoData.pengiriman_bonus || '');
-        if (promo || bonus) {
-          const boxW = (pageW - margin * 2 - 4) / 2;
-          const boxH = 40;
-          // PROMO
-          pdf.setFillColor(59, 130, 246);
-          pdf.rect(margin, curY, boxW, 7, 'F');
-          pdf.setTextColor(255, 255, 255);
-          pdf.setFontSize(10);
-          pdf.text('PROMO', margin + boxW / 2, curY + 5, { align: 'center' });
-          pdf.setDrawColor(0);
-          pdf.rect(margin, curY + 7, boxW, boxH);
-          pdf.setTextColor(0);
-          pdf.setFontSize(9);
-          const promoLines = pdf.splitTextToSize(promo || '-', boxW - 4);
-          pdf.text(promoLines, margin + 2, curY + 12);
-          // BONUS
-          const bx = margin + boxW + 4;
-          pdf.setFillColor(59, 130, 246);
-          pdf.rect(bx, curY, boxW, 7, 'F');
-          pdf.setTextColor(255, 255, 255);
-          pdf.setFontSize(10);
-          pdf.text('BONUS', bx + boxW / 2, curY + 5, { align: 'center' });
-          pdf.setDrawColor(0);
-          pdf.rect(bx, curY + 7, boxW, boxH);
-          pdf.setTextColor(0);
-          pdf.setFontSize(9);
-          const bonusLines = pdf.splitTextToSize(bonus || '-', boxW - 4);
-          pdf.text(bonusLines, bx + 2, curY + 12);
-          curY += boxH + 20;
-        } else {
-          curY += 20;
-        }
-        // Tanda tangan
-        pdf.setFontSize(10);
-        pdf.text('Dibuat Oleh,', 14, curY);
-        pdf.text('Dicek Oleh,', 85, curY);
-        pdf.text('Diterima Oleh,', 155, curY);
-        pdf.text('( Admin )', 14, curY + 25);
-        pdf.text('( QC / Packing )', 85, curY + 25);
-        pdf.text(`( ${customer} )`, 155, curY + 25);
-      }
-
-      // === WO 4: Form Permintaan Gudang ===
-      if (freshGudang.length > 0) {
+        const wo3Body = freshShip.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
+          String(i + 1),
+          String(r.nama || ''),
+          String(r.np || ''),
+          String(r.ukuran || ''),
+          String(r.keterangan || ''),
+          (r.checklist === 1 || r.checklist === true) ? 'v' : '',
+        ]);
+        const extraHtml = `
+          ${(promo || bonus) ? `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">
+              <div style="border:1px solid #000">
+                <div style="background:#3b82f6;color:#fff;text-align:center;font-weight:800;padding:6px 0;font-size:11px">PROMO</div>
+                <div style="padding:10px;font-size:11px;min-height:60px;white-space:pre-wrap">${escapeHtml(promo || '-')}</div>
+              </div>
+              <div style="border:1px solid #000">
+                <div style="background:#3b82f6;color:#fff;text-align:center;font-weight:800;padding:6px 0;font-size:11px">BONUS</div>
+                <div style="padding:10px;font-size:11px;min-height:60px;white-space:pre-wrap">${escapeHtml(bonus || '-')}</div>
+              </div>
+            </div>` : ''}
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:32px;font-size:11px">
+            <div style="text-align:left">Dibuat Oleh,<br/><br/><br/><br/>( Admin )</div>
+            <div style="text-align:left">Dicek Oleh,<br/><br/><br/><br/>( QC / Packing )</div>
+            <div style="text-align:left">Diterima Oleh,<br/><br/><br/><br/>( ${escapeHtml(customer)} )</div>
+          </div>`;
+        const wo3Html = buildWoTableHtml({
+          title: `FORM PENGIRIMAN — ${customer}`,
+          subtitle: `No WO: ${woName} · Paket: ${paket}`,
+          head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'CHECK']],
+          body: wo3Body,
+          headerBg: '#065f46',
+          extraHtml,
+        });
+        const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo3Html, 1200);
         if (!firstPage) pdf.addPage();
         firstPage = false;
-        pdf.setFontSize(14);
-        pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}`, 14, 18);
-        pdf.setFontSize(10);
-        pdf.text(`No WO: ${woName}`, 14, 26);
+        const contentW = pageW - margin * 2;
+        const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
+        pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+      }
 
-        autoTable(pdf, {
-          startY: 32,
+      // === WO 4: Form Permintaan Gudang === (HTML → image, Unicode-safe)
+      if (freshGudang.length > 0) {
+        const wo4Body = freshGudang.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
+          String(i + 1),
+          String(r.bagian || ''),
+          String(r.bahan || ''),
+          String(r.warna || ''),
+          String(r.kuantitas || 0),
+        ]);
+        const wo4Html = buildWoTableHtml({
+          title: `FORM PERMINTAAN GUDANG — ${customer}`,
+          subtitle: `No WO: ${woName}`,
           head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
-          body: freshGudang.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
-            String(i + 1),
-            String(r.bagian || ''),
-            String(r.bahan || ''),
-            String(r.warna || ''),
-            String(r.kuantitas || 0),
-          ]),
-          styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
-          headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
-          bodyStyles: { halign: 'left' },
-          columnStyles: {
-            0: { cellWidth: 15, halign: 'center' },
-            3: { cellWidth: 30 },
-            4: { cellWidth: 25, halign: 'right' },
-          },
+          body: wo4Body,
+          headerBg: '#f59e0b',
+          headerColor: '#0f172a',
         });
+        const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo4Html, 1200);
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        const contentW = pageW - margin * 2;
+        const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
+        pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
       }
 
       if (firstPage) {
@@ -1802,7 +1895,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     if (!spec) return;
     try {
       const { jsPDF } = await import('jspdf');
-      const { data: imgData, w, h } = await renderHtmlToImage(buildSpecHtml(spec), 1400);
+      const { data: imgData, w, h } = await renderHtmlToImage(buildSpecHtml(spec), 1200);
       const pdf = new jsPDF('l', 'mm', 'a4');
       const pageW = 297;
       const pageH = 210;
