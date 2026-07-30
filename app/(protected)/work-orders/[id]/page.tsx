@@ -1685,49 +1685,54 @@ export default function WorkOrderDetailPage() {
         const bonusLines = pdf.splitTextToSize(bonus || '-', boxW - 4);
         pdf.text(bonusLines, rightBoxX + 2, by + boxHeaderH + 5);
 
-        // Tanda tangan di bawah tabel (kalau ada space)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const finalY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
-        if (finalY < pageH - 30) {
-          pdf.setFontSize(10);
-          pdf.text('Dibuat Oleh,', 14, finalY);
-          pdf.text('Dicek Oleh,', 85, finalY);
-          pdf.text('Diterima Oleh,', 155, finalY);
-          pdf.text('( Admin )', 14, finalY + 22);
-          pdf.text('( QC / Packing )', 85, finalY + 22);
-          pdf.text(`( ${customer} )`, 155, finalY + 22);
-        }
+        // Tanda tangan di kanan bawah BONUS (bukan di bawah tabel).
+        // Sejajar dengan blok atas — 3 blok stack vertikal, tetap di
+        // right column supaya tidak conflict dengan tabel yang bisa
+        // panjang.
+        const ttdStartY = by + boxHeaderH + boxBodyH + 8;
+        const blockH = 22; // per block: 6mm label + 10mm gap tanda tangan + 6mm name
+        pdf.setTextColor(0);
+        pdf.setFontSize(9);
+        // Dibuat Oleh
+        pdf.text('Dibuat Oleh,', rightBoxX + 2, ttdStartY);
+        pdf.text('( Admin )', rightBoxX + 2, ttdStartY + blockH - 4);
+        // Dicek Oleh
+        pdf.text('Dicek Oleh,', rightBoxX + 2, ttdStartY + blockH + 2);
+        pdf.text('( QC / Packing )', rightBoxX + 2, ttdStartY + blockH * 2 - 2);
+        // Diterima Oleh
+        pdf.text('Diterima Oleh,', rightBoxX + 2, ttdStartY + blockH * 2 + 4);
+        const customerTruncated = customer.length > 30 ? customer.slice(0, 27) + '...' : customer;
+        pdf.text(`( ${customerTruncated} )`, rightBoxX + 2, ttdStartY + blockH * 3);
       }
 
-      // === WO 4: Form Permintaan Gudang === (HTML → image, Unicode-safe)
+      // === WO 4: Form Permintaan Gudang === (autoTable — crisp).
       if (freshGudang.length > 0) {
-        const wo4Body = freshGudang.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
-          String(i + 1),
-          String(r.bagian || ''),
-          String(r.bahan || ''),
-          String(r.warna || ''),
-          String(r.kuantitas || 0),
-        ]);
-        const wo4Html = buildWoTableHtml({
-          title: `FORM PERMINTAAN GUDANG — ${customer}`,
-          subtitle: `No WO: ${woName}`,
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.setFontSize(14);
+        pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}`, 14, 18);
+        pdf.setFontSize(10);
+        pdf.text(`No WO: ${woName}`, 14, 26);
+
+        autoTable(pdf, {
+          startY: 32,
           head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
-          body: wo4Body,
-          headerBg: '#f59e0b',
-          headerColor: '#0f172a',
-          columnAlign: ['center', 'left', 'left', 'left', 'right'],
-          columnWidth: ['40px', '180px', undefined, '120px', '90px'],
+          body: freshGudang.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
+            String(i + 1),
+            String(r.bagian || ''),
+            String(r.bahan || ''),
+            String(r.warna || ''),
+            String(r.kuantitas || 0),
+          ]),
+          styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
+          bodyStyles: { halign: 'left' },
+          columnStyles: {
+            0: { cellWidth: 15, halign: 'center' },
+            3: { cellWidth: 30 },
+            4: { cellWidth: 25, halign: 'right' },
+          },
         });
-        try {
-          const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo4Html, 1100);
-          if (!firstPage) pdf.addPage();
-          firstPage = false;
-          const contentW = pageW - margin * 2;
-          const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
-          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
-        } catch (err) {
-          console.warn('Skip WO4 render (error):', err);
-        }
       }
 
       if (firstPage) {
@@ -4710,18 +4715,19 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
       const bonusLines = pdf.splitTextToSize(bonus || '-', boxW - 4);
       pdf.text(bonusLines, rightBoxX + 2, by + boxHeaderH + 5);
 
-      // Tanda tangan
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const finalY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
-      if (finalY < pageH - 30) {
-        pdf.setFontSize(10);
-        pdf.text('Dibuat Oleh,', 14, finalY);
-        pdf.text('Dicek Oleh,', 85, finalY);
-        pdf.text('Diterima Oleh,', 155, finalY);
-        pdf.text('( Admin )', 14, finalY + 22);
-        pdf.text('( QC / Packing )', 85, finalY + 22);
-        pdf.text(`( ${customer} )`, 155, finalY + 22);
-      }
+      // Tanda tangan di kanan bawah BONUS (sejajar dengan atas — kolom
+      // kanan). Stack vertikal 3 blok.
+      const ttdStartY = by + boxHeaderH + boxBodyH + 8;
+      const blockH = 22;
+      pdf.setTextColor(0);
+      pdf.setFontSize(9);
+      pdf.text('Dibuat Oleh,', rightBoxX + 2, ttdStartY);
+      pdf.text('( Admin )', rightBoxX + 2, ttdStartY + blockH - 4);
+      pdf.text('Dicek Oleh,', rightBoxX + 2, ttdStartY + blockH + 2);
+      pdf.text('( QC / Packing )', rightBoxX + 2, ttdStartY + blockH * 2 - 2);
+      pdf.text('Diterima Oleh,', rightBoxX + 2, ttdStartY + blockH * 2 + 4);
+      const customerTruncated = customer.length > 30 ? customer.slice(0, 27) + '...' : customer;
+      pdf.text(`( ${customerTruncated} )`, rightBoxX + 2, ttdStartY + blockH * 3);
 
       pdf.save(`WO3-FormPengiriman-${woName}.pdf`);
       toast.success('PDF Berhasil', `WO3-FormPengiriman-${woName}.pdf`);
@@ -4962,37 +4968,41 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
     setSaving(false);
   }
 
-  // Download PDF khusus tab WO4 — same layout dengan Download All WO4 part.
-  // WO4 pakai HTML→image supaya Unicode nama bahan aman + layout consistent.
+  // Download PDF khusus tab WO4 — pakai autoTable (crisp native text)
+  // sama dengan pattern WO2 & WO3.
   async function handleDownloadPDF() {
     try {
       const { jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
       const customer = String(wo.customer_nama || '');
       const woName = String(wo.no_wo || 'export');
 
-      const wo4Body = rows.map((r, i) => [
-        String(i + 1),
-        String(r.bagian || ''),
-        String(r.bahan || ''),
-        String(r.warna || ''),
-        String(r.kuantitas || 0),
-      ]);
-      const wo4Html = buildWoTableHtml({
-        title: `FORM PERMINTAAN GUDANG — ${customer}`,
-        subtitle: `No WO: ${woName}`,
-        head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
-        body: wo4Body,
-        headerBg: '#f59e0b',
-        headerColor: '#0f172a',
-        columnAlign: ['center', 'left', 'left', 'left', 'right'],
-        columnWidth: ['40px', '180px', undefined, '120px', '90px'],
-      });
-      const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo4Html, 1100);
       const pdf = new jsPDF('l', 'mm', 'a4');
-      const pageW = 297, pageH = 210, margin = 5;
-      const contentW = pageW - margin * 2;
-      const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
-      pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+      pdf.setFontSize(14);
+      pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}`, 14, 18);
+      pdf.setFontSize(10);
+      pdf.text(`No WO: ${woName}`, 14, 26);
+
+      autoTable(pdf, {
+        startY: 32,
+        head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
+        body: rows.map((r, i) => [
+          String(i + 1),
+          String(r.bagian || ''),
+          String(r.bahan || ''),
+          String(r.warna || ''),
+          String(r.kuantitas || 0),
+        ]),
+        styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+        headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
+        bodyStyles: { halign: 'left' },
+        columnStyles: {
+          0: { cellWidth: 15, halign: 'center' },
+          3: { cellWidth: 30 },
+          4: { cellWidth: 25, halign: 'right' },
+        },
+      });
+
       pdf.save(`WO4-FormPermintaanGudang-${woName}.pdf`);
       toast.success('PDF Berhasil', `WO4-FormPermintaanGudang-${woName}.pdf`);
     } catch (e) { toast.error('Gagal Download PDF', String(e)); }
