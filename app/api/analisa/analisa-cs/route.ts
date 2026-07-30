@@ -128,13 +128,15 @@ export async function GET(req: NextRequest) {
     //              DATE(created_at) — moment CS Order fill rincian.
     // Kedua query pakai range filter yang sama supaya konsisten dengan
     // KPI di atas.
+    // Pakai DATE_FORMAT '%Y-%m-%d' supaya mysql2 return string
+    // langsung (bukan Date object yang timezone-drift saat di-String()).
     type DailyMasuk = { d: string; c: number };
     type DailyRincian = { d: string; c: number };
     const masukRows = await query<DailyMasuk>(
-      `SELECT DATE(tanggal_order) AS d, COUNT(*) AS c
+      `SELECT DATE_FORMAT(tanggal_order, '%Y-%m-%d') AS d, COUNT(*) AS c
        FROM orders
        ${whereSql}
-       GROUP BY DATE(tanggal_order)`,
+       GROUP BY DATE_FORMAT(tanggal_order, '%Y-%m-%d')`,
       params,
     );
     // Rincian di-filter by DATE(payments.created_at) IN range yang sama.
@@ -145,10 +147,10 @@ export async function GET(req: NextRequest) {
     if (from) { rincianParts.push('DATE(created_at) >= ?'); rincianParams.push(from); }
     if (to)   { rincianParts.push('DATE(created_at) <= ?'); rincianParams.push(to); }
     const rincianRows = await query<DailyRincian>(
-      `SELECT DATE(created_at) AS d, COUNT(*) AS c
+      `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS d, COUNT(*) AS c
        FROM order_payments
        WHERE ${rincianParts.join(' AND ')}
-       GROUP BY DATE(created_at)`,
+       GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')`,
       rincianParams,
     );
 
@@ -156,14 +158,14 @@ export async function GET(req: NextRequest) {
     // di kedua query, sort ASC.
     const byDate = new Map<string, { masuk: number; rincian: number }>();
     for (const r of masukRows) {
-      const key = String(r.d).slice(0, 10);
+      const key = String(r.d || '').slice(0, 10);
       if (!key || key === '0000-00-00') continue;
       const cur = byDate.get(key) || { masuk: 0, rincian: 0 };
       cur.masuk = Number(r.c) || 0;
       byDate.set(key, cur);
     }
     for (const r of rincianRows) {
-      const key = String(r.d).slice(0, 10);
+      const key = String(r.d || '').slice(0, 10);
       if (!key || key === '0000-00-00') continue;
       const cur = byDate.get(key) || { masuk: 0, rincian: 0 };
       cur.rincian = Number(r.c) || 0;
