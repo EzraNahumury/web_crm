@@ -4,23 +4,27 @@
 // (orders.design_awal_at).
 //
 // Flow:
-//   Design Awal        (SLA 3 hari — baseline)
+//   Waiting List       (SLA 3 hari — order baru approve Finance,
+//                       belum dipegang designer)
+//   Design Awal        (SLA 2 hari — designer mulai kerja)
 //   Design Revisi 1    (+1 hari kumulatif)
 //   Design Revisi 2    (+1 hari kumulatif)
 //   Design Revisi 3    (+1 hari kumulatif)
 //   SELESAI            (terminal — order pindah ke CS Order)
 //
-// Total SLA maksimal = 6 hari kerja kalau semua stage revisi dipakai.
-// Kalau CS klik 'Selesai' langsung dari Design Awal, order langsung
-// SELESAI tanpa harus lewat revisi.
+// Total SLA maksimal = 3 + 2 + 1 + 1 + 1 = 8 hari kerja kalau semua
+// stage dipakai. Kalau CS klik 'Selesai' langsung dari Design Awal
+// (atau bahkan Waiting List), order langsung SELESAI tanpa lewat revisi.
 
 import { addBusinessDays } from './business-days';
 
-// Semua key sesuai enum orders.design_stage.
-export type DesignStage = 'AWAL' | 'REVISI_1' | 'REVISI_2' | 'REVISI_3' | 'SELESAI';
+// Semua key sesuai enum orders.design_stage. WAITING = baru approve
+// Finance, belum di-pegang designer. AWAL = designer mulai kerja.
+export type DesignStage = 'WAITING' | 'AWAL' | 'REVISI_1' | 'REVISI_2' | 'REVISI_3' | 'SELESAI';
 
 // Label yang tampil di UI.
 export const DESIGN_STAGE_LABELS: Record<DesignStage, string> = {
+  WAITING: 'Waiting List',
   AWAL: 'Design Awal',
   REVISI_1: 'Design Revisi 1',
   REVISI_2: 'Design Revisi 2',
@@ -30,6 +34,7 @@ export const DESIGN_STAGE_LABELS: Record<DesignStage, string> = {
 
 // Urutan stage untuk hitung target selesai + navigasi tab.
 export const DESIGN_STAGE_ORDER: DesignStage[] = [
+  'WAITING',
   'AWAL',
   'REVISI_1',
   'REVISI_2',
@@ -39,7 +44,8 @@ export const DESIGN_STAGE_ORDER: DesignStage[] = [
 
 // Durasi tiap stage dalam hari kerja. SELESAI durasi 0 karena terminal.
 export const DESIGN_DURATIONS: Record<DesignStage, number> = {
-  AWAL: 3,
+  WAITING: 3,
+  AWAL: 2,
   REVISI_1: 1,
   REVISI_2: 1,
   REVISI_3: 1,
@@ -66,7 +72,7 @@ export function computeDesignStageTargets(
 }
 
 /**
- * Total hari kerja maksimal dari Design Awal → Revisi 3.
+ * Total hari kerja maksimal dari Waiting List → Revisi 3.
  * SELESAI tidak dihitung karena durasi 0.
  */
 export function totalDurasiDesign(): number {
@@ -88,7 +94,7 @@ export function totalDurasiDesign(): number {
  *                     null / kosong, fallback ke baselineISO.
  *   stage           — nama stage saat ini.
  *   baselineISO     — fallback kalau stageStartedISO kosong. Biasanya
- *                     dipakai untuk stage AWAL yang mulai dari finance
+ *                     dipakai untuk stage WAITING yang mulai dari finance
  *                     approve DP Design.
  */
 export function computeCurrentStageDeadline(
@@ -119,10 +125,12 @@ export function classifyLateDesign(
 /**
  * Cari stage berikutnya untuk aksi 'Butuh Revisi'.
  * Design Awal → Revisi 1 → Revisi 2 → Revisi 3.
+ * Waiting List tidak bisa langsung ke Revisi (harus lewat Awal dulu).
  * Kalau sudah di Revisi 3, tidak bisa Butuh Revisi lagi (null).
  */
 export function nextRevisiStage(current: DesignStage): DesignStage | null {
   const flow: Record<DesignStage, DesignStage | null> = {
+    WAITING: null,
     AWAL: 'REVISI_1',
     REVISI_1: 'REVISI_2',
     REVISI_2: 'REVISI_3',

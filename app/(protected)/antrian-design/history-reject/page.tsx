@@ -78,7 +78,7 @@ export default function HistoryRejectPage() {
   async function restoreOrder(order: Row) {
     const yes = await toast.confirm({
       title: 'Kembalikan ke Antrian?',
-      message: `${order.customer_nama || order.no_order} akan dikembalikan ke Design Awal. Tanggal reject dihapus.`,
+      message: `${order.customer_nama || order.no_order} akan dikembalikan ke Waiting List. Tanggal reject dihapus.`,
       type: 'warning',
       confirmText: 'Ya, Kembalikan',
     });
@@ -89,18 +89,20 @@ export default function HistoryRejectPage() {
       // kalau order sampai di-reject lagi nanti.
       try {
         await dbUpdate('orders', Number(order.id), {
-          design_stage: 'AWAL',
+          design_stage: 'WAITING',
+          design_stage_started_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
           design_rejected_at: null,
           design_reject_reason: null,
         });
       } catch (err) {
         console.warn('restore with reason clear failed, retrying without:', err);
         await dbUpdate('orders', Number(order.id), {
-          design_stage: 'AWAL',
+          design_stage: 'WAITING',
+          design_stage_started_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
           design_rejected_at: null,
         });
       }
-      toast.success('Order Dikembalikan', `${order.customer_nama || order.no_order} kembali ke Design Awal.`);
+      toast.success('Order Dikembalikan', `${order.customer_nama || order.no_order} kembali ke Waiting List.`);
       await fetchData();
     } catch (e) { toast.error('Gagal', String(e)); }
     setBusyId(null);
