@@ -238,14 +238,18 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       <span style="padding:5px 6px;font-size:10px;color:#dc2626;font-weight:700">${bahanMap[bagian] || ''}</span>
     </div>`).join('');
 
+  // PJ rows rendered sebagai <tr> di dalam right-column table (colspan=2
+  // supaya lebar match dengan section header di atasnya). Row-height uniform
+  // via vertical-align:middle + line-height 1.3.
   const pjRowsHtml = WO_PJ_STAGES.map((stage, i) => {
     const nama = pjData[pjKey(stage)] || '';
-    const isLast = i === WO_PJ_STAGES.length - 1;
     return `
-      <div style="padding:7px 10px;font-size:10px;${isLast ? '' : 'border-bottom:1px solid #000'};line-height:1.4;display:flex;flex-direction:column;justify-content:center;min-height:26px">
-        <div style="font-weight:700">${i + 1}. ${stage}</div>
-        ${nama ? `<div style="color:#334155;padding-left:14px;margin-top:2px">${nama}</div>` : ''}
-      </div>`;
+      <tr>
+        <td colspan="2" style="border:1px solid #000;padding:8px 10px;font-size:10.5px;vertical-align:middle;line-height:1.3">
+          <div style="font-weight:600">${i + 1}. ${stage}</div>
+          ${nama ? `<div style="color:#334155;padding-left:14px;margin-top:2px;font-size:10px">${escapeHtml(nama)}</div>` : ''}
+        </td>
+      </tr>`;
   }).join('');
 
   return `<div style="background:#fff;padding:16px;color:#000;font-family:${FONT};width:1200px;-webkit-font-smoothing:antialiased">
@@ -309,31 +313,35 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       </div>
     </div>
 
-    <!-- ─── RIGHT COLUMN ─── -->
+    <!-- ─── RIGHT COLUMN — sekarang pakai <table> supaya row uniform,
+         vertical-align:middle native, borders clean. Match target #548.
+         Semua di 1 table supaya borders align. PJ rows pakai colspan=2. -->
     <div style="display:flex;flex-direction:column;font-size:11px">
-      <!-- Customer — flex + align-items:center supaya text center vertikal, min-height konsisten -->
-      <div style="border-bottom:2px solid #000">
-        <div style="font-weight:800;border-bottom:1px solid #000;padding:5px 8px;text-align:center">Customer</div>
+      <table style="width:100%;border-collapse:collapse;flex:1">
+        <!-- Customer section header -->
+        <tr>
+          <td colspan="2" style="border:1px solid #000;background:#fff;padding:6px;text-align:center;font-weight:800;font-size:11px">Customer</td>
+        </tr>
         ${customerRows.map(([k, v]) => `
-          <div style="display:grid;grid-template-columns:70px 1fr;border-bottom:1px solid #000;min-height:26px">
-            <span style="font-weight:700;padding:0 8px;display:flex;align-items:center">${k}</span>
-            <span style="padding:0 8px;border-left:1px solid #000;display:flex;align-items:center;line-height:1.3">${v || ''}</span>
-          </div>`).join('')}
-      </div>
-      <!-- Accessories -->
-      <div style="border-bottom:2px solid #000">
-        <div style="font-weight:800;border-bottom:1px solid #000;padding:5px 8px;text-align:center">Accessories</div>
+          <tr>
+            <td style="border:1px solid #000;padding:8px 10px;font-weight:700;vertical-align:middle;width:38%;font-size:10.5px">${k}</td>
+            <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;line-height:1.35;font-size:10.5px">${escapeHtml(String(v || ''))}</td>
+          </tr>`).join('')}
+        <!-- Accessories section header -->
+        <tr>
+          <td colspan="2" style="border:1px solid #000;background:#fff;padding:6px;text-align:center;font-weight:800;font-size:11px">Accessories</td>
+        </tr>
         ${accRows.map(([k, v, cls]) => `
-          <div style="display:grid;grid-template-columns:70px 1fr;border-bottom:1px solid #000;min-height:26px">
-            <span style="padding:0 8px;display:flex;align-items:center;${cls}">${k}</span>
-            <span style="padding:0 8px;border-left:1px solid #000;display:flex;align-items:center;line-height:1.3">${v || ''}</span>
-          </div>`).join('')}
-      </div>
-      <!-- PENANGGUNG JAWAB — flex column dengan align-items:center untuk visual balance -->
-      <div style="border-bottom:2px solid #000;flex:1;display:flex;flex-direction:column">
-        <div style="font-weight:800;text-align:center;background:#fff;border-bottom:2px solid #000;padding:5px 0">PENANGGUNG JAWAB</div>
-        <div style="flex:1">${pjRowsHtml}</div>
-      </div>
+          <tr>
+            <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;width:38%;font-size:10.5px;${cls || 'font-weight:700'}">${k}</td>
+            <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;line-height:1.35;font-size:10.5px">${escapeHtml(String(v || ''))}</td>
+          </tr>`).join('')}
+        <!-- PENANGGUNG JAWAB section header -->
+        <tr>
+          <td colspan="2" style="border:1px solid #000;background:#fff;padding:6px;text-align:center;font-weight:800;font-size:11px">PENANGGUNG JAWAB</td>
+        </tr>
+        ${pjRowsHtml}
+      </table>
       <!-- EXPORT & ICC PRINT | JPEG - RGB -->
       <div style="display:grid;grid-template-columns:1fr 1fr">
         <div style="text-align:center;border-right:2px solid #000;padding:8px;font-size:10px;font-weight:800">
