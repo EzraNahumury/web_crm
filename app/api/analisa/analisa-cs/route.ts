@@ -47,6 +47,12 @@ export async function GET(req: NextRequest) {
     let sudahDpDesign = 0;
     let sudahDpProduksi = 0;
     let belumDpProduksi = 0;
+    // Yang stuck di DP Design (funnel drop-off) — dipakai buat list
+    // di bawah + potensi kekurangan. Beda dari belumDpProduksi yang
+    // sekarang counts SEMUA order yang belum bayar DP Produksi (biar
+    // sudahDpProduksi + belumDpProduksi = totalOrders — konsisten
+    // secara matematika).
+    let stuckDpDesign = 0;
     // Metrik uang (global scope — bukan hanya pending array):
     //   totalNilaiOrder: SUM(nominal_order) WHERE dp_produksi > 0
     //                    = revenue riil dari customer yang sudah lanjut
@@ -84,9 +90,13 @@ export async function GET(req: NextRequest) {
       if (dpP > 0) {
         sudahDpProduksi++;
         totalNilaiOrder += nom;
+      } else {
+        // Belum DP Produksi = complement dari Sudah DP Produksi.
+        // Total = Sudah + Belum secara matematika.
+        belumDpProduksi++;
       }
       if (dpD > 0 && dpP === 0) {
-        belumDpProduksi++;
+        stuckDpDesign++;
         potensiKekurangan += Math.max(nom - dpD, 0);
         pending.push({
           id: o.id,
@@ -101,14 +111,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // % konversi = sudah DP Produksi / sudah DP Design × 100.
-    // Kalau 0 order dengan DP Design, konversi 0.
-    const conversionPct = sudahDpDesign > 0
-      ? Math.round((sudahDpProduksi / sudahDpDesign) * 1000) / 10
+    // % konversi = sudah DP Produksi / total orders × 100.
+    // Kalau 0 order, konversi 0.
+    const conversionPct = totalOrders > 0
+      ? Math.round((sudahDpProduksi / totalOrders) * 1000) / 10
       : 0;
-    // % drop-off = belum DP Produksi / sudah DP Design × 100.
-    const dropOffPct = sudahDpDesign > 0
-      ? Math.round((belumDpProduksi / sudahDpDesign) * 1000) / 10
+    // % drop-off = belum DP Produksi / total orders × 100.
+    const dropOffPct = totalOrders > 0
+      ? Math.round((belumDpProduksi / totalOrders) * 1000) / 10
       : 0;
 
     return NextResponse.json({
@@ -119,6 +129,7 @@ export async function GET(req: NextRequest) {
           sudah_dp_design: sudahDpDesign,
           sudah_dp_produksi: sudahDpProduksi,
           belum_dp_produksi: belumDpProduksi,
+          stuck_dp_design: stuckDpDesign,
           conversion_pct: conversionPct,
           drop_off_pct: dropOffPct,
           total_nilai_order: totalNilaiOrder,

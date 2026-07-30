@@ -10,6 +10,7 @@ interface Totals {
   sudah_dp_design: number;
   sudah_dp_produksi: number;
   belum_dp_produksi: number;
+  stuck_dp_design: number;
   conversion_pct: number;
   drop_off_pct: number;
   total_nilai_order: number;
@@ -41,7 +42,7 @@ function fmtDate(iso: string): string {
 export default function AnalisaCsPage() {
   const [totals, setTotals] = useState<Totals>({
     total_orders: 0, sudah_dp_design: 0, sudah_dp_produksi: 0,
-    belum_dp_produksi: 0, conversion_pct: 0, drop_off_pct: 0,
+    belum_dp_produksi: 0, stuck_dp_design: 0, conversion_pct: 0, drop_off_pct: 0,
     total_nilai_order: 0, total_dp_design_tercatat: 0, potensi_kekurangan: 0,
   });
   const [pending, setPending] = useState<Pending[]>([]);
@@ -136,7 +137,13 @@ export default function AnalisaCsPage() {
         <KpiCard label="Total Order" value={totals.total_orders.toLocaleString('id-ID')} accent="blue" />
         <KpiCard label="Sudah DP Design" value={totals.sudah_dp_design.toLocaleString('id-ID')} accent="cyan" />
         <KpiCard label="Sudah DP Produksi" value={totals.sudah_dp_produksi.toLocaleString('id-ID')} sub={`${totals.conversion_pct}% konversi`} accent="emerald" />
-        <KpiCard label="Belum DP Produksi" value={totals.belum_dp_produksi.toLocaleString('id-ID')} sub={`${totals.drop_off_pct}% drop-off`} accent="amber" highlight />
+        <KpiCard
+          label="Belum DP Produksi"
+          value={totals.belum_dp_produksi.toLocaleString('id-ID')}
+          sub={`${totals.drop_off_pct}% · ${totals.stuck_dp_design} stuck di DP Design`}
+          accent="amber"
+          highlight
+        />
       </div>
 
       {/* Chart + summary */}
@@ -144,14 +151,16 @@ export default function AnalisaCsPage() {
         <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <p className="text-sm font-semibold text-white">Konversi DP Design → DP Produksi</p>
-              <p className="text-[11px] text-slate-500">Dari total {totals.sudah_dp_design} order yang sudah DP Design</p>
+              <p className="text-sm font-semibold text-white">Konversi Order → DP Produksi</p>
+              <p className="text-[11px] text-slate-500">
+                Dari total {totals.total_orders} order · {totals.stuck_dp_design} stuck di DP Design
+              </p>
             </div>
           </div>
           <div className="h-72">
-            {totals.sudah_dp_design === 0 ? (
+            {totals.total_orders === 0 ? (
               <div className="h-full grid place-items-center text-slate-500 text-sm">
-                Belum ada order dengan DP Design.
+                Belum ada order di periode ini.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
