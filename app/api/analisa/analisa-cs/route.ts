@@ -122,54 +122,41 @@ export async function GET(req: NextRequest) {
       : 0;
 
     // ─── Perbandingan Harian ──────────────────────────────────────────
-    // Query 2 series per hari:
-    //   masuk    = count new order dari CS Selling per DATE(tanggal_order)
-    //   rincian  = count order_payments tipe='nominal_order' per
-    //              DATE(created_at) — moment CS Order fill rincian.
-    // Kedua query pakai range filter yang sama supaya konsisten dengan
-    // KPI di atas.
-    // Pakai DATE_FORMAT '%Y-%m-%d' supaya mysql2 return string
-    // langsung (bukan Date object yang timezone-drift saat di-String()).
-    type DailyMasuk = { d: string; c: number };
-    type DailyRincian = { d: string; c: number };
-    const masukRows = await query<DailyMasuk>(
-      `SELECT DATE_FORMAT(tanggal_order, '%Y-%m-%d') AS d, COUNT(*) AS c
+    // Kedua series pakai orders.tanggal_order sebagai "hari itu":
+    //   masuk    = COUNT(*) per hari — semua order baru
+    //   rincian  = COUNT(*) per hari WHERE nominal_order > 0 — order
+    //              yang sudah punya rincian pembayaran (CS Order sudah
+    //              set nominal_order via drawer create atau edit).
+    //
+    // Kenapa tidak pakai order_payments.created_at (approach lama):
+    // banyak legacy data yang nominal_order-nya di-set langsung di
+    // kolom orders tapi tidak insert row di order_payments. Query
+    // GROUP BY payments.created_at balik 0. Fallback ke orders.
+    // nominal_order lebih reliable.
+    //
+    // Trade-off: kalau CS Order edit rincian di hari yang beda dari
+    // tanggal_order, count-nya tetap masuk hari tanggal_order (bukan
+    // hari edit). Match dengan user's phrasing 'di hari itu juga'.
+    type DailyRow = { d: string; masuk: number; rincian: number };
+    const dailyRows = await query<DailyRow>(
+      `SELECT
+         DATE_FORMAT(tanggal_order, '%Y-%m-%d') AS d,
+         COUNT(*) AS masuk,
+         SUM(CASE WHEN nominal_order > 0 THEN 1 ELSE 0 END) AS rincian
        FROM orders
        ${whereSql}
        GROUP BY DATE_FORMAT(tanggal_order, '%Y-%m-%d')`,
       params,
     );
-    // Rincian di-filter by DATE(payments.created_at) IN range yang sama.
-    // Bukan pakai tanggal_order karena user butuh 'per hari rincian
-    // dibuat' — bisa beda dari tanggal order masuk.
-    const rincianParts: string[] = ["tipe = 'nominal_order'"];
-    const rincianParams: string[] = [];
-    if (from) { rincianParts.push('DATE(created_at) >= ?'); rincianParams.push(from); }
-    if (to)   { rincianParts.push('DATE(created_at) <= ?'); rincianParams.push(to); }
-    const rincianRows = await query<DailyRincian>(
-      `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS d, COUNT(*) AS c
-       FROM order_payments
-       WHERE ${rincianParts.join(' AND ')}
-       GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')`,
-      rincianParams,
-    );
 
-    // Merge jadi series unified. Build set of all dates yang muncul
-    // di kedua query, sort ASC.
     const byDate = new Map<string, { masuk: number; rincian: number }>();
-    for (const r of masukRows) {
+    for (const r of dailyRows) {
       const key = String(r.d || '').slice(0, 10);
       if (!key || key === '0000-00-00') continue;
-      const cur = byDate.get(key) || { masuk: 0, rincian: 0 };
-      cur.masuk = Number(r.c) || 0;
-      byDate.set(key, cur);
-    }
-    for (const r of rincianRows) {
-      const key = String(r.d || '').slice(0, 10);
-      if (!key || key === '0000-00-00') continue;
-      const cur = byDate.get(key) || { masuk: 0, rincian: 0 };
-      cur.rincian = Number(r.c) || 0;
-      byDate.set(key, cur);
+      byDate.set(key, {
+        masuk: Number(r.masuk) || 0,
+        rincian: Number(r.rincian) || 0,
+      });
     }
     // Kalau ada range from-to, fill missing days dengan 0 supaya chart
     // tidak lompat. Kalau tidak, cuma dates yang ada data.

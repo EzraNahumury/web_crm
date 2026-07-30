@@ -352,7 +352,7 @@ function DailyComparisonChart({ daily }: { daily: DailyPoint[] }) {
         <div>
           <p className="text-sm font-semibold text-white">Perbandingan Harian: Masuk vs Rincian Dibuat</p>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Biru = customer baru masuk dari CS Selling. Emerald = rincian pembayaran dibuat CS Order.
+            Biru = order baru masuk (tanggal_order). Emerald = order yg sudah punya rincian pembayaran (nominal_order &gt; 0). Konv = seberapa cepat rincian dibuat CS Order untuk order hari itu.
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
