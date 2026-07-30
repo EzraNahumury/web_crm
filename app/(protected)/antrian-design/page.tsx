@@ -124,7 +124,7 @@ export default function AntrianDesignPage() {
   // Group by stage untuk badge count di tab (pakai hasil filter global).
   const stageCounts = useMemo(() => {
     const c: Record<DesignStage, number> = {
-      AWAL: 0, REVISI_1: 0, REVISI_2: 0, REVISI_3: 0, SELESAI: 0,
+      AWAL: 0, PROSES: 0, REVISI_1: 0, REVISI_2: 0, REVISI_3: 0, SELESAI: 0,
     };
     for (const o of antrianFiltered) {
       const s = o.design_stage as DesignStage;
@@ -141,7 +141,7 @@ export default function AntrianDesignPage() {
   const stageLateCounts = useMemo(() => {
     const today = todayIsoLocal();
     const c: Record<DesignStage, number> = {
-      AWAL: 0, REVISI_1: 0, REVISI_2: 0, REVISI_3: 0, SELESAI: 0,
+      AWAL: 0, PROSES: 0, REVISI_1: 0, REVISI_2: 0, REVISI_3: 0, SELESAI: 0,
     };
     for (const o of antrianFiltered) {
       const stage = o.design_stage as DesignStage;
@@ -294,6 +294,23 @@ export default function AntrianDesignPage() {
       await fetchData();
     } catch (e) { toast.error('Gagal', String(e)); }
     setSlaNoteSaving(false);
+  }
+
+  // AWAL (Waiting List) → PROSES (Design Awal). Dipanggil dari
+  // tombol 'Mulai Proses' di kartu Waiting List. Reset
+  // design_stage_started_at supaya SLA PROSES (+2 hari) mulai
+  // dihitung dari saat designer pick-up.
+  async function startProses(order: Row) {
+    setBusyId(Number(order.id));
+    try {
+      await dbUpdate('orders', Number(order.id), {
+        design_stage: 'PROSES',
+        design_stage_started_at: nowSql(),
+      });
+      toast.success('Design Dimulai', `${order.customer_nama || order.no_order} pindah ke Design Awal.`);
+      await fetchData();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setBusyId(null);
   }
 
   async function advanceToRevisi(order: Row) {
@@ -579,7 +596,9 @@ export default function AntrianDesignPage() {
             <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
               {activeTab === 'AWAL'
                 ? 'Order otomatis masuk sini setelah Finance approve DP Design.'
-                : 'Order pindah ke sini kalau customer minta revisi.'}
+                : activeTab === 'PROSES'
+                  ? 'Klik Mulai Proses di kartu Waiting List untuk memindah order ke sini.'
+                  : 'Order pindah ke sini kalau customer minta revisi.'}
             </p>
           </div>
         ) : (
@@ -592,6 +611,7 @@ export default function AntrianDesignPage() {
                 todayIso={todayIso}
                 holidays={holidays}
                 busy={busyId === Number(o.id)}
+                onMulai={() => startProses(o)}
                 onRevisi={() => advanceToRevisi(o)}
                 onSelesai={() => finalize(o)}
                 onReject={() => openRejectModal(o)}
@@ -839,13 +859,14 @@ function RejectReasonModal({
 }
 
 function OrderCard({
-  order, leadName, todayIso, holidays, busy, onRevisi, onSelesai, onReject, onEditSlaNote,
+  order, leadName, todayIso, holidays, busy, onMulai, onRevisi, onSelesai, onReject, onEditSlaNote,
 }: {
   order: Row;
   leadName: string;
   todayIso: string;
   holidays: Set<string>;
   busy: boolean;
+  onMulai: () => void;
   onRevisi: () => void;
   onSelesai: () => void;
   onReject: () => void;
@@ -853,6 +874,7 @@ function OrderCard({
 }) {
   const currentStage = order.design_stage as DesignStage;
   const isSelesai = currentStage === 'SELESAI';
+  const isWaiting = currentStage === 'AWAL';
   const isRevisi3 = currentStage === 'REVISI_3';
 
   const baselineIso = String(order.design_awal_at || '').slice(0, 10);
@@ -993,14 +1015,25 @@ function OrderCard({
 
         {!isSelesai && (
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={onRevisi}
-              disabled={busy || isRevisi3}
-              title={isRevisi3 ? 'Sudah di Revisi 3 — hanya bisa Selesai' : undefined}
-              className="text-xs font-semibold text-amber-300 border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-2 rounded-lg transition-colors"
-            >
-              Butuh Revisi
-            </button>
+            {isWaiting ? (
+              <button
+                onClick={onMulai}
+                disabled={busy}
+                title="Ambil order — pindah ke Design Awal, SLA +2 hari kerja mulai dihitung dari sekarang."
+                className="text-xs font-semibold text-white bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors shadow-lg shadow-fuchsia-500/20"
+              >
+                {busy ? 'Memindah...' : 'Mulai Proses'}
+              </button>
+            ) : (
+              <button
+                onClick={onRevisi}
+                disabled={busy || isRevisi3}
+                title={isRevisi3 ? 'Sudah di Revisi 3 — hanya bisa Selesai' : undefined}
+                className="text-xs font-semibold text-amber-300 border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-2 rounded-lg transition-colors"
+              >
+                Butuh Revisi
+              </button>
+            )}
             <button
               onClick={onSelesai}
               disabled={busy}

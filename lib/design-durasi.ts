@@ -4,24 +4,37 @@
 // (orders.design_awal_at).
 //
 // Flow:
-//   Design Awal        (SLA 3 hari — baseline)
+//   Waiting List       (SLA 3 hari — order baru masuk setelah Finance
+//                       approve. Kode enum tetap 'AWAL' supaya data
+//                       existing tidak perlu di-migrate.)
+//   Design Awal        (SLA 2 hari — designer mulai kerja. Kode enum
+//                       'PROSES'. Transisi manual: designer klik
+//                       'Mulai Proses' di kartu Waiting List.)
 //   Design Revisi 1    (+1 hari kumulatif)
 //   Design Revisi 2    (+1 hari kumulatif)
 //   Design Revisi 3    (+1 hari kumulatif)
 //   SELESAI            (terminal — order pindah ke CS Order)
 //
-// Total SLA maksimal = 6 hari kerja kalau semua stage revisi dipakai.
-// Kalau CS klik 'Selesai' langsung dari Design Awal, order langsung
-// SELESAI tanpa harus lewat revisi.
+// Total SLA maksimal = 3 + 2 + 1 + 1 + 1 = 8 hari kerja kalau semua
+// stage dipakai.
+//
+// Kenapa kode 'AWAL' dipakai untuk Waiting List, bukan bikin kode baru:
+//   • Approval Finance sudah lama nulis design_stage='AWAL' → tidak
+//     perlu ubah + tidak perlu migration data existing.
+//   • 'AWAL' konsisten sebagai "titik masuk queue" — cuma label yang
+//     berubah dari 'Design Awal' → 'Waiting List'.
+//   • Stage kedua ('Design Awal' sekarang) pakai kode baru 'PROSES'
+//     supaya jelas ini stage "sedang diproses designer".
 
 import { addBusinessDays } from './business-days';
 
 // Semua key sesuai enum orders.design_stage.
-export type DesignStage = 'AWAL' | 'REVISI_1' | 'REVISI_2' | 'REVISI_3' | 'SELESAI';
+export type DesignStage = 'AWAL' | 'PROSES' | 'REVISI_1' | 'REVISI_2' | 'REVISI_3' | 'SELESAI';
 
 // Label yang tampil di UI.
 export const DESIGN_STAGE_LABELS: Record<DesignStage, string> = {
-  AWAL: 'Design Awal',
+  AWAL: 'Waiting List',
+  PROSES: 'Design Awal',
   REVISI_1: 'Design Revisi 1',
   REVISI_2: 'Design Revisi 2',
   REVISI_3: 'Design Revisi 3',
@@ -31,6 +44,7 @@ export const DESIGN_STAGE_LABELS: Record<DesignStage, string> = {
 // Urutan stage untuk hitung target selesai + navigasi tab.
 export const DESIGN_STAGE_ORDER: DesignStage[] = [
   'AWAL',
+  'PROSES',
   'REVISI_1',
   'REVISI_2',
   'REVISI_3',
@@ -40,6 +54,7 @@ export const DESIGN_STAGE_ORDER: DesignStage[] = [
 // Durasi tiap stage dalam hari kerja. SELESAI durasi 0 karena terminal.
 export const DESIGN_DURATIONS: Record<DesignStage, number> = {
   AWAL: 3,
+  PROSES: 2,
   REVISI_1: 1,
   REVISI_2: 1,
   REVISI_3: 1,
@@ -66,7 +81,7 @@ export function computeDesignStageTargets(
 }
 
 /**
- * Total hari kerja maksimal dari Design Awal → Revisi 3.
+ * Total hari kerja maksimal dari Waiting List → Revisi 3.
  * SELESAI tidak dihitung karena durasi 0.
  */
 export function totalDurasiDesign(): number {
@@ -118,12 +133,15 @@ export function classifyLateDesign(
 
 /**
  * Cari stage berikutnya untuk aksi 'Butuh Revisi'.
- * Design Awal → Revisi 1 → Revisi 2 → Revisi 3.
- * Kalau sudah di Revisi 3, tidak bisa Butuh Revisi lagi (null).
+ * PROSES (Design Awal) → REVISI_1 → REVISI_2 → REVISI_3.
+ * AWAL (Waiting List) tidak bisa langsung ke Revisi — harus lewat
+ * 'Mulai Proses' dulu ke PROSES. Kalau sudah di Revisi 3, tidak bisa
+ * Butuh Revisi lagi (null).
  */
 export function nextRevisiStage(current: DesignStage): DesignStage | null {
   const flow: Record<DesignStage, DesignStage | null> = {
-    AWAL: 'REVISI_1',
+    AWAL: null,
+    PROSES: 'REVISI_1',
     REVISI_1: 'REVISI_2',
     REVISI_2: 'REVISI_3',
     REVISI_3: null,
