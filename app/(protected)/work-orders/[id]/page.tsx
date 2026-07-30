@@ -942,33 +942,75 @@ function ImportedSpecViewer({ spec }: { spec: Row }) {
 }
 
 // Render an HTML string into an off-screen iframe and capture as canvas.
-async function renderHtmlToImage(html: string, width = 1200): Promise<{ data: string; w: number; h: number }> {
+/**
+ * Pre-compress + pre-scale image sebelum masuk iframe render.
+ *
+ * Root cause bottleneck Download All PDF: customer-uploaded images
+ * (dokumen_desain / dokumen_pattern) sering disimpan sebagai base64
+ * data URL yang bisa 2-10MB per image. Masuk iframe → browser decode
+ * base64 → bitmap → html2canvas rasterize di scale 2.0 → JPEG encode.
+ * Untuk WO dengan 5 spec × 2 image, itu 20MB data yang diproses
+ * berulang → 5+ menit.
+ *
+ * Solusi: sekali di awal, load image → resize ke maxSide (default
+ * 800) → re-encode JPEG 0.78 → dapat data URL yang jauh lebih kecil
+ * (biasanya ~150KB). Iframe payload jadi ringan, html2canvas cepat.
+ *
+ * Hard timeout 8 detik per image supaya kalau image broken/slow,
+ * tidak block seluruh render. Fallback ke src asli.
+ */
+async function preCompressImage(src: string, maxSide = 800): Promise<string> {
+  if (!src) return src;
+  // Skip kalau bukan base64 gede (< 200KB) atau URL biasa yang kecil.
+  // Base64 data URL length approx 1.37x actual bytes.
+  if (src.startsWith('data:') && src.length < 200_000) return src;
+  return new Promise<string>((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    const done = (v: string) => { clearTimeout(timer); resolve(v); };
+    const timer = setTimeout(() => done(src), 8000);
+    img.onload = () => {
+      try {
+        let { naturalWidth: w, naturalHeight: h } = img;
+        if (!w || !h) return done(src);
+        if (w > maxSide || h > maxSide) {
+          const ratio = Math.min(maxSide / w, maxSide / h);
+          w = Math.max(1, Math.round(w * ratio));
+          h = Math.max(1, Math.round(h * ratio));
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return done(src);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        done(canvas.toDataURL('image/jpeg', 0.78));
+      } catch { done(src); }
+    };
+    img.onerror = () => done(src);
+    img.src = src;
+  });
+}
+
+async function renderHtmlToImage(html: string, width = 1100): Promise<{ data: string; w: number; h: number }> {
   const html2canvas = (await import('html2canvas')).default;
   const iframe = document.createElement('iframe');
   iframe.style.cssText = `position:fixed;left:-9999px;width:${width}px;border:none`;
   document.body.appendChild(iframe);
   const doc = iframe.contentDocument!;
   doc.open();
-  // Font stack Unicode-friendly di root. Kalau iframe doc ini reset,
-  // buat sure browser tetap pakai font yang capable Arabic/Mandarin/Kanji.
-  // Segoe UI di Windows (built-in) support Arab + Han unified.
-  // Load Noto Sans dari Google Fonts kalau ada network — fallback ke
-  // system font kalau offline.
   doc.write(`<html><head>
 <style>
-  @font-face {
-    font-family: 'NotoUnicode';
-    src: local('Segoe UI'), local('Arial Unicode MS'), local('Apple SD Gothic Neo'), local('Helvetica Neue'), local('Arial');
-    unicode-range: U+0000-FFFF;
-  }
   * { box-sizing: border-box; margin: 0; padding: 0; text-decoration: none !important; font-style: normal !important; }
   body { background: #fff; font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Arial Unicode MS', 'Helvetica Neue', Tahoma, Arial, sans-serif; }
   img { -webkit-user-drag: none; }
 </style>
 </head><body>${html}</body></html>`);
   doc.close();
-  // Tunggu semua gambar loaded (capped 1.5s per gambar) daripada
-  // fixed 1000ms tidur. Kalau tidak ada gambar (jarang), langsung lanjut.
+
+  // Tunggu semua gambar loaded (capped 1.5s per gambar).
   const imgs = Array.from(doc.querySelectorAll('img')) as HTMLImageElement[];
   if (imgs.length > 0) {
     await Promise.all(imgs.map(img => {
@@ -981,20 +1023,40 @@ async function renderHtmlToImage(html: string, width = 1200): Promise<{ data: st
       });
     }));
   }
-  // Tunggu font ready (cepat kalau font system, ~5ms). Ini penting
-  // buat non-Latin script — kalau font belum siap, char tampil kotak.
-  try { await (doc as unknown as { fonts?: { ready: Promise<void> } }).fonts?.ready; } catch {}
-  await new Promise(r => setTimeout(r, 30));
-  // Scale 2.0 crisp untuk print A4 landscape @1200px width = 2400px ≈ 200 DPI.
-  // JPEG 0.82 kompresi optimum (0.85 file terlalu besar, 0.75 blur).
-  const canvas = await html2canvas(doc.body, {
-    scale: 2.0,
-    useCORS: true,
-    backgroundColor: '#ffffff',
-    windowWidth: width,
-    logging: false,
-    imageTimeout: 0,
-  });
+  // Tunggu font ready DENGAN TIMEOUT 800ms. Tanpa timeout, kalau iframe
+  // punya @font-face yang gagal (network / CORS), fonts.ready akan hang
+  // selamanya → download all lambat 5+ menit.
+  try {
+    await Promise.race([
+      (doc as unknown as { fonts?: { ready?: Promise<void> } }).fonts?.ready || Promise.resolve(),
+      new Promise<void>(r => setTimeout(r, 800)),
+    ]);
+  } catch {}
+
+  // Scale 1.75 masih crisp untuk A4 landscape @1100px width = 1925px ≈ 165 DPI.
+  // JPEG 0.82 kompresi optimum.
+  // IMPORTANT: imageTimeout 3000 (bukan 0) supaya kalau ada image yang
+  // hang/broken, html2canvas skip after 3s (bukan wait forever).
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = await Promise.race([
+      html2canvas(doc.body, {
+        scale: 1.75,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        windowWidth: width,
+        logging: false,
+        imageTimeout: 3000,
+        removeContainer: true,
+      }),
+      new Promise<HTMLCanvasElement>((_, reject) =>
+        setTimeout(() => reject(new Error('html2canvas timeout 20s')), 20000)
+      ),
+    ]);
+  } catch (err) {
+    document.body.removeChild(iframe);
+    throw err;
+  }
   document.body.removeChild(iframe);
   return { data: canvas.toDataURL('image/jpeg', 0.82), w: canvas.width, h: canvas.height };
 }
@@ -1234,35 +1296,54 @@ export default function WorkOrderDetailPage() {
       const paket = wo.paket || '';
 
       // === WO 1: Spec sheets (image-based, one page per spec) ===
-      // Render 2 spec paralel supaya iframe layout + html2canvas rasterize
-      // overlap. Cap 2 concurrent — lebih dari itu iframe DOM ops thrashing.
-      const renderConcurrently = async <T,>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<{ data: string; w: number; h: number }>) => {
-        const results: { data: string; w: number; h: number }[] = new Array(items.length);
-        let cursor = 0;
-        const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-          while (cursor < items.length) {
-            const i = cursor++;
-            results[i] = await fn(items[i], i);
-          }
-        });
-        await Promise.all(workers);
-        return results;
-      };
       if (freshSpecs.length > 0) {
-        // Concurrency 3: hardware modern typically handles 3 iframe DOMs +
-        // rasterize dengan aman. Kalau ada 5+ spec, ini bikin waktu total
-        // turun signifikan (5 spec paralel 3 = 2 batch, vs sequential = 5 batch).
-        const specImages = await renderConcurrently(freshSpecs, 3, async (spec: Row) => {
-          const html = buildWoSpecHtml(spec, woData, freshSpecBahan);
-          return await renderHtmlToImage(html, 1200);
-        });
-        for (const { data: imgData, w, h } of specImages) {
-          if (!firstPage) pdf.addPage();
-          firstPage = false;
-          const contentW = pageW - margin * 2;
-          const imgRatio = h / w;
-          const contentH = Math.min(contentW * imgRatio, pageH - margin * 2);
-          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+        // PRE-COMPRESS semua image (desain + pattern) di semua spec dalam
+        // parallel SEBELUM render. Ini kunci speedup: customer-uploaded
+        // images bisa 2-10MB base64 per image. Iframe rasterize mereka
+        // di scale 1.75 sangat mahal. Setelah di-compress ke max 800px
+        // JPEG 0.78, per image ~100-200KB, iframe jadi ringan.
+        //
+        // Semua image pre-compressed di-cache by original src supaya
+        // kalau spec pakai image yang sama, tidak double-compress.
+        const imgCache = new Map<string, string>();
+        const preCompress = async (src: string): Promise<string> => {
+          if (!src) return src;
+          if (imgCache.has(src)) return imgCache.get(src)!;
+          const compressed = await preCompressImage(src, 800);
+          imgCache.set(src, compressed);
+          return compressed;
+        };
+        // Parallel pre-compress semua image (ini fast, tidak main-thread heavy).
+        await Promise.all(freshSpecs.flatMap((spec: Row) => [
+          preCompress(String(spec.dokumen_desain || '')),
+          preCompress(String(spec.dokumen_pattern || '')),
+        ]));
+
+        // Render specs SEQUENTIAL. Alasan: html2canvas rasterize adalah
+        // pure main-thread work. Concurrency > 1 tidak bikin lebih cepat
+        // (kerja sama-sama antri di CPU) + malah tambah memory pressure
+        // dari multiple iframes. Sequential + pre-compressed images =
+        // paling cepat + paling aman.
+        for (const spec of freshSpecs) {
+          const specWithCompressedImgs = {
+            ...spec,
+            dokumen_desain: imgCache.get(String(spec.dokumen_desain || '')) || spec.dokumen_desain,
+            dokumen_pattern: imgCache.get(String(spec.dokumen_pattern || '')) || spec.dokumen_pattern,
+          };
+          const html = buildWoSpecHtml(specWithCompressedImgs, woData, freshSpecBahan);
+          try {
+            const { data: imgData, w, h } = await renderHtmlToImage(html, 1100);
+            if (!firstPage) pdf.addPage();
+            firstPage = false;
+            const contentW = pageW - margin * 2;
+            const imgRatio = h / w;
+            const contentH = Math.min(contentW * imgRatio, pageH - margin * 2);
+            pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+          } catch (err) {
+            // Kalau 1 spec fail (timeout / corrupt), lanjut ke spec
+            // berikutnya. Jangan hang seluruh Download All.
+            console.warn('Skip spec render (error):', spec.id, err);
+          }
         }
       }
 
@@ -1309,12 +1390,16 @@ export default function WorkOrderDetailPage() {
           body,
           headerBg: '#065f46',
         });
-        const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo2Html, 1200);
-        if (!firstPage) pdf.addPage();
-        firstPage = false;
-        const contentW = pageW - margin * 2;
-        const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
-        pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+        try {
+          const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo2Html, 1100);
+          if (!firstPage) pdf.addPage();
+          firstPage = false;
+          const contentW = pageW - margin * 2;
+          const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
+          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+        } catch (err) {
+          console.warn('Skip WO2 render (error):', err);
+        }
       }
 
       // === WO 3 LEGACY (dead code — WO3 sekarang Form Pengiriman, handled below).
@@ -1559,12 +1644,16 @@ export default function WorkOrderDetailPage() {
     <div style="text-align:left">Diterima Oleh,<br/><br/><br/><br/>( ${escapeHtml(customer)} )</div>
   </div>
 </div>`;
-        const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo3Html, 1200);
-        if (!firstPage) pdf.addPage();
-        firstPage = false;
-        const contentW = pageW - margin * 2;
-        const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
-        pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+        try {
+          const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo3Html, 1100);
+          if (!firstPage) pdf.addPage();
+          firstPage = false;
+          const contentW = pageW - margin * 2;
+          const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
+          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+        } catch (err) {
+          console.warn('Skip WO3 render (error):', err);
+        }
       }
 
       // === WO 4: Form Permintaan Gudang === (HTML → image, Unicode-safe)
@@ -1584,12 +1673,16 @@ export default function WorkOrderDetailPage() {
           headerBg: '#f59e0b',
           headerColor: '#0f172a',
         });
-        const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo4Html, 1200);
-        if (!firstPage) pdf.addPage();
-        firstPage = false;
-        const contentW = pageW - margin * 2;
-        const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
-        pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+        try {
+          const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo4Html, 1100);
+          if (!firstPage) pdf.addPage();
+          firstPage = false;
+          const contentW = pageW - margin * 2;
+          const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
+          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+        } catch (err) {
+          console.warn('Skip WO4 render (error):', err);
+        }
       }
 
       if (firstPage) {
@@ -1914,7 +2007,14 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
     if (!spec) return;
     try {
       const { jsPDF } = await import('jspdf');
-      const { data: imgData, w, h } = await renderHtmlToImage(buildSpecHtml(spec), 1200);
+      // Pre-compress images supaya iframe render cepat (sama pattern
+      // dengan Download All).
+      const specCompressed = {
+        ...spec,
+        dokumen_desain: await preCompressImage(String(spec.dokumen_desain || ''), 800),
+        dokumen_pattern: await preCompressImage(String(spec.dokumen_pattern || ''), 800),
+      };
+      const { data: imgData, w, h } = await renderHtmlToImage(buildSpecHtml(specCompressed), 1100);
       const pdf = new jsPDF('l', 'mm', 'a4');
       const pageW = 297;
       const pageH = 210;
