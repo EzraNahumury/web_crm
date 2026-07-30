@@ -247,7 +247,7 @@ export default function ApprovalFinancePage() {
         // Existing DP / Invoice review flow.
         // Deteksi apakah ini review DP Design awal (dari CS Selling)
         // atau review Invoice (setelah bukti_uploaded=1). Kalau approve
-        // DP Design awal → order masuk Antrian Design (design_stage='WAITING').
+        // DP Design awal → order masuk Antrian Design (design_stage='AWAL').
         // Kalau approve Invoice, jangan sentuh design_stage.
         const buktiSudahUpload = Number(detail.bukti_uploaded) === 1;
         const alreadyInAntrian = !!detail.design_stage;
@@ -262,10 +262,7 @@ export default function ApprovalFinancePage() {
           finance_notes: notes.trim() || null,
         };
         if (shouldEnterAntrianDesign) {
-          // Setelah Finance approve DP, order masuk Waiting List dulu —
-          // menunggu designer pick-up. Pas designer klik 'Mulai Proses'
-          // baru pindah ke Design Awal.
-          updatePayload.design_stage = 'WAITING';
+          updatePayload.design_stage = 'AWAL';
           updatePayload.design_awal_at = now;
           updatePayload.design_stage_started_at = now;
         }
