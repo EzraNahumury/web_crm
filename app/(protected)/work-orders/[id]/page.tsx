@@ -1685,24 +1685,19 @@ export default function WorkOrderDetailPage() {
         const bonusLines = pdf.splitTextToSize(bonus || '-', boxW - 4);
         pdf.text(bonusLines, rightBoxX + 2, by + boxHeaderH + 5);
 
-        // Tanda tangan di kanan bawah BONUS (bukan di bawah tabel).
-        // Sejajar dengan blok atas — 3 blok stack vertikal, tetap di
-        // right column supaya tidak conflict dengan tabel yang bisa
-        // panjang.
-        const ttdStartY = by + boxHeaderH + boxBodyH + 8;
-        const blockH = 22; // per block: 6mm label + 10mm gap tanda tangan + 6mm name
-        pdf.setTextColor(0);
-        pdf.setFontSize(9);
-        // Dibuat Oleh
-        pdf.text('Dibuat Oleh,', rightBoxX + 2, ttdStartY);
-        pdf.text('( Admin )', rightBoxX + 2, ttdStartY + blockH - 4);
-        // Dicek Oleh
-        pdf.text('Dicek Oleh,', rightBoxX + 2, ttdStartY + blockH + 2);
-        pdf.text('( QC / Packing )', rightBoxX + 2, ttdStartY + blockH * 2 - 2);
-        // Diterima Oleh
-        pdf.text('Diterima Oleh,', rightBoxX + 2, ttdStartY + blockH * 2 + 4);
-        const customerTruncated = customer.length > 30 ? customer.slice(0, 27) + '...' : customer;
-        pdf.text(`( ${customerTruncated} )`, rightBoxX + 2, ttdStartY + blockH * 3);
+        // Tanda tangan di bawah tabel — 3-column horizontal (Dibuat /
+        // Dicek / Diterima Oleh). Sesuai request user 'kayak sebelumnya'.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const finalY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
+        if (finalY < pageH - 30) {
+          pdf.setFontSize(10);
+          pdf.text('Dibuat Oleh,', 14, finalY);
+          pdf.text('Dicek Oleh,', 85, finalY);
+          pdf.text('Diterima Oleh,', 155, finalY);
+          pdf.text('( Admin )', 14, finalY + 22);
+          pdf.text('( QC / Packing )', 85, finalY + 22);
+          pdf.text(`( ${customer } )`, 155, finalY + 22);
+        }
       }
 
       // === WO 4: Form Permintaan Gudang === (autoTable — crisp).
@@ -4715,19 +4710,20 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
       const bonusLines = pdf.splitTextToSize(bonus || '-', boxW - 4);
       pdf.text(bonusLines, rightBoxX + 2, by + boxHeaderH + 5);
 
-      // Tanda tangan di kanan bawah BONUS (sejajar dengan atas — kolom
-      // kanan). Stack vertikal 3 blok.
-      const ttdStartY = by + boxHeaderH + boxBodyH + 8;
-      const blockH = 22;
-      pdf.setTextColor(0);
-      pdf.setFontSize(9);
-      pdf.text('Dibuat Oleh,', rightBoxX + 2, ttdStartY);
-      pdf.text('( Admin )', rightBoxX + 2, ttdStartY + blockH - 4);
-      pdf.text('Dicek Oleh,', rightBoxX + 2, ttdStartY + blockH + 2);
-      pdf.text('( QC / Packing )', rightBoxX + 2, ttdStartY + blockH * 2 - 2);
-      pdf.text('Diterima Oleh,', rightBoxX + 2, ttdStartY + blockH * 2 + 4);
-      const customerTruncated = customer.length > 30 ? customer.slice(0, 27) + '...' : customer;
-      pdf.text(`( ${customerTruncated} )`, rightBoxX + 2, ttdStartY + blockH * 3);
+      // Tanda tangan di bawah tabel — 3-column horizontal
+      // (Dibuat / Dicek / Diterima Oleh). Sesuai request user
+      // 'kayak sebelumnya'.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const finalY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
+      if (finalY < pageH - 30) {
+        pdf.setFontSize(10);
+        pdf.text('Dibuat Oleh,', 14, finalY);
+        pdf.text('Dicek Oleh,', 85, finalY);
+        pdf.text('Diterima Oleh,', 155, finalY);
+        pdf.text('( Admin )', 14, finalY + 22);
+        pdf.text('( QC / Packing )', 85, finalY + 22);
+        pdf.text(`( ${customer} )`, 155, finalY + 22);
+      }
 
       pdf.save(`WO3-FormPengiriman-${woName}.pdf`);
       toast.success('PDF Berhasil', `WO3-FormPengiriman-${woName}.pdf`);
