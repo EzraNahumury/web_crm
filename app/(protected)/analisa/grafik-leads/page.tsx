@@ -218,7 +218,15 @@ export default function GrafikLeadsPage() {
           <div className="flex items-center gap-2 flex-wrap">
             <ChipStat label="Total Leads" value={totalSeries.totalLeads} color="blue" />
             <ChipStat label="Total Closingan" value={totalSeries.totalClosingan} color="emerald" />
-            <ChipStat label="Hari Aktif" value={totalSeries.activeDays} color="fuchsia" />
+            <ChipStat
+              label="Konv"
+              value={totalSeries.totalLeads > 0 ? ((totalSeries.totalClosingan / totalSeries.totalLeads) * 100) : 0}
+              color="fuchsia"
+              suffix="%"
+              decimals={1}
+              placeholder={totalSeries.totalLeads === 0 ? '—' : undefined}
+            />
+            <ChipStat label="Hari Aktif" value={totalSeries.activeDays} color="amber" />
           </div>
         </div>
         <div className="p-4">
@@ -245,9 +253,18 @@ export default function GrafikLeadsPage() {
                   <h3 className="text-sm font-bold text-white truncate">{lead.nama}</h3>
                   {lead.jenis_cs && <p className="text-[11px] text-slate-500 mt-0.5">{lead.jenis_cs}</p>}
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                   <ChipStat label="Leads" value={totalLeads} color="blue" small />
                   <ChipStat label="Closing" value={totalClosingan} color="emerald" small />
+                  <ChipStat
+                    label="Konv"
+                    value={totalLeads > 0 ? ((totalClosingan / totalLeads) * 100) : 0}
+                    color="fuchsia"
+                    suffix="%"
+                    decimals={1}
+                    placeholder={totalLeads === 0 ? '—' : undefined}
+                    small
+                  />
                 </div>
               </div>
               <div className="p-3">
@@ -310,8 +327,11 @@ function CustomTooltip({ active, payload, label }: {
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
+  const leads = Number(payload.find(p => p.name === 'Leads')?.value || 0);
+  const closingan = Number(payload.find(p => p.name === 'Closingan')?.value || 0);
+  const konv = leads > 0 ? (closingan / leads) * 100 : 0;
   return (
-    <div className="rounded-lg bg-[#0c1120] border border-white/[0.1] px-3 py-2 shadow-xl min-w-[140px]">
+    <div className="rounded-lg bg-[#0c1120] border border-white/[0.1] px-3 py-2 shadow-xl min-w-[160px]">
       <p className="text-xs text-slate-400 mb-1">Tgl {label}</p>
       <div className="space-y-0.5">
         {payload.map(p => (
@@ -321,26 +341,40 @@ function CustomTooltip({ active, payload, label }: {
             <span className="text-white font-semibold tabular-nums">{Number(p.value).toLocaleString('id-ID')}</span>
           </div>
         ))}
+        <div className="flex items-center gap-2 text-xs pt-1 mt-1 border-t border-white/[0.06]">
+          <span className="w-2 h-2 rounded-sm shrink-0 bg-fuchsia-400" />
+          <span className="text-slate-300 flex-1">Konversi</span>
+          <span className="text-fuchsia-300 font-semibold tabular-nums">{leads > 0 ? konv.toFixed(1) : '—'}%</span>
+        </div>
       </div>
     </div>
   );
 }
 
-function ChipStat({ label, value, color, small = false }: {
+function ChipStat({ label, value, color, small = false, suffix, decimals, placeholder }: {
   label: string;
   value: number;
-  color: 'blue' | 'emerald' | 'fuchsia';
+  color: 'blue' | 'emerald' | 'fuchsia' | 'amber';
   small?: boolean;
+  suffix?: string;
+  decimals?: number;
+  placeholder?: string;
 }) {
   const scheme = {
     blue: 'border-blue-500/30 bg-blue-500/10 text-blue-200',
     emerald: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
     fuchsia: 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-200',
+    amber: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
   }[color];
+  const shown = placeholder != null
+    ? placeholder
+    : decimals != null
+      ? value.toFixed(decimals)
+      : value.toLocaleString('id-ID');
   return (
     <div className={`inline-flex items-center gap-1.5 rounded-lg border ${scheme} ${small ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
       <span className={`${small ? 'text-[9px]' : 'text-[10px]'} font-bold uppercase tracking-widest opacity-70`}>{label}</span>
-      <span className={`${small ? 'text-xs' : 'text-sm'} font-bold tabular-nums`}>{value.toLocaleString('id-ID')}</span>
+      <span className={`${small ? 'text-xs' : 'text-sm'} font-bold tabular-nums`}>{shown}{suffix && placeholder == null ? suffix : ''}</span>
     </div>
   );
 }
