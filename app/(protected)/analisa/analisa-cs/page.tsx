@@ -12,6 +12,9 @@ interface Totals {
   belum_dp_produksi: number;
   conversion_pct: number;
   drop_off_pct: number;
+  total_nilai_order: number;
+  total_dp_design_tercatat: number;
+  potensi_kekurangan: number;
 }
 
 interface Pending {
@@ -39,6 +42,7 @@ export default function AnalisaCsPage() {
   const [totals, setTotals] = useState<Totals>({
     total_orders: 0, sudah_dp_design: 0, sudah_dp_produksi: 0,
     belum_dp_produksi: 0, conversion_pct: 0, drop_off_pct: 0,
+    total_nilai_order: 0, total_dp_design_tercatat: 0, potensi_kekurangan: 0,
   });
   const [pending, setPending] = useState<Pending[]>([]);
   const [loading, setLoading] = useState(true);
@@ -182,16 +186,28 @@ export default function AnalisaCsPage() {
         </div>
 
         <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-5 space-y-3">
-          <p className="text-sm font-semibold text-white">Summary Pending</p>
-          <div className="space-y-2">
+          <p className="text-sm font-semibold text-white">Ringkasan Finansial</p>
+          <div className="space-y-3">
+            <RowStat
+              label="Total Nilai Order"
+              value={fmtRupiah(totals.total_nilai_order)}
+              hint="Dari customer yang sudah DP Produksi (revenue confirmed)"
+            />
+            <RowStat
+              label="Total DP Design Tercatat"
+              value={fmtRupiah(totals.total_dp_design_tercatat)}
+              hint="Total DP Design dari semua customer yang sudah bayar DP Design"
+            />
+            <RowStat
+              label="Potensi Kekurangan"
+              value={fmtRupiah(totals.potensi_kekurangan)}
+              hint="Sisa nominal dari customer yang stuck di DP Design (belum lanjut ke DP Produksi)"
+              danger
+            />
             <RowStat label="Jumlah Order Pending" value={pending.length.toLocaleString('id-ID')} />
-            <RowStat label="Total Nilai Order" value={fmtRupiah(pending.reduce((s, p) => s + p.nominal_order, 0))} />
-            <RowStat label="Total DP Design Tercatat" value={fmtRupiah(pending.reduce((s, p) => s + p.dp_desain, 0))} />
-            <RowStat label="Potensi Kekurangan" value={fmtRupiah(pending.reduce((s, p) => s + Math.max(p.nominal_order - p.dp_desain, 0), 0))} />
           </div>
           <p className="text-[11px] text-slate-500 leading-relaxed pt-2 border-t border-white/[0.06]">
-            Customer di daftar ini sudah bayar DP Design tapi belum lanjut ke DP Produksi.
-            Perlu di-follow up CS supaya progress order tidak stuck.
+            <strong className="text-slate-300">Potensi Kekurangan</strong> = omset yang bisa hilang kalau customer pending drop-off. Follow up CS supaya progress lanjut ke DP Produksi.
           </p>
         </div>
       </div>
@@ -298,11 +314,19 @@ function KpiCard({ label, value, sub, accent, highlight }: {
   );
 }
 
-function RowStat({ label, value }: { label: string; value: string }) {
+function RowStat({ label, value, hint, danger }: {
+  label: string;
+  value: string;
+  hint?: string;
+  danger?: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between text-sm">
-      <span className="text-slate-400">{label}</span>
-      <span className="text-white font-semibold tabular-nums">{value}</span>
+    <div className="space-y-0.5">
+      <div className="flex items-center justify-between text-sm gap-3">
+        <span className="text-slate-400">{label}</span>
+        <span className={`font-semibold tabular-nums ${danger ? 'text-amber-300' : 'text-white'}`}>{value}</span>
+      </div>
+      {hint && <p className="text-[10px] text-slate-500 leading-tight">{hint}</p>}
     </div>
   );
 }

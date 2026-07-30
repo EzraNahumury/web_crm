@@ -47,6 +47,20 @@ export async function GET(req: NextRequest) {
     let sudahDpDesign = 0;
     let sudahDpProduksi = 0;
     let belumDpProduksi = 0;
+    // Metrik uang (global scope — bukan hanya pending array):
+    //   totalNilaiOrder: SUM(nominal_order) WHERE dp_produksi > 0
+    //                    = revenue riil dari customer yang sudah lanjut
+    //                    ke produksi.
+    //   totalDpDesignTercatat: SUM(dp_desain) WHERE dp_desain > 0
+    //                    = seluruh uang DP Design yang sudah masuk,
+    //                    tidak peduli sudah lanjut atau belum.
+    //   potensiKekurangan: SUM(nominal_order - dp_desain) WHERE
+    //                    dp_desain > 0 AND dp_produksi = 0
+    //                    = omset yang bisa hilang kalau pending
+    //                    drop-off (money at risk).
+    let totalNilaiOrder = 0;
+    let totalDpDesignTercatat = 0;
+    let potensiKekurangan = 0;
     const pending: {
       id: number;
       no_order: string;
@@ -62,16 +76,24 @@ export async function GET(req: NextRequest) {
       totalOrders++;
       const dpD = n(o.dp_desain);
       const dpP = n(o.dp_produksi);
-      if (dpD > 0) sudahDpDesign++;
-      if (dpP > 0) sudahDpProduksi++;
+      const nom = n(o.nominal_order);
+      if (dpD > 0) {
+        sudahDpDesign++;
+        totalDpDesignTercatat += dpD;
+      }
+      if (dpP > 0) {
+        sudahDpProduksi++;
+        totalNilaiOrder += nom;
+      }
       if (dpD > 0 && dpP === 0) {
         belumDpProduksi++;
+        potensiKekurangan += Math.max(nom - dpD, 0);
         pending.push({
           id: o.id,
           no_order: o.no_order || '',
           customer_nama: o.customer_nama || '',
           customer_phone: o.customer_phone || '',
-          nominal_order: n(o.nominal_order),
+          nominal_order: nom,
           dp_desain: dpD,
           dp_produksi: dpP,
           tanggal_order: o.tanggal_order || '',
@@ -99,6 +121,9 @@ export async function GET(req: NextRequest) {
           belum_dp_produksi: belumDpProduksi,
           conversion_pct: conversionPct,
           drop_off_pct: dropOffPct,
+          total_nilai_order: totalNilaiOrder,
+          total_dp_design_tercatat: totalDpDesignTercatat,
+          potensi_kekurangan: potensiKekurangan,
         },
         pending,
       },
