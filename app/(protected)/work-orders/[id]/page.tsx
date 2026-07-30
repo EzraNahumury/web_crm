@@ -4120,6 +4120,56 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
     setSaving(false);
   }
 
+  // Download PDF khusus tab WO2 — same layout dengan Download All WO2 part.
+  async function handleDownloadPDF() {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const customer = String(wo.customer_nama || '');
+      const woName = String(wo.no_wo || 'export');
+
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      pdf.setFontSize(14);
+      pdf.text(`DETAIL UKURAN TIM - ${customer.toUpperCase()}`, 14, 18);
+      pdf.setFontSize(10);
+      pdf.text(`No WO: ${woName}`, 14, 26);
+
+      const hasGrpChildren = kolom.some((k: Wo2Col) => k.children && k.children.length > 0);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const headRow1: any[] = [{ content: 'NO', rowSpan: hasGrpChildren ? 2 : 1 }];
+      const headRow2: string[] = [];
+      for (const k of kolom) {
+        if (k.children && k.children.length > 0) {
+          headRow1.push({ content: k.label, colSpan: k.children.length });
+          for (const c of k.children) headRow2.push(c.label);
+        } else {
+          headRow1.push({ content: k.label, rowSpan: hasGrpChildren ? 2 : 1 });
+        }
+      }
+      const head = hasGrpChildren ? [headRow1, headRow2] : [headRow1];
+      const leafIds: string[] = [];
+      for (const k of kolom) {
+        if (k.children && k.children.length > 0) for (const c of k.children) leafIds.push(c.id);
+        else leafIds.push(k.id);
+      }
+      // Body ambil dari state rows (data yang lagi ditampilin).
+      const body = rows.map((r, i) => [String(i + 1), ...leafIds.map(k => r.data[k] || '')]);
+
+      autoTable(pdf, {
+        startY: 32,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        head: head as any,
+        body,
+        styles: { fontSize: 8, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+        headStyles: { fillColor: [6, 95, 70], halign: 'center', valign: 'middle', textColor: 255, lineWidth: 0.3, lineColor: [0, 0, 0] },
+        bodyStyles: { halign: 'center' },
+      });
+
+      pdf.save(`WO2-DetailUkuranTim-${woName}.pdf`);
+      toast.success('PDF Berhasil', `WO2-DetailUkuranTim-${woName}.pdf`);
+    } catch (e) { toast.error('Gagal Download PDF', String(e)); }
+  }
+
   if (loading) return <div className="h-64 bg-white/[0.03] rounded-xl animate-pulse" />;
 
   const cellCls = 'w-full bg-transparent focus:bg-white/[0.03] focus:outline-none px-2 py-1.5 text-xs text-white placeholder-slate-600';
@@ -4135,6 +4185,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         <div className="flex items-center gap-2">
           <button onClick={() => setAddHeaderOpen(true)} className="text-xs font-medium text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Header</button>
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
+          <button onClick={handleDownloadPDF} className="text-xs font-medium text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
           <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
             {saving ? 'Menyimpan...' : 'Simpan Semua'}
           </button>
@@ -4588,6 +4639,95 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
     setSaving(false);
   }
 
+  // Download PDF khusus tab WO3 — same layout dengan Download All WO3 part.
+  // Tabel autoTable + PROMO/BONUS box drawn manual di kanan.
+  async function handleDownloadPDF() {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const customer = String(wo.customer_nama || '');
+      const woName = String(wo.no_wo || 'export');
+      const paket = String(wo.paket || '-');
+
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pageW = 297, pageH = 210, margin = 5;
+      pdf.setFontSize(14);
+      pdf.text(`FORM PENGIRIMAN - ${customer.toUpperCase()}`, 14, 18);
+      pdf.setFontSize(10);
+      pdf.text(`No WO: ${woName} · Paket: ${paket}`, 14, 26);
+
+      const rightBoxW = 80;
+      const rightBoxX = pageW - margin - rightBoxW;
+      autoTable(pdf, {
+        startY: 32,
+        margin: { left: margin, right: rightBoxW + margin + 4 },
+        head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'CHECK']],
+        body: rows.map((r, i) => [
+          String(i + 1),
+          String(r.nama || ''),
+          String(r.np || ''),
+          String(r.ukuran || ''),
+          String(r.keterangan || ''),
+          (r.checklist === 1) ? 'v' : '',
+        ]),
+        styles: { fontSize: 8, cellPadding: 1.5, lineWidth: 0.3, lineColor: [0, 0, 0] },
+        headStyles: { fillColor: [6, 95, 70], textColor: 255, halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
+        bodyStyles: { halign: 'center' },
+        columnStyles: {
+          0: { cellWidth: 10 },
+          1: { halign: 'left' },
+          4: { halign: 'left' },
+          5: { cellWidth: 15 },
+        },
+      });
+
+      const boxHeaderH = 7, boxBodyH = 30, boxW = rightBoxW;
+      // PROMO box
+      let by = 32;
+      pdf.setFillColor(59, 130, 246);
+      pdf.rect(rightBoxX, by, boxW, boxHeaderH, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(10);
+      pdf.text('PROMO', rightBoxX + boxW / 2, by + 5, { align: 'center' });
+      pdf.setDrawColor(0);
+      pdf.rect(rightBoxX, by + boxHeaderH, boxW, boxBodyH);
+      pdf.setTextColor(0);
+      pdf.setFontSize(9);
+      const promoLines = pdf.splitTextToSize(promo || '-', boxW - 4);
+      pdf.text(promoLines, rightBoxX + 2, by + boxHeaderH + 5);
+
+      // BONUS box
+      by = 32 + boxHeaderH + boxBodyH + 4;
+      pdf.setFillColor(59, 130, 246);
+      pdf.rect(rightBoxX, by, boxW, boxHeaderH, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(10);
+      pdf.text('BONUS', rightBoxX + boxW / 2, by + 5, { align: 'center' });
+      pdf.setDrawColor(0);
+      pdf.rect(rightBoxX, by + boxHeaderH, boxW, boxBodyH);
+      pdf.setTextColor(0);
+      pdf.setFontSize(9);
+      const bonusLines = pdf.splitTextToSize(bonus || '-', boxW - 4);
+      pdf.text(bonusLines, rightBoxX + 2, by + boxHeaderH + 5);
+
+      // Tanda tangan
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const finalY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
+      if (finalY < pageH - 30) {
+        pdf.setFontSize(10);
+        pdf.text('Dibuat Oleh,', 14, finalY);
+        pdf.text('Dicek Oleh,', 85, finalY);
+        pdf.text('Diterima Oleh,', 155, finalY);
+        pdf.text('( Admin )', 14, finalY + 22);
+        pdf.text('( QC / Packing )', 85, finalY + 22);
+        pdf.text(`( ${customer} )`, 155, finalY + 22);
+      }
+
+      pdf.save(`WO3-FormPengiriman-${woName}.pdf`);
+      toast.success('PDF Berhasil', `WO3-FormPengiriman-${woName}.pdf`);
+    } catch (e) { toast.error('Gagal Download PDF', String(e)); }
+  }
+
   if (loading) return <div className="h-64 bg-white/[0.03] rounded-xl animate-pulse" />;
 
   const cellCls = 'w-full bg-transparent focus:bg-white/[0.03] focus:outline-none px-2 py-1.5 text-xs text-white placeholder-slate-600';
@@ -4601,6 +4741,7 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
+          <button onClick={handleDownloadPDF} className="text-xs font-medium text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
           <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
             {saving ? 'Menyimpan...' : 'Simpan Semua'}
           </button>
@@ -4821,6 +4962,42 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
     setSaving(false);
   }
 
+  // Download PDF khusus tab WO4 — same layout dengan Download All WO4 part.
+  // WO4 pakai HTML→image supaya Unicode nama bahan aman + layout consistent.
+  async function handleDownloadPDF() {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const customer = String(wo.customer_nama || '');
+      const woName = String(wo.no_wo || 'export');
+
+      const wo4Body = rows.map((r, i) => [
+        String(i + 1),
+        String(r.bagian || ''),
+        String(r.bahan || ''),
+        String(r.warna || ''),
+        String(r.kuantitas || 0),
+      ]);
+      const wo4Html = buildWoTableHtml({
+        title: `FORM PERMINTAAN GUDANG — ${customer}`,
+        subtitle: `No WO: ${woName}`,
+        head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
+        body: wo4Body,
+        headerBg: '#f59e0b',
+        headerColor: '#0f172a',
+        columnAlign: ['center', 'left', 'left', 'left', 'right'],
+        columnWidth: ['40px', '180px', undefined, '120px', '90px'],
+      });
+      const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo4Html, 1100);
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pageW = 297, pageH = 210, margin = 5;
+      const contentW = pageW - margin * 2;
+      const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
+      pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+      pdf.save(`WO4-FormPermintaanGudang-${woName}.pdf`);
+      toast.success('PDF Berhasil', `WO4-FormPermintaanGudang-${woName}.pdf`);
+    } catch (e) { toast.error('Gagal Download PDF', String(e)); }
+  }
+
   if (loading) return <div className="h-64 bg-white/[0.03] rounded-xl animate-pulse" />;
 
   const cellCls = 'w-full bg-transparent focus:bg-white/[0.03] focus:outline-none px-2 py-1.5 text-xs text-white placeholder-slate-600';
@@ -4832,6 +5009,7 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
         <h2 className="text-lg font-bold text-white">Form Permintaan Gudang</h2>
         <div className="flex items-center gap-2">
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
+          <button onClick={handleDownloadPDF} className="text-xs font-medium text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
           <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
             {saving ? 'Menyimpan...' : 'Simpan Semua'}
           </button>
