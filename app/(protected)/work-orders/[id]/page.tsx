@@ -2895,9 +2895,6 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
             const bahanMap: Record<string, string> = {};
             for (const b of bahanBySpec) bahanMap[normBagian(String(b.bagian)).toUpperCase()] = String(b.bahan || '');
             const pjData = parsePj(spec.penanggung_jawab_json);
-            const deadlineStr = spec.deadline
-              ? new Date(String(spec.deadline)).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
-              : (wo.deadline || '-');
             return (
               <div key={spec.id}>
                 <div ref={el => { printRef.current[spec.id] = el; }} className="bg-white rounded-lg p-4 text-black max-w-6xl mx-auto mt-4 border border-black">
@@ -2914,7 +2911,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                   </div>
 
                   {/* Main 3-column grid — persis layout Excel */}
-                  <div className="grid grid-cols-[280px_1fr_240px] border-2 border-black border-t-0">
+                  <div className="grid grid-cols-[340px_1fr_240px] border-2 border-black border-t-0">
                     {/* ─── LEFT COLUMN ─── */}
                     <div className="border-r-2 border-black flex flex-col">
                       <div className="bg-emerald-800 text-center text-[11px] font-bold py-1 border-b-2 border-black" style={{ color: '#fff' }}>DESAIN MOCK UP</div>
@@ -2925,11 +2922,13 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                           <div className="h-[220px] grid place-items-center text-slate-300 text-xs">— gambar desain —</div>
                         )}
                       </div>
-                      {/* DEADLINE (kiri) + Keterangan Jahit (kanan) — side by side sesuai request. */}
+                      {/* DEADLINE (kiri) + Keterangan Jahit (kanan) — side by side.
+                          Isi DEADLINE dikosongkan sesuai request — cuma label
+                          'DEADLINE :' yang tampil. Nanti ditulis manual atau
+                          di-print kosong. */}
                       <div className="grid grid-cols-[110px_1fr] border-b-2 border-black">
                         <div className="bg-green-200 border-r-2 border-black px-2 py-1.5">
                           <p className="text-red-600 font-black text-sm">DEADLINE :</p>
-                          <p className="text-[11px] font-bold mt-0.5">{deadlineStr}</p>
                         </div>
                         <div className="p-2" style={{ minHeight: 90 }}>
                           <p className="text-[10px] font-bold">Keterangan Jahit :</p>
