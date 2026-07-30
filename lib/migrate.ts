@@ -990,6 +990,17 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `keterlambatan_reason` TEXT NULL",
     ],
   },
+  {
+    // Seed opsi Leads 'AYRES SOLO' untuk dropdown Form Leads Harian
+    // (cs-selling / form-leads). Insert only kalau belum ada — nama
+    // di-check case-insensitive (LOWER) supaya idempotent.
+    name: '058_seed_lead_ayres_solo',
+    up: [
+      "INSERT INTO `leads` (`nama`) " +
+        "SELECT 'AYRES SOLO' FROM DUAL " +
+        "WHERE NOT EXISTS (SELECT 1 FROM `leads` WHERE LOWER(`nama`) = 'ayres solo')",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
