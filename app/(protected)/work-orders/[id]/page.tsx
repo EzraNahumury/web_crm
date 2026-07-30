@@ -2914,7 +2914,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                   </div>
 
                   {/* Main 3-column grid — persis layout Excel */}
-                  <div className="grid grid-cols-[220px_1fr_240px] border-2 border-black border-t-0">
+                  <div className="grid grid-cols-[280px_1fr_240px] border-2 border-black border-t-0">
                     {/* ─── LEFT COLUMN ─── */}
                     <div className="border-r-2 border-black flex flex-col">
                       <div className="bg-emerald-800 text-center text-[11px] font-bold py-1 border-b-2 border-black" style={{ color: '#fff' }}>DESAIN MOCK UP</div>
@@ -2925,18 +2925,23 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                           <div className="h-[220px] grid place-items-center text-slate-300 text-xs">— gambar desain —</div>
                         )}
                       </div>
-                      <div className="border-b-2 border-black p-2" style={{ minHeight: 90 }}>
-                        <p className="text-[10px] font-bold">Keterangan Jahit :</p>
-                        <p className="text-[11px] mt-1 whitespace-pre-wrap">{spec.keterangan_jahit || ''}</p>
+                      {/* DEADLINE (kiri) + Keterangan Jahit (kanan) — side by side sesuai request. */}
+                      <div className="grid grid-cols-[110px_1fr] border-b-2 border-black">
+                        <div className="bg-green-200 border-r-2 border-black px-2 py-1.5">
+                          <p className="text-red-600 font-black text-sm">DEADLINE :</p>
+                          <p className="text-[11px] font-bold mt-0.5">{deadlineStr}</p>
+                        </div>
+                        <div className="p-2" style={{ minHeight: 90 }}>
+                          <p className="text-[10px] font-bold">Keterangan Jahit :</p>
+                          <p className="text-[11px] mt-1 whitespace-pre-wrap">{spec.keterangan_jahit || ''}</p>
+                        </div>
                       </div>
-                      <div className="bg-green-200 border-b-2 border-black px-2 py-1.5">
-                        <p className="text-red-600 font-black text-sm">DEADLINE :</p>
-                        <p className="text-[11px] font-bold mt-0.5">{deadlineStr}</p>
-                      </div>
-                      {/* Bahan table — 8 baris fixed sesuai template */}
-                      <div className="text-[10px]">
-                        {WO_BAHAN_ROWS.map((bagian, i) => (
-                          <div key={bagian} className={`grid grid-cols-[110px_1fr] ${i < WO_BAHAN_ROWS.length - 1 ? 'border-b border-black' : ''}`}>
+                      {/* Bahan table — 8 baris fixed sesuai template. flex-1
+                          + border-b border-black di last row supaya section
+                          panjangnya nutup ke bawah + ada garis penutup. */}
+                      <div className="text-[10px] flex-1 flex flex-col">
+                        {WO_BAHAN_ROWS.map((bagian) => (
+                          <div key={bagian} className="grid grid-cols-[110px_1fr] border-b border-black">
                             <span className="font-bold px-1.5 py-1 border-r border-black">{bagian}</span>
                             <span className="px-1.5 py-1">{bahanMap[bagian] || ''}</span>
                           </div>
