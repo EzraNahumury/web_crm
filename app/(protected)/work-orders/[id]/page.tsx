@@ -1369,13 +1369,23 @@ export default function WorkOrderDetailPage() {
         }
       }
 
-      // === WO 2: Detail Ukuran Tim === (rendered via HTML → image supaya
-      // Unicode text seperti nama Arab/Mandarin tidak hancur di PDF).
+      // === WO 2: Detail Ukuran Tim === (autoTable — crisp text native PDF).
+      // NOTE: autoTable pakai helvetica embedded font yang non-Unicode.
+      // Nama Arab/Mandarin akan tampil sebagai kotak. Trade-off ambil crisp
+      // sesuai request user.
       if (freshUkuran.length > 0) {
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.setFontSize(14);
+        pdf.text(`DETAIL UKURAN TIM - ${customer.toUpperCase()}`, 14, 18);
+        pdf.setFontSize(10);
+        pdf.text(`No WO: ${woName}`, 14, 26);
+
         const kolom = parseWo2Kolom(freshWoData.wo2_kolom_json as string);
         const hasGrpChildren = kolom.some((k: Wo2Col) => k.children && k.children.length > 0);
-        const headRow1: TableCell[] = [{ content: 'NO', rowSpan: hasGrpChildren ? 2 : 1 }];
-        const headRow2: TableCell[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const headRow1: any[] = [{ content: 'NO', rowSpan: hasGrpChildren ? 2 : 1 }];
+        const headRow2: string[] = [];
         for (const k of kolom) {
           if (k.children && k.children.length > 0) {
             headRow1.push({ content: k.label, colSpan: k.children.length });
@@ -1405,42 +1415,15 @@ export default function WorkOrderDetailPage() {
           const merged = { ...legacy, ...dj };
           return [String(i + 1), ...leafIds.map(k => merged[k] || '')];
         });
-        // Kolom NO center, NAMA left, KET* left, PENJAHIT left, sisanya center.
-        const wo2ColAlign: ('left' | 'center')[] = ['center'];
-        for (const id of leafIds) {
-          const low = id.toLowerCase();
-          if (low === 'nama' || low.startsWith('ket') || low === 'penjahit') wo2ColAlign.push('left');
-          else wo2ColAlign.push('center');
-        }
-        // Column widths untuk kolom sempit: NO 32px, NP 40px, SIZE 40px, BD/BB 40px.
-        const wo2ColWidth: (string | undefined)[] = ['32px'];
-        for (const id of leafIds) {
-          const low = id.toLowerCase();
-          if (low === 'np' || low === 'size' || low === 'bd' || low === 'bb' || low.includes('lengan') || low === 'kerah') {
-            wo2ColWidth.push('55px');
-          } else {
-            wo2ColWidth.push(undefined);
-          }
-        }
-        const wo2Html = buildWoTableHtml({
-          title: `DETAIL UKURAN TIM — ${customer}`,
-          subtitle: `No WO: ${woName}`,
-          head,
+        autoTable(pdf, {
+          startY: 32,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          head: head as any,
           body,
-          headerBg: '#065f46',
-          columnAlign: wo2ColAlign,
-          columnWidth: wo2ColWidth,
+          styles: { fontSize: 8, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          headStyles: { fillColor: [6, 95, 70], halign: 'center', valign: 'middle', textColor: 255, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          bodyStyles: { halign: 'center' },
         });
-        try {
-          const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo2Html, 1100);
-          if (!firstPage) pdf.addPage();
-          firstPage = false;
-          const contentW = pageW - margin * 2;
-          const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
-          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
-        } catch (err) {
-          console.warn('Skip WO2 render (error):', err);
-        }
       }
 
       // === WO 3 LEGACY (dead code — WO3 sekarang Form Pengiriman, handled below).
@@ -1629,74 +1612,90 @@ export default function WorkOrderDetailPage() {
         });
       }
 
-      // === WO 3: Form Pengiriman + PROMO/BONUS === (HTML → image, Unicode-safe)
-      // Layout mirror Excel template (image #542): tabel di kiri,
-      // PROMO+BONUS stack vertikal di kanan (compact box, bukan full-width).
+      // === WO 3: Form Pengiriman + PROMO/BONUS === (autoTable — crisp).
+      // Tabel di kiri dengan margin.right supaya sisa space di kanan
+      // buat draw PROMO/BONUS boxes manual pakai jsPDF primitives.
+      // Layout mirror Excel template (image #542).
       if (freshShip.length > 0 || freshWoData.pengiriman_promo || freshWoData.pengiriman_bonus) {
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.setFontSize(14);
+        pdf.text(`FORM PENGIRIMAN - ${customer.toUpperCase()}`, 14, 18);
+        pdf.setFontSize(10);
+        pdf.text(`No WO: ${woName} · Paket: ${paket}`, 14, 26);
+
         const promo = String(freshWoData.pengiriman_promo || '');
         const bonus = String(freshWoData.pengiriman_bonus || '');
-        const FONT = "'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Arial Unicode MS', 'Noto Sans', 'Noto Sans Arabic', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', Tahoma, Arial, sans-serif";
-        const wo3Rows = freshShip.slice().sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan));
-        // Padding compact 3px 5px + vertical-align middle + line-height 1.3
-        // supaya row tight tapi text tetap breathing space + center vertikal.
-        const td = 'border:1px solid #000;padding:3px 5px;font-size:10px;vertical-align:middle;line-height:1.3;';
-        const tableBodyHtml = wo3Rows.map((r: Row, i: number) => `
-          <tr>
-            <td style="${td}text-align:center">${i + 1}</td>
-            <td style="${td}text-align:left">${escapeHtml(String(r.nama || ''))}</td>
-            <td style="${td}text-align:center">${escapeHtml(String(r.np || ''))}</td>
-            <td style="${td}text-align:center">${escapeHtml(String(r.ukuran || ''))}</td>
-            <td style="${td}text-align:left">${escapeHtml(String(r.keterangan || ''))}</td>
-            <td style="${td}text-align:center">${(r.checklist === 1 || r.checklist === true) ? '✓' : ''}</td>
-          </tr>`).join('');
+        // Sisihkan ~80mm di kanan buat PROMO/BONUS box.
+        const rightBoxW = 80;
+        const rightBoxX = pageW - margin - rightBoxW;
+        autoTable(pdf, {
+          startY: 32,
+          margin: { left: margin, right: rightBoxW + margin + 4 },
+          head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'CHECK']],
+          body: freshShip.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
+            String(i + 1),
+            String(r.nama || ''),
+            String(r.np || ''),
+            String(r.ukuran || ''),
+            String(r.keterangan || ''),
+            (r.checklist === 1 || r.checklist === true) ? 'v' : '',
+          ]),
+          styles: { fontSize: 8, cellPadding: 1.5, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          headStyles: { fillColor: [6, 95, 70], textColor: 255, halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
+          bodyStyles: { halign: 'center' },
+          columnStyles: {
+            0: { cellWidth: 10 },
+            1: { halign: 'left' },
+            4: { halign: 'left' },
+            5: { cellWidth: 15 },
+          },
+        });
 
-        const wo3Html = `<div style="background:#fff;padding:24px;font-family:${FONT};color:#000;width:1200px;-webkit-font-smoothing:antialiased">
-  <div style="font-size:16px;font-weight:800;margin-bottom:4px">FORM PENGIRIMAN — ${escapeHtml(customer)}</div>
-  <div style="font-size:11px;color:#334155;margin-bottom:12px">No WO: ${escapeHtml(woName)} · Paket: ${escapeHtml(paket)}</div>
-  <!-- Grid utama: tabel (kiri) + PROMO/BONUS stack (kanan) -->
-  <div style="display:grid;grid-template-columns:1fr 260px;gap:16px;align-items:start">
-    <!-- Kiri: tabel FORM PENGIRIMAN -->
-    <table style="width:100%;border-collapse:collapse;border:1px solid #000">
-      <thead>
-        <tr>
-          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center;width:40px">NO</th>
-          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center">NAMA</th>
-          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center;width:60px">NP</th>
-          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center;width:70px">SIZE</th>
-          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center">KET</th>
-          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center;width:70px">CHECK</th>
-        </tr>
-      </thead>
-      <tbody>${tableBodyHtml}</tbody>
-    </table>
-    <!-- Kanan: PROMO + BONUS stack -->
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div style="border:1px solid #000">
-        <div style="background:#3b82f6;color:#fff;text-align:center;font-weight:800;padding:6px 0;font-size:11px;border-bottom:1px solid #000">PROMO</div>
-        <div style="padding:8px 10px;font-size:11px;min-height:80px;white-space:pre-wrap">${escapeHtml(promo || '-')}</div>
-      </div>
-      <div style="border:1px solid #000">
-        <div style="background:#3b82f6;color:#fff;text-align:center;font-weight:800;padding:6px 0;font-size:11px;border-bottom:1px solid #000">BONUS</div>
-        <div style="padding:8px 10px;font-size:11px;min-height:80px;white-space:pre-wrap">${escapeHtml(bonus || '-')}</div>
-      </div>
-    </div>
-  </div>
-  <!-- Tanda tangan di bawah -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:32px;font-size:11px">
-    <div style="text-align:left">Dibuat Oleh,<br/><br/><br/><br/>( Admin )</div>
-    <div style="text-align:left">Dicek Oleh,<br/><br/><br/><br/>( QC / Packing )</div>
-    <div style="text-align:left">Diterima Oleh,<br/><br/><br/><br/>( ${escapeHtml(customer)} )</div>
-  </div>
-</div>`;
-        try {
-          const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo3Html, 1100);
-          if (!firstPage) pdf.addPage();
-          firstPage = false;
-          const contentW = pageW - margin * 2;
-          const contentH = Math.min(contentW * (ih / iw), pageH - margin * 2);
-          pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
-        } catch (err) {
-          console.warn('Skip WO3 render (error):', err);
+        // Draw PROMO box (top) + BONUS box (bottom) di area kanan.
+        // Header pakai biru (#3b82f6), border hitam, isi text di dalam.
+        const boxHeaderH = 7;
+        const boxBodyH = 30;
+        const boxW = rightBoxW;
+        // PROMO box, starting at y=32 (same as table startY)
+        let by = 32;
+        pdf.setFillColor(59, 130, 246);
+        pdf.rect(rightBoxX, by, boxW, boxHeaderH, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(10);
+        pdf.text('PROMO', rightBoxX + boxW / 2, by + 5, { align: 'center' });
+        pdf.setDrawColor(0);
+        pdf.rect(rightBoxX, by + boxHeaderH, boxW, boxBodyH);
+        pdf.setTextColor(0);
+        pdf.setFontSize(9);
+        const promoLines = pdf.splitTextToSize(promo || '-', boxW - 4);
+        pdf.text(promoLines, rightBoxX + 2, by + boxHeaderH + 5);
+
+        // BONUS box, below PROMO with 4mm gap
+        by = 32 + boxHeaderH + boxBodyH + 4;
+        pdf.setFillColor(59, 130, 246);
+        pdf.rect(rightBoxX, by, boxW, boxHeaderH, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(10);
+        pdf.text('BONUS', rightBoxX + boxW / 2, by + 5, { align: 'center' });
+        pdf.setDrawColor(0);
+        pdf.rect(rightBoxX, by + boxHeaderH, boxW, boxBodyH);
+        pdf.setTextColor(0);
+        pdf.setFontSize(9);
+        const bonusLines = pdf.splitTextToSize(bonus || '-', boxW - 4);
+        pdf.text(bonusLines, rightBoxX + 2, by + boxHeaderH + 5);
+
+        // Tanda tangan di bawah tabel (kalau ada space)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const finalY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
+        if (finalY < pageH - 30) {
+          pdf.setFontSize(10);
+          pdf.text('Dibuat Oleh,', 14, finalY);
+          pdf.text('Dicek Oleh,', 85, finalY);
+          pdf.text('Diterima Oleh,', 155, finalY);
+          pdf.text('( Admin )', 14, finalY + 22);
+          pdf.text('( QC / Packing )', 85, finalY + 22);
+          pdf.text(`( ${customer} )`, 155, finalY + 22);
         }
       }
 
