@@ -1504,42 +1504,61 @@ export default function WorkOrderDetailPage() {
       }
 
       // === WO 3: Form Pengiriman + PROMO/BONUS === (HTML → image, Unicode-safe)
+      // Layout mirror Excel template (image #542): tabel di kiri,
+      // PROMO+BONUS stack vertikal di kanan (compact box, bukan full-width).
       if (freshShip.length > 0 || freshWoData.pengiriman_promo || freshWoData.pengiriman_bonus) {
         const promo = String(freshWoData.pengiriman_promo || '');
         const bonus = String(freshWoData.pengiriman_bonus || '');
-        const wo3Body = freshShip.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
-          String(i + 1),
-          String(r.nama || ''),
-          String(r.np || ''),
-          String(r.ukuran || ''),
-          String(r.keterangan || ''),
-          (r.checklist === 1 || r.checklist === true) ? 'v' : '',
-        ]);
-        const extraHtml = `
-          ${(promo || bonus) ? `
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">
-              <div style="border:1px solid #000">
-                <div style="background:#3b82f6;color:#fff;text-align:center;font-weight:800;padding:6px 0;font-size:11px">PROMO</div>
-                <div style="padding:10px;font-size:11px;min-height:60px;white-space:pre-wrap">${escapeHtml(promo || '-')}</div>
-              </div>
-              <div style="border:1px solid #000">
-                <div style="background:#3b82f6;color:#fff;text-align:center;font-weight:800;padding:6px 0;font-size:11px">BONUS</div>
-                <div style="padding:10px;font-size:11px;min-height:60px;white-space:pre-wrap">${escapeHtml(bonus || '-')}</div>
-              </div>
-            </div>` : ''}
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:32px;font-size:11px">
-            <div style="text-align:left">Dibuat Oleh,<br/><br/><br/><br/>( Admin )</div>
-            <div style="text-align:left">Dicek Oleh,<br/><br/><br/><br/>( QC / Packing )</div>
-            <div style="text-align:left">Diterima Oleh,<br/><br/><br/><br/>( ${escapeHtml(customer)} )</div>
-          </div>`;
-        const wo3Html = buildWoTableHtml({
-          title: `FORM PENGIRIMAN — ${customer}`,
-          subtitle: `No WO: ${woName} · Paket: ${paket}`,
-          head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'CHECK']],
-          body: wo3Body,
-          headerBg: '#065f46',
-          extraHtml,
-        });
+        const FONT = "'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Arial Unicode MS', 'Noto Sans', 'Noto Sans Arabic', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', Tahoma, Arial, sans-serif";
+        const wo3Rows = freshShip.slice().sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan));
+        const tableBodyHtml = wo3Rows.map((r: Row, i: number) => `
+          <tr>
+            <td style="border:1px solid #000;padding:4px 6px;font-size:10px;text-align:center">${i + 1}</td>
+            <td style="border:1px solid #000;padding:4px 6px;font-size:10px">${escapeHtml(String(r.nama || ''))}</td>
+            <td style="border:1px solid #000;padding:4px 6px;font-size:10px;text-align:center">${escapeHtml(String(r.np || ''))}</td>
+            <td style="border:1px solid #000;padding:4px 6px;font-size:10px;text-align:center">${escapeHtml(String(r.ukuran || ''))}</td>
+            <td style="border:1px solid #000;padding:4px 6px;font-size:10px">${escapeHtml(String(r.keterangan || ''))}</td>
+            <td style="border:1px solid #000;padding:4px 6px;font-size:10px;text-align:center">${(r.checklist === 1 || r.checklist === true) ? '✓' : ''}</td>
+          </tr>`).join('');
+
+        const wo3Html = `<div style="background:#fff;padding:24px;font-family:${FONT};color:#000;width:1200px;-webkit-font-smoothing:antialiased">
+  <div style="font-size:16px;font-weight:800;margin-bottom:4px">FORM PENGIRIMAN — ${escapeHtml(customer)}</div>
+  <div style="font-size:11px;color:#334155;margin-bottom:12px">No WO: ${escapeHtml(woName)} · Paket: ${escapeHtml(paket)}</div>
+  <!-- Grid utama: tabel (kiri) + PROMO/BONUS stack (kanan) -->
+  <div style="display:grid;grid-template-columns:1fr 260px;gap:16px;align-items:start">
+    <!-- Kiri: tabel FORM PENGIRIMAN -->
+    <table style="width:100%;border-collapse:collapse;border:1px solid #000">
+      <thead>
+        <tr>
+          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center;width:40px">NO</th>
+          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center">NAMA</th>
+          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center;width:60px">NP</th>
+          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center;width:70px">SIZE</th>
+          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center">KET</th>
+          <th style="border:1px solid #000;padding:6px 4px;background:#065f46;color:#fff;font-size:10px;font-weight:800;text-align:center;width:70px">CHECK</th>
+        </tr>
+      </thead>
+      <tbody>${tableBodyHtml}</tbody>
+    </table>
+    <!-- Kanan: PROMO + BONUS stack -->
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="border:1px solid #000">
+        <div style="background:#3b82f6;color:#fff;text-align:center;font-weight:800;padding:6px 0;font-size:11px;border-bottom:1px solid #000">PROMO</div>
+        <div style="padding:8px 10px;font-size:11px;min-height:80px;white-space:pre-wrap">${escapeHtml(promo || '-')}</div>
+      </div>
+      <div style="border:1px solid #000">
+        <div style="background:#3b82f6;color:#fff;text-align:center;font-weight:800;padding:6px 0;font-size:11px;border-bottom:1px solid #000">BONUS</div>
+        <div style="padding:8px 10px;font-size:11px;min-height:80px;white-space:pre-wrap">${escapeHtml(bonus || '-')}</div>
+      </div>
+    </div>
+  </div>
+  <!-- Tanda tangan di bawah -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:32px;font-size:11px">
+    <div style="text-align:left">Dibuat Oleh,<br/><br/><br/><br/>( Admin )</div>
+    <div style="text-align:left">Dicek Oleh,<br/><br/><br/><br/>( QC / Packing )</div>
+    <div style="text-align:left">Diterima Oleh,<br/><br/><br/><br/>( ${escapeHtml(customer)} )</div>
+  </div>
+</div>`;
         const { data: imgData, w: iw, h: ih } = await renderHtmlToImage(wo3Html, 1200);
         if (!firstPage) pdf.addPage();
         firstPage = false;
