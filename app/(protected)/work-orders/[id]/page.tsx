@@ -47,6 +47,81 @@ const WO_BAHAN_ROWS = [
   'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS',
 ];
 
+/* ─────────────────────────────────────────────────────────────────────
+   useFillDrag — Excel-style fill handle.
+
+   Cara pakai:
+   - Panggil hook di dalam Tab component dengan callback applyFill.
+   - Return: { beginFill, isInRange, previewSrc }.
+   - Kartu <td> perlu data attrs: data-fill-row + data-fill-col.
+   - Render <FillHandle onStart={...} /> di corner cell.
+
+   Mekanisme: mousedown di handle → track dragRef + register global
+   mousemove/mouseup. Mousemove: cari <td> di bawah cursor via
+   elementFromPoint, kalau colId cocok update endRow. Mouseup:
+   apply fill dari src → end, cleanup.
+   ───────────────────────────────────────────────────────────────────── */
+type FillPreview = { srcRow: number; colId: string; endRow: number };
+
+function useFillDrag(applyFill: (srcRow: number, endRow: number, colId: string, value: string) => void) {
+  const dragRef = useRef<{ srcRow: number; colId: string; value: string; endRow: number } | null>(null);
+  const [preview, setPreview] = useState<FillPreview | null>(null);
+
+  const beginFill = useCallback((srcRow: number, colId: string, value: string) => {
+    dragRef.current = { srcRow, colId, value, endRow: srcRow };
+    setPreview({ srcRow, colId, endRow: srcRow });
+
+    const onMove = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const td = el && (el as HTMLElement).closest?.('td[data-fill-row]') as HTMLElement | null;
+      if (!td || !dragRef.current) return;
+      if (td.dataset.fillCol !== dragRef.current.colId) return;
+      const targetRow = Number(td.dataset.fillRow);
+      if (!Number.isFinite(targetRow)) return;
+      if (targetRow === dragRef.current.endRow) return;
+      dragRef.current.endRow = targetRow;
+      setPreview(cur => cur ? { ...cur, endRow: targetRow } : null);
+    };
+
+    const onUp = () => {
+      const drag = dragRef.current;
+      dragRef.current = null;
+      setPreview(null);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (drag && drag.endRow !== drag.srcRow) {
+        applyFill(drag.srcRow, drag.endRow, drag.colId, drag.value);
+      }
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [applyFill]);
+
+  const isInRange = useCallback((row: number, colId: string): boolean => {
+    if (!preview) return false;
+    if (preview.colId !== colId) return false;
+    const lo = Math.min(preview.srcRow, preview.endRow);
+    const hi = Math.max(preview.srcRow, preview.endRow);
+    return row >= lo && row <= hi && row !== preview.srcRow;
+  }, [preview]);
+
+  return { beginFill, isInRange, previewSrc: preview?.srcRow ?? null, previewCol: preview?.colId ?? null };
+}
+
+/* Kotak hijau kecil di corner cell — muncul saat hover row. Drag turun
+   (atau naik) untuk copy value ke cell lain di kolom yang sama. */
+function FillHandle({ onStart, active }: { onStart: () => void; active: boolean }) {
+  return (
+    <span
+      onMouseDown={e => { e.preventDefault(); e.stopPropagation(); onStart(); }}
+      title="Drag turun/atas untuk isi otomatis (Excel-style)"
+      className={`absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 border border-white/60 cursor-crosshair z-20 transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+      style={{ transform: 'translate(1px, 1px)' }}
+    />
+  );
+}
+
 // Module-level — used by per-spec PDF download (TabWO1) and combined Download All PDF (parent).
 function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
   const bRows = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
@@ -3495,6 +3570,23 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, data: { ...r.data, [key]: val } } : r));
   }
 
+  // Excel-style fill handle: copy value dari cell source ke semua cell
+  // di kolom sama antara src → end (inclusive). Dragging up juga
+  // di-support (start > end). Index acuannya adalah original row index
+  // (`rows`), bukan displayIdx yang sudah di-sort.
+  const applyFillRange = useCallback(
+    (srcRow: number, endRow: number, colId: string, value: string) => {
+      const lo = Math.min(srcRow, endRow);
+      const hi = Math.max(srcRow, endRow);
+      setRows(prev => prev.map((r, i) => {
+        if (i < lo || i > hi || i === srcRow) return r;
+        return { ...r, data: { ...r.data, [colId]: value } };
+      }));
+    },
+    [],
+  );
+  const { beginFill, isInRange, previewSrc, previewCol } = useFillDrag(applyFillRange);
+
   function getHeaderDropEdge(e: React.DragEvent<HTMLElement>): 'before' | 'after' {
     const rect = e.currentTarget.getBoundingClientRect();
     return e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
@@ -3764,7 +3856,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik icon X untuk hapus kolom. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
+      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik icon X untuk hapus kolom. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell ke bawah/atas untuk auto-fill (Excel-style). NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
 
       <div className="overflow-x-auto rounded-xl border border-white/[0.08] bg-[#111827]">
         <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
@@ -3903,19 +3995,37 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
               // object reference dari rows (sort tidak clone objectnya).
               const i = rows.indexOf(r);
               return (
-              <tr key={i === -1 ? `d-${displayIdx}` : i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+              <tr key={i === -1 ? `d-${displayIdx}` : i} className="border-b border-white/[0.04] hover:bg-white/[0.02] group/row">
                 <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{displayIdx + 1}</td>
-                {leafKeys.map(lk => (
-                  <td key={lk.id} className="border border-white/10">
-                    <input
-                      className={cellCls}
-                      value={r.data[lk.id] || ''}
-                      onChange={e => setCell(i, lk.id, e.target.value)}
-                      onPaste={e => handleCellPaste(e, i, lk.id)}
-                      placeholder={lk.label.toLowerCase()}
-                    />
-                  </td>
-                ))}
+                {leafKeys.map(lk => {
+                  const inRange = isInRange(i, lk.id);
+                  const isSrc = previewSrc === i && previewCol === lk.id;
+                  const highlightCls = inRange
+                    ? 'bg-emerald-500/[0.12] ring-1 ring-inset ring-emerald-500/40'
+                    : isSrc
+                      ? 'ring-1 ring-inset ring-emerald-500/70'
+                      : '';
+                  return (
+                    <td
+                      key={lk.id}
+                      data-fill-row={i}
+                      data-fill-col={lk.id}
+                      className={`border border-white/10 relative group ${highlightCls}`}
+                    >
+                      <input
+                        className={cellCls}
+                        value={r.data[lk.id] || ''}
+                        onChange={e => setCell(i, lk.id, e.target.value)}
+                        onPaste={e => handleCellPaste(e, i, lk.id)}
+                        placeholder={lk.label.toLowerCase()}
+                      />
+                      <FillHandle
+                        active={isSrc}
+                        onStart={() => beginFill(i, lk.id, r.data[lk.id] || '')}
+                      />
+                    </td>
+                  );
+                })}
                 <td className="border border-white/10 text-center">
                   <button onClick={() => removeRow(i)} title="Hapus baris" className="text-rose-500 hover:text-rose-300 p-1 rounded hover:bg-rose-500/10">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -4107,6 +4217,20 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
   }
 
+  // Excel-style fill handle (nama/np/ukuran/keterangan). Checklist di-skip.
+  const applyFillRange = useCallback(
+    (srcRow: number, endRow: number, colId: string, value: string) => {
+      const lo = Math.min(srcRow, endRow);
+      const hi = Math.max(srcRow, endRow);
+      setRows(prev => prev.map((r, i) => {
+        if (i < lo || i > hi || i === srcRow) return r;
+        return { ...r, [colId]: value } as PengirimanRow;
+      }));
+    },
+    [],
+  );
+  const { beginFill, isInRange, previewSrc, previewCol } = useFillDrag(applyFillRange);
+
   // Order kolom yang bisa di-paste. Checklist skip (checkbox, tidak
   // masuk dalam TSV Excel).
   const PENGIRIMAN_PASTE_FIELDS: (keyof PengirimanRow)[] = ['nama', 'np', 'ukuran', 'keterangan'];
@@ -4188,7 +4312,7 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-white">Form Pengiriman</h2>
-          <p className="text-[11px] text-slate-500 mt-0.5">Tip: copy dari Excel lalu paste di cell mana saja untuk isi banyak baris sekaligus.</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">Tip: copy dari Excel lalu paste di cell mana saja. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell untuk auto-fill (Excel-style).</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
@@ -4213,13 +4337,37 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {rows.map((r, i) => {
+                const fillCell = (col: 'nama' | 'np' | 'ukuran' | 'keterangan') => {
+                  const inRange = isInRange(i, col);
+                  const isSrc = previewSrc === i && previewCol === col;
+                  return { inRange, isSrc, cls: inRange
+                    ? 'bg-emerald-500/[0.12] ring-1 ring-inset ring-emerald-500/40'
+                    : isSrc ? 'ring-1 ring-inset ring-emerald-500/70' : '' };
+                };
+                const namaF = fillCell('nama');
+                const npF = fillCell('np');
+                const ukuranF = fillCell('ukuran');
+                const ketF = fillCell('keterangan');
+                return (
                 <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                   <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{i + 1}</td>
-                  <td className="border border-white/10"><input className={cellCls} value={r.nama} onChange={e => setField(i, 'nama', e.target.value)} onPaste={e => handleCellPaste(e, i, 'nama')} placeholder="Nama..." /></td>
-                  <td className="border border-white/10"><input className={cellCls} value={r.np} onChange={e => setField(i, 'np', e.target.value)} onPaste={e => handleCellPaste(e, i, 'np')} /></td>
-                  <td className="border border-white/10"><input className={cellCls} value={r.ukuran} onChange={e => setField(i, 'ukuran', e.target.value)} onPaste={e => handleCellPaste(e, i, 'ukuran')} /></td>
-                  <td className="border border-white/10"><input className={cellCls} value={r.keterangan} onChange={e => setField(i, 'keterangan', e.target.value)} onPaste={e => handleCellPaste(e, i, 'keterangan')} /></td>
+                  <td data-fill-row={i} data-fill-col="nama" className={`border border-white/10 relative group ${namaF.cls}`}>
+                    <input className={cellCls} value={r.nama} onChange={e => setField(i, 'nama', e.target.value)} onPaste={e => handleCellPaste(e, i, 'nama')} placeholder="Nama..." />
+                    <FillHandle active={namaF.isSrc} onStart={() => beginFill(i, 'nama', r.nama)} />
+                  </td>
+                  <td data-fill-row={i} data-fill-col="np" className={`border border-white/10 relative group ${npF.cls}`}>
+                    <input className={cellCls} value={r.np} onChange={e => setField(i, 'np', e.target.value)} onPaste={e => handleCellPaste(e, i, 'np')} />
+                    <FillHandle active={npF.isSrc} onStart={() => beginFill(i, 'np', r.np)} />
+                  </td>
+                  <td data-fill-row={i} data-fill-col="ukuran" className={`border border-white/10 relative group ${ukuranF.cls}`}>
+                    <input className={cellCls} value={r.ukuran} onChange={e => setField(i, 'ukuran', e.target.value)} onPaste={e => handleCellPaste(e, i, 'ukuran')} />
+                    <FillHandle active={ukuranF.isSrc} onStart={() => beginFill(i, 'ukuran', r.ukuran)} />
+                  </td>
+                  <td data-fill-row={i} data-fill-col="keterangan" className={`border border-white/10 relative group ${ketF.cls}`}>
+                    <input className={cellCls} value={r.keterangan} onChange={e => setField(i, 'keterangan', e.target.value)} onPaste={e => handleCellPaste(e, i, 'keterangan')} />
+                    <FillHandle active={ketF.isSrc} onStart={() => beginFill(i, 'keterangan', r.keterangan)} />
+                  </td>
                   <td className="border border-white/10 text-center">
                     <input type="checkbox" checked={r.checklist === 1} onChange={e => setField(i, 'checklist', e.target.checked ? 1 : 0)} className="w-4 h-4 accent-emerald-500 cursor-pointer" />
                   </td>
@@ -4231,7 +4379,8 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -4335,6 +4484,25 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
   function addRow() {
     setRows(prev => [...prev, { id: null, urutan: prev.length + 1, kategori: 'BAHAN_UTAMA', bagian: '', bahan: '', warna: '', kuantitas: 0, isFixed: false }]);
   }
+
+  // Excel-style fill handle (bahan/warna/kuantitas). Bagian di-skip
+  // karena mostly fixed template, dan bahan pakai SearchableBahanSelect
+  // yang di-fill juga (string value, jadi valid).
+  const applyFillRange = useCallback(
+    (srcRow: number, endRow: number, colId: string, value: string) => {
+      const lo = Math.min(srcRow, endRow);
+      const hi = Math.max(srcRow, endRow);
+      setRows(prev => prev.map((r, i) => {
+        if (i < lo || i > hi || i === srcRow) return r;
+        if (colId === 'kuantitas') {
+          return { ...r, kuantitas: Number(value) || 0 };
+        }
+        return { ...r, [colId]: value } as GudangRow;
+      }));
+    },
+    [],
+  );
+  const { beginFill, isInRange, previewSrc, previewCol } = useFillDrag(applyFillRange);
   async function removeRow(idx: number) {
     const row = rows[idx];
     if (row.isFixed) return;
@@ -4398,7 +4566,18 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
+            {rows.map((r, i) => {
+              const cellFill = (col: 'bahan' | 'warna' | 'kuantitas') => {
+                const inRange = isInRange(i, col);
+                const isSrc = previewSrc === i && previewCol === col;
+                return { inRange, isSrc, cls: inRange
+                  ? 'bg-emerald-500/[0.12] ring-1 ring-inset ring-emerald-500/40'
+                  : isSrc ? 'ring-1 ring-inset ring-emerald-500/70' : '' };
+              };
+              const bahanF = cellFill('bahan');
+              const warnaF = cellFill('warna');
+              const kuanF = cellFill('kuantitas');
+              return (
               <tr key={i} className={`border-b border-white/[0.04] hover:bg-white/[0.02] ${!r.isFixed ? 'bg-blue-500/[0.03]' : ''}`}>
                 <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{i + 1}</td>
                 <td className="border border-white/10">
@@ -4408,16 +4587,23 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
                     <input className={cellCls} value={r.bagian} onChange={e => setField(i, 'bagian', e.target.value)} placeholder="Nama item extra..." />
                   )}
                 </td>
-                <td className="border border-white/10 p-1">
+                <td data-fill-row={i} data-fill-col="bahan" className={`border border-white/10 p-1 relative group ${bahanF.cls}`}>
                   <SearchableBahanSelect
                     value={r.bahan}
                     options={bahanOptions}
                     onChange={v => setField(i, 'bahan', v)}
                     placeholder="Pilih bahan..."
                   />
+                  <FillHandle active={bahanF.isSrc} onStart={() => beginFill(i, 'bahan', r.bahan)} />
                 </td>
-                <td className="border border-white/10"><input className={cellCls} value={r.warna} onChange={e => setField(i, 'warna', e.target.value)} placeholder="Warna..." /></td>
-                <td className="border border-white/10"><input type="text" inputMode="numeric" className={cellCls + ' text-right tabular-nums'} value={r.kuantitas || ''} onChange={e => setField(i, 'kuantitas', Number(e.target.value.replace(/\D/g, '')) || 0)} /></td>
+                <td data-fill-row={i} data-fill-col="warna" className={`border border-white/10 relative group ${warnaF.cls}`}>
+                  <input className={cellCls} value={r.warna} onChange={e => setField(i, 'warna', e.target.value)} placeholder="Warna..." />
+                  <FillHandle active={warnaF.isSrc} onStart={() => beginFill(i, 'warna', r.warna)} />
+                </td>
+                <td data-fill-row={i} data-fill-col="kuantitas" className={`border border-white/10 relative group ${kuanF.cls}`}>
+                  <input type="text" inputMode="numeric" className={cellCls + ' text-right tabular-nums'} value={r.kuantitas || ''} onChange={e => setField(i, 'kuantitas', Number(e.target.value.replace(/\D/g, '')) || 0)} />
+                  <FillHandle active={kuanF.isSrc} onStart={() => beginFill(i, 'kuantitas', String(r.kuantitas || ''))} />
+                </td>
                 <td className="border border-white/10 text-center">
                   {!r.isFixed && (
                     <button onClick={() => removeRow(i)} title="Hapus baris" className="text-rose-500 hover:text-rose-300 p-1 rounded hover:bg-rose-500/10">
@@ -4428,11 +4614,12 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus.</p>
+      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style).</p>
     </div>
   );
 }
