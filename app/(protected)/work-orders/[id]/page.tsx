@@ -1709,7 +1709,10 @@ export default function WorkOrderDetailPage() {
       }
 
       // === WO 4: Form Permintaan Gudang === (autoTable — crisp).
-      if (freshGudang.length > 0) {
+      // Selalu ikut di Download All meski kosong — kalau belum ada data,
+      // pakai daftar item standar (WO4_ITEMS) dengan BAHAN/WARNA/KUANTITAS
+      // dikosongkan supaya form gudang blank tetap tercetak.
+      {
         if (!firstPage) pdf.addPage();
         firstPage = false;
         pdf.setFontSize(14);
@@ -1717,16 +1720,20 @@ export default function WorkOrderDetailPage() {
         pdf.setFontSize(10);
         pdf.text(`No WO: ${woName}`, 14, 26);
 
+        const gudangBody = freshGudang.length > 0
+          ? freshGudang.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
+              String(i + 1),
+              String(r.bagian || ''),
+              String(r.bahan || ''),
+              String(r.warna || ''),
+              String(r.kuantitas || 0),
+            ])
+          : WO4_ITEMS.map((item, i) => [String(i + 1), item, '', '', '']);
+
         autoTable(pdf, {
           startY: 32,
           head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
-          body: freshGudang.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
-            String(i + 1),
-            String(r.bagian || ''),
-            String(r.bahan || ''),
-            String(r.warna || ''),
-            String(r.kuantitas || 0),
-          ]),
+          body: gudangBody,
           styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
           headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
           bodyStyles: { halign: 'left' },
