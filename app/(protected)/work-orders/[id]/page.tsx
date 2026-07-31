@@ -1629,6 +1629,9 @@ export default function WorkOrderDetailPage() {
         // Sisihkan ~80mm di kanan buat PROMO/BONUS box.
         const rightBoxW = 80;
         const rightBoxX = pageW - margin - rightBoxW;
+        // Page the table starts on — PROMO/BONUS boxes get drawn here so they
+        // line up with the first header row even when the team list paginates.
+        const woTablePage = pdf.getNumberOfPages();
         autoTable(pdf, {
           startY: 32,
           margin: { left: margin, right: rightBoxW + margin + 4 },
@@ -1654,6 +1657,9 @@ export default function WorkOrderDetailPage() {
 
         // Draw PROMO box (top) + BONUS box (bottom) di area kanan.
         // Header pakai biru (#3b82f6), border hitam, isi text di dalam.
+        // Kembali ke halaman tabel mulai supaya box sejajar header pertama.
+        const woTableLastPage = pdf.getNumberOfPages();
+        pdf.setPage(woTablePage);
         const boxHeaderH = 7;
         const boxBodyH = 30;
         const boxW = rightBoxW;
@@ -1687,6 +1693,8 @@ export default function WorkOrderDetailPage() {
 
         // Tanda tangan di bawah tabel — 3-column horizontal (Dibuat /
         // Dicek / Diterima Oleh). Sesuai request user 'kayak sebelumnya'.
+        // Kembali ke halaman terakhir tabel dulu.
+        pdf.setPage(woTableLastPage);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const finalY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
         if (finalY < pageH - 30) {
@@ -4194,7 +4202,11 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
 
       <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik icon X untuk hapus kolom. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell ke bawah/atas untuk auto-fill (Excel-style). NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
 
-      <div className="overflow-x-auto rounded-xl border border-white/[0.08] bg-[#111827]">
+      {/* Bounded-height scroll box so the horizontal scrollbar sits at the
+          bottom edge of the visible box (always on-screen) instead of the
+          very bottom of a tall table — no need to scroll to the last row to
+          reach it. Vertical scrolling happens inside the box. */}
+      <div className="overflow-auto max-h-[70vh] rounded-xl border border-white/[0.08] bg-[#111827]">
         <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr className="text-slate-200 font-bold text-center" style={{ background: '#065f46' }}>
@@ -4658,6 +4670,9 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
 
       const rightBoxW = 80;
       const rightBoxX = pageW - margin - rightBoxW;
+      // Page the table starts on — PROMO/BONUS boxes get drawn here so they
+      // line up with the first header row even when the team list paginates.
+      const woTablePage = pdf.getNumberOfPages();
       autoTable(pdf, {
         startY: 32,
         margin: { left: margin, right: rightBoxW + margin + 4 },
@@ -4680,6 +4695,11 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
           5: { cellWidth: 15 },
         },
       });
+
+      // autoTable leaves the cursor on the last page; jump back to the page
+      // where the table began so PROMO/BONUS sit beside the first header row.
+      const woTableLastPage = pdf.getNumberOfPages();
+      pdf.setPage(woTablePage);
 
       const boxHeaderH = 7, boxBodyH = 30, boxW = rightBoxW;
       // PROMO box
@@ -4712,7 +4732,8 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
 
       // Tanda tangan di bawah tabel — 3-column horizontal
       // (Dibuat / Dicek / Diterima Oleh). Sesuai request user
-      // 'kayak sebelumnya'.
+      // 'kayak sebelumnya'. Kembali ke halaman terakhir tabel dulu.
+      pdf.setPage(woTableLastPage);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const finalY = ((pdf as any).lastAutoTable?.finalY || 40) + 8;
       if (finalY < pageH - 30) {
