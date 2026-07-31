@@ -1,8 +1,9 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { dbGet } from '@/lib/api-db';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Legend, LabelList, Cell,
+  LabelList, Cell,
 } from 'recharts';
 
 /**
@@ -39,26 +40,41 @@ function pick(row: ResellerRow, keys: string[]): string {
   return '';
 }
 
+function fmtRp(n: number): string {
+  return 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type OrderRow = Record<string, any>;
+
 export default function GrafikResellerPage() {
   const [rows, setRows] = useState<ResellerRow[]>([]);
+  const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [errHint, setErrHint] = useState('');
   const [topN, setTopN] = useState(15);
+  const [orderTopN, setOrderTopN] = useState(15);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError('');
     setErrHint('');
     try {
-      const res = await fetch('/api/reseller/pendaftar');
-      const json = await res.json();
-      if (!json.success) {
-        setError(json.error || 'Gagal memuat');
-        setErrHint(json.hint || '');
+      // Fetch reseller list + orders paralel. Orders filter client-side
+      // by reseller_id IS NOT NULL supaya cuma order dari reseller
+      // yang di-count di chart history.
+      const [resellerRes, ordersRes] = await Promise.all([
+        fetch('/api/reseller/pendaftar').then(r => r.json()),
+        dbGet('orders').catch(() => []),
+      ]);
+      if (!resellerRes.success) {
+        setError(resellerRes.error || 'Gagal memuat');
+        setErrHint(resellerRes.hint || '');
       } else {
-        setRows(json.data.rows || []);
+        setRows(resellerRes.data.rows || []);
       }
+      setOrders(ordersRes as OrderRow[]);
     } catch (e) {
       setError(String(e));
     }
@@ -66,6 +82,44 @@ export default function GrafikResellerPage() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // History order dari reseller: filter orders yang punya
+  // reseller_id, group by reseller_kota (kalau kosong pakai
+  // reseller_nama sebagai fallback label). Untuk lihat trend
+  // per-reseller siapa yang paling produktif.
+  const orderHistoryData = useMemo(() => {
+    const counter = new Map<string, { count: number; nominal: number; reseller_nama_set: Set<string> }>();
+    for (const o of orders) {
+      const rid = String(o.reseller_id || '').trim();
+      if (!rid) continue;
+      const kota = String(o.reseller_kota || '').trim() || String(o.reseller_nama || '').trim() || '(Tanpa kota)';
+      const nom = Number(o.nominal_order) || 0;
+      const nama = String(o.reseller_nama || '').trim();
+      const cur = counter.get(kota) || { count: 0, nominal: 0, reseller_nama_set: new Set<string>() };
+      cur.count++;
+      cur.nominal += nom;
+      if (nama) cur.reseller_nama_set.add(nama);
+      counter.set(kota, cur);
+    }
+    return Array.from(counter.entries())
+      .map(([kota, v]) => ({
+        kota,
+        count: v.count,
+        nominal: v.nominal,
+        reseller_names: Array.from(v.reseller_nama_set).join(', '),
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [orders]);
+  const totalOrderReseller = useMemo(() => orderHistoryData.reduce((s, d) => s + d.count, 0), [orderHistoryData]);
+  const totalNominalReseller = useMemo(() => orderHistoryData.reduce((s, d) => s + d.nominal, 0), [orderHistoryData]);
+  const orderChartData = useMemo(() => {
+    const top = orderHistoryData.slice(0, orderTopN);
+    return top.map((d, i) => ({
+      ...d,
+      pct: totalOrderReseller > 0 ? (d.count / totalOrderReseller) * 100 : 0,
+      color: PALETTE[i % PALETTE.length],
+    }));
+  }, [orderHistoryData, orderTopN, totalOrderReseller]);
 
   // Group by kota, count, sort desc.
   const kotaData = useMemo(() => {
@@ -253,6 +307,85 @@ export default function GrafikResellerPage() {
             </div>
           </div>
 
+          {/* History Order dari Reseller — chart baru */}
+          <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="text-base font-bold text-white">History Order dari Reseller</h2>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {orderHistoryData.length > 0 ? (
+                    <>{totalOrderReseller} order dari {orderHistoryData.length} kota reseller · total nilai {fmtRp(totalNominalReseller)}</>
+                  ) : (
+                    <>Belum ada order dari reseller. Data mulai terkumpul saat CS Selling pick reseller di Buat Order Baru.</>
+                  )}
+                </p>
+              </div>
+              {orderHistoryData.length > 10 && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <label className="text-[11px] text-slate-400">Tampil:</label>
+                  <select
+                    value={orderTopN}
+                    onChange={e => setOrderTopN(Number(e.target.value))}
+                    className="bg-[#0d1117] border border-white/10 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-rose-500/40"
+                  >
+                    <option value={10}>Top 10</option>
+                    <option value={15}>Top 15</option>
+                    <option value={25}>Top 25</option>
+                    <option value={50}>Top 50</option>
+                    <option value={orderHistoryData.length}>Semua ({orderHistoryData.length})</option>
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="p-4">
+              {orderChartData.length === 0 ? (
+                <div className="py-16 text-center text-sm text-slate-500">
+                  <p>Belum ada order tertaut ke reseller.</p>
+                  <p className="text-xs mt-1 text-slate-600">Buka <span className="text-rose-300 font-medium">Orders → Buat Order Baru</span>, cari nama reseller di dropdown Customer. Order otomatis ke-tag.</p>
+                </div>
+              ) : (
+                <div style={{ width: '100%', height: Math.max(300, orderChartData.length * 32 + 40) }}>
+                  <ResponsiveContainer>
+                    <BarChart
+                      data={orderChartData}
+                      layout="vertical"
+                      margin={{ top: 8, right: 100, bottom: 8, left: 8 }}
+                    >
+                      <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" horizontal={false} />
+                      <XAxis
+                        type="number"
+                        stroke="#64748b"
+                        tick={{ fontSize: 11, fill: '#94a3b8' }}
+                        tickLine={{ stroke: '#334155' }}
+                        allowDecimals={false}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="kota"
+                        stroke="#64748b"
+                        width={160}
+                        tick={{ fontSize: 11, fill: '#cbd5e1' }}
+                        tickLine={{ stroke: '#334155' }}
+                      />
+                      <Tooltip content={<OrderHistoryTooltip totalOrders={totalOrderReseller} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                      <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                        {orderChartData.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                        <LabelList
+                          dataKey="count"
+                          position="right"
+                          style={{ fill: '#e2e8f0', fontSize: 12, fontWeight: 600 }}
+                          formatter={(v: unknown) => `${v} order`}
+                        />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Table breakdown */}
           {kotaData.length > 0 && (
             <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
@@ -318,6 +451,44 @@ function StatCard({ label, value, sub, accent, highlight }: {
       <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">{label}</p>
       <p className="text-2xl font-bold mt-1 tabular-nums text-white truncate" title={value}>{value}</p>
       {sub && <p className={`text-xs mt-1 font-medium ${c.accent} truncate`} title={sub}>{sub}</p>}
+    </div>
+  );
+}
+
+function OrderHistoryTooltip({ active, payload, totalOrders }: {
+  active?: boolean;
+  payload?: Array<{ payload: { kota: string; count: number; nominal: number; reseller_names: string; pct: number; color: string } }>;
+  totalOrders: number;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  return (
+    <div className="rounded-lg bg-[#0c1120] border border-white/[0.1] px-3 py-2 shadow-xl min-w-[220px]">
+      <div className="flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: row.color }} />
+        <p className="text-sm font-semibold text-white">{row.kota}</p>
+      </div>
+      {row.reseller_names && (
+        <p className="text-[10px] text-slate-500 mt-0.5 pl-4.5 truncate max-w-[200px]" title={row.reseller_names}>
+          Reseller: {row.reseller_names}
+        </p>
+      )}
+      <div className="mt-2 pt-2 border-t border-white/[0.06] space-y-0.5 text-xs">
+        <div className="flex justify-between gap-4">
+          <span className="text-slate-400">Jumlah Order</span>
+          <span className="text-white font-semibold tabular-nums">{row.count.toLocaleString('id-ID')}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-slate-400">Total Nilai</span>
+          <span className="text-emerald-300 font-semibold tabular-nums">{fmtRp(row.nominal)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-slate-400">Persentase</span>
+          <span className="text-emerald-300 font-semibold tabular-nums">
+            {totalOrders > 0 ? row.pct.toFixed(1) : '0'}%
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

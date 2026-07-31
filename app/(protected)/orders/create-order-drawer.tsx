@@ -317,14 +317,37 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   const [promoList, setPromoList] = useState<Row[]>([]);
   const [paketList, setPaketList] = useState<Row[]>([]);
   const [customersList, setCustomersList] = useState<Row[]>([]);
+  // Reseller list dari DB terpisah (u768480753_perusahaan) — di-merge
+  // ke customer suggestions supaya CS Selling bisa search + pick
+  // reseller langsung.
+  const [resellersList, setResellersList] = useState<Row[]>([]);
+  // Marker: kalau user pick reseller dari dropdown, simpan snapshot
+  // di sini supaya save handler bisa tulis ke orders.reseller_*.
+  const [pickedReseller, setPickedReseller] = useState<{ id: string; nama: string; kota: string } | null>(null);
   useEffect(() => {
     if (open) {
       dbGet('leads').then(setLeadsList).catch(() => {});
       dbGet('promo').then(setPromoList).catch(() => {});
       dbGet('paket').then(setPaketList).catch(() => {});
       dbGet('customers').then(setCustomersList).catch(() => {});
+      // Fetch reseller list — swallow error kalau env belum diset atau
+      // DB reseller down, biar dropdown tetap jalan tanpa reseller.
+      fetch('/api/reseller/pendaftar')
+        .then(r => r.json())
+        .then(j => { if (j.success) setResellersList(j.data.rows || []); })
+        .catch(() => {});
     }
   }, [open]);
+
+  // Reset pickedReseller kalau user ubah nama customer manual
+  // (bukan lewat pick dropdown). Ini penting: kalau user awal pick
+  // reseller lalu edit namanya, jangan pertahankan snapshot yang
+  // tidak match.
+  useEffect(() => {
+    if (pickedReseller && customer.trim() !== pickedReseller.nama.trim()) {
+      setPickedReseller(null);
+    }
+  }, [customer, pickedReseller]);
 
   // Customer autocomplete — match by nama, prefer prefix matches at the top
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -340,26 +363,98 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, [showCustomerDropdown]);
 
-  const customerSuggestions = useMemo(() => {
+  // Helper: pick value from reseller row dengan alias case-insensitive.
+  // Reseller DB kolom bervariasi (FULL_NAME, full_name, name, etc).
+  function pickReselField(row: Row, keys: string[]): string {
+    for (const k of keys) {
+      for (const variant of [k, k.toUpperCase(), k.toLowerCase()]) {
+        const v = row[variant];
+        if (v != null && String(v).trim()) return String(v).trim();
+      }
+    }
+    return '';
+  }
+
+  // Merge suggestion: customer local + reseller (marked dengan __isReseller).
+  // Reseller di-tag pakai marker supaya pickCustomer bisa deteksi
+  // dan set pickedReseller. Keduanya sort by relevance (starts-with dulu).
+  type CustomerSuggestion = {
+    id?: number | string;
+    nama: string;
+    no_hp: string;
+    alamat_lengkap: string;
+    provinsi: string;
+    kabupaten_kota: string;
+    __isReseller: boolean;
+    __resellerId?: string;
+    __resellerKota?: string;
+  };
+  const customerSuggestions = useMemo<CustomerSuggestion[]>(() => {
     const q = customer.trim().toLowerCase();
     if (!q) return [];
-    const matches = customersList.filter(c => String(c.nama || '').toLowerCase().includes(q));
-    matches.sort((a, b) => {
-      const an = String(a.nama || '').toLowerCase();
-      const bn = String(b.nama || '').toLowerCase();
+    const custMatches: CustomerSuggestion[] = customersList
+      .filter(c => String(c.nama || '').toLowerCase().includes(q))
+      .map(c => ({
+        id: c.id,
+        nama: String(c.nama || ''),
+        no_hp: String(c.no_hp || ''),
+        alamat_lengkap: String(c.alamat_lengkap || ''),
+        provinsi: String(c.provinsi || ''),
+        kabupaten_kota: String(c.kabupaten_kota || ''),
+        __isReseller: false,
+      }));
+    const resMatches: CustomerSuggestion[] = resellersList
+      .map(r => {
+        const nama = pickReselField(r, ['full_name', 'nama', 'name']);
+        const wa = pickReselField(r, ['wa_number', 'whatsapp', 'no_hp', 'no_wa', 'phone']);
+        const kota = pickReselField(r, ['city', 'kota']);
+        const alamat = pickReselField(r, ['address', 'alamat_lengkap', 'alamat']);
+        const provinsi = pickReselField(r, ['province', 'provinsi']);
+        const id = String(r.id ?? '');
+        return {
+          id,
+          nama,
+          no_hp: wa,
+          alamat_lengkap: alamat,
+          provinsi,
+          kabupaten_kota: kota,
+          __isReseller: true,
+          __resellerId: id,
+          __resellerKota: kota,
+        };
+      })
+      .filter(r => r.nama && r.nama.toLowerCase().includes(q));
+    const all = [...custMatches, ...resMatches];
+    all.sort((a, b) => {
+      const an = a.nama.toLowerCase();
+      const bn = b.nama.toLowerCase();
       const aStarts = an.startsWith(q) ? 0 : 1;
       const bStarts = bn.startsWith(q) ? 0 : 1;
       if (aStarts !== bStarts) return aStarts - bStarts;
       return an.localeCompare(bn);
     });
-    return matches.slice(0, 8);
-  }, [customer, customersList]);
+    return all.slice(0, 10);
+  }, [customer, customersList, resellersList]);
 
-  function pickCustomer(c: Row) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function pickCustomer(c: any) {
     setCustomer(String(c.nama || ''));
     setAlamat(String(c.alamat_lengkap || ''));
     setNoHp(String(c.no_hp || ''));
+    if (c.provinsi) setProvinsi(String(c.provinsi));
+    if (c.kabupaten_kota) setKabupaten(String(c.kabupaten_kota));
     setShowCustomerDropdown(false);
+    // Kalau ini reseller, tag pickedReseller supaya save handler
+    // tulis snapshot ke orders.reseller_*.
+    if (c.__isReseller) {
+      setPickedReseller({
+        id: String(c.__resellerId || ''),
+        nama: String(c.nama || ''),
+        kota: String(c.__resellerKota || ''),
+      });
+    } else {
+      setPickedReseller(null);
+    }
   }
 
   function addItem() {
@@ -428,7 +523,8 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
       }, 0);
       const noOrder = `ORD${String(maxNum + 1).padStart(3, '0')}`;
 
-      // Create order
+      // Create order — kalau pickedReseller ada (user pick dari
+      // dropdown reseller), snapshot fields ke orders.reseller_*.
       const orderId = await dbCreate('orders', {
         no_order: noOrder,
         customer_id: customerId,
@@ -453,6 +549,9 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
         dp_produksi: dpProduksiTotal,
         kekurangan,
         tanggal_acc_proofing: tglAccProofing || null,
+        reseller_id: pickedReseller?.id || null,
+        reseller_nama: pickedReseller?.nama || null,
+        reseller_kota: pickedReseller?.kota || null,
       });
 
       // Create order items
@@ -640,22 +739,36 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                 {showCustomerDropdown && customerSuggestions.length > 0 && (
                   <div className="absolute left-0 right-0 top-full mt-1 max-h-64 overflow-y-auto rounded-lg bg-[#0c1120] border border-white/10 shadow-xl shadow-black/50 z-20">
                     <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-500 border-b border-white/[0.06]">
-                      Customer ditemukan ({customerSuggestions.length})
+                      Hasil ({customerSuggestions.length})
                     </div>
-                    {customerSuggestions.map(c => (
+                    {customerSuggestions.map((c, idx) => (
                       <button
-                        key={c.id}
+                        key={(c.__isReseller ? 'r-' : 'c-') + (c.id ?? c.__resellerId ?? idx)}
                         type="button"
                         onClick={() => pickCustomer(c)}
                         className="w-full text-left px-4 py-2.5 hover:bg-white/[0.04] border-b border-white/[0.04] last:border-b-0 transition-colors"
                       >
-                        <p className="text-sm font-medium text-white truncate">{c.nama}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-white truncate flex-1">{c.nama}</p>
+                          {c.__isReseller && (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-rose-500/40 text-rose-300 bg-rose-500/10 shrink-0">
+                              Reseller
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">
                           {c.no_hp || '—'}
-                          {c.alamat_lengkap ? ` · ${c.alamat_lengkap}` : ''}
+                          {c.kabupaten_kota ? ` · ${c.kabupaten_kota}` : ''}
+                          {!c.kabupaten_kota && c.alamat_lengkap ? ` · ${c.alamat_lengkap}` : ''}
                         </p>
                       </button>
                     ))}
+                  </div>
+                )}
+                {pickedReseller && (
+                  <div className="mt-1.5 inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-md border border-rose-500/40 text-rose-300 bg-rose-500/10">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/></svg>
+                    Dari data reseller: {pickedReseller.kota || '-'}
                   </div>
                 )}
               </div>

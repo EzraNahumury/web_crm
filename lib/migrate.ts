@@ -1001,6 +1001,25 @@ const MIGRATIONS: Migration[] = [
         "WHERE NOT EXISTS (SELECT 1 FROM `leads` WHERE LOWER(`nama`) = 'ayres solo')",
     ],
   },
+  {
+    // Order yang dibuat dari data reseller (CS Selling pick reseller
+    // di create-order-drawer) di-snapshot ke 3 kolom ini supaya:
+    //   • Grafik reseller history order tidak perlu cross-DB join
+    //     (reseller di DB terpisah u768480753_perusahaan).
+    //   • Kalau reseller di DB sumber ke-update/hapus, riwayat order
+    //     tetap valid (snapshot immutable).
+    //   • Filter order by reseller cepat (kolom local, indexed lebih
+    //     mudah).
+    // Semua nullable — order non-reseller tidak isi field ini.
+    name: '059_orders_reseller_snapshot',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `reseller_id` VARCHAR(64) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `reseller_nama` VARCHAR(255) NULL",
+      "ALTER TABLE `orders` ADD COLUMN `reseller_kota` VARCHAR(120) NULL",
+      "ALTER TABLE `orders` ADD INDEX `idx_orders_reseller_id` (`reseller_id`)",
+      "ALTER TABLE `orders` ADD INDEX `idx_orders_reseller_kota` (`reseller_kota`)",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
