@@ -110,12 +110,15 @@ function SearchableSelect({
 
 // ─────────────────────────── DRAWER ───────────────────────────
 
-function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, editPayments }: {
+function CsSellingDrawer({ open, onClose, onSaved, customers, leads, resellers, editOrder, editPayments }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
   customers: Row[];
   leads: Row[];
+  // Reseller list dari DB terpisah — di-merge ke customer dropdown
+  // supaya CS Selling bisa search + pick reseller langsung.
+  resellers: Row[];
   // When present, drawer runs in edit mode — pre-fills fields and
   // saves via UPDATE instead of INSERT.
   editOrder?: Row | null;
@@ -159,19 +162,71 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
   const { data: regencies } = useWilayah('regencies', provId);
   const { data: districts } = useWilayah('districts', kabId);
 
-  const customerOptions: Option[] = useMemo(
-    () => customers.map(c => ({
+  // Marker snapshot reseller — kalau user pick reseller dari dropdown,
+  // simpan di sini supaya save handler tulis ke orders.reseller_*.
+  const [pickedReseller, setPickedReseller] = useState<{ id: string; nama: string; kota: string } | null>(null);
+
+  // Helper pick reseller field (case-insensitive full map).
+  function pickReselField(row: Row, keys: string[]): string {
+    const map: Record<string, unknown> = {};
+    for (const k of Object.keys(row)) map[k.toLowerCase()] = row[k];
+    for (const k of keys) {
+      const v = map[k.toLowerCase()];
+      if (v != null && String(v).trim()) return String(v).trim();
+    }
+    return '';
+  }
+
+  // Merge customer options: customer local + reseller. Reseller
+  // di-prefix value "res:{id}" supaya bisa dibedakan dari customer
+  // local biasa saat handleCustomerPick jalan.
+  const customerOptions: Option[] = useMemo(() => {
+    const custOpts: Option[] = customers.map(c => ({
       value: String(c.id), label: String(c.nama || ''),
       sublabel: [c.no_hp, c.kabupaten_kota].filter(Boolean).join(' · '),
-    })),
-    [customers]
-  );
+    }));
+    const resOpts: Option[] = resellers.map(r => {
+      const nama = pickReselField(r, ['full_name', 'nama', 'name']);
+      const wa = pickReselField(r, ['wa_number', 'whatsapp', 'no_hp', 'no_wa', 'phone']);
+      const kota = pickReselField(r, ['city', 'kota']);
+      const id = String(r.id ?? '');
+      return {
+        value: `res:${id}`,
+        label: `${nama} [RESELLER]`,
+        sublabel: [wa, kota].filter(Boolean).join(' · '),
+      };
+    }).filter(o => o.label && o.label !== ' [RESELLER]');
+    return [...custOpts, ...resOpts];
+  }, [customers, resellers]);
   const leadOptions: Option[] = useMemo(
     () => leads.map(l => ({ value: String(l.id), label: String(l.nama || '') })),
     [leads]
   );
 
   function handleCustomerPick(v: string) {
+    // Reseller value prefixed dengan "res:{id}" — detect + fetch dari
+    // resellers list, snapshot ke pickedReseller.
+    if (v.startsWith('res:')) {
+      const rid = v.slice(4);
+      const r = resellers.find(x => String(x.id ?? '') === rid);
+      if (r) {
+        const nama = pickReselField(r, ['full_name', 'nama', 'name']);
+        const wa = pickReselField(r, ['wa_number', 'whatsapp', 'no_hp', 'no_wa', 'phone']);
+        const kota = pickReselField(r, ['city', 'kota']);
+        const alamat = pickReselField(r, ['address', 'alamat_lengkap', 'alamat']);
+        const provinsi = pickReselField(r, ['province', 'provinsi']);
+        // Kosongkan customerId supaya save handler bikin customer local
+        // baru (auto-register) dari data reseller.
+        setCustomerId('');
+        setCustomer(nama);
+        setNoHp(wa);
+        setAlamat(alamat);
+        setProvinsi(provinsi);
+        setKabupaten(kota);
+        setPickedReseller({ id: rid, nama, kota });
+      }
+      return;
+    }
     setCustomerId(v);
     const c = customers.find(x => String(x.id) === v);
     if (c) {
@@ -181,6 +236,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
       setProvinsi(String(c.provinsi || ''));
       setKabupaten(String(c.kabupaten_kota || ''));
       setKecamatan(String(c.kecamatan || ''));
+      setPickedReseller(null);
     }
   }
 
@@ -275,6 +331,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
     setKeterangan('');
     setPilihanLayanan(''); setExpressDurasi(''); setDeadlineLock('');
     setBuktiTf(null); setBuktiTfName('');
+    setPickedReseller(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -376,6 +433,7 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
         : null;
 
       // Shared payload minus keys that only apply to insert vs update.
+      // Kalau pickedReseller ada, snapshot reseller_id/nama/kota juga.
       const sharedPayload = {
         customer_id: custId,
         customer_nama: customer.trim(),
@@ -390,6 +448,9 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
         keterangan: keterangan.trim() || null,
         pilihan_paket: pilihanPaketValue,
         deadline_lock: pilihanLayanan === 'Prioritas' && deadlineLock ? deadlineLock : null,
+        reseller_id: pickedReseller?.id || null,
+        reseller_nama: pickedReseller?.nama || null,
+        reseller_kota: pickedReseller?.kota || null,
       };
 
       let orderId: number;
@@ -555,14 +616,23 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, editOrder, 
                 <label className={labelCls}>Nama Customer <span className="text-rose-400">*</span></label>
                 <div className="space-y-1.5">
                   <SearchableSelect
-                    value={customerId}
+                    value={pickedReseller ? `res:${pickedReseller.id}` : customerId}
                     options={customerOptions}
-                    placeholder="Cari customer atau ketik nama baru..."
+                    placeholder="Cari customer/reseller atau ketik nama baru..."
                     onChange={handleCustomerPick}
                   />
-                  <input type="text" value={customer} onChange={e => { setCustomer(e.target.value); setCustomerId(''); }}
+                  <input type="text" value={customer} onChange={e => { setCustomer(e.target.value); setCustomerId(''); setPickedReseller(null); }}
                     placeholder="atau ketik nama baru..." className={inputCls} />
                 </div>
+                {pickedReseller && (
+                  <div className="mt-1.5 inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-md border border-rose-500/40 text-rose-300 bg-rose-500/10">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/></svg>
+                    Dari data reseller · {pickedReseller.kota || '-'}
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Sumber: {customers.length} customer lokal · {resellers.length} reseller
+                </p>
               </div>
               <div>
                 <label className={labelCls}>Alamat Lengkap <span className="text-rose-400">*</span></label>
@@ -813,6 +883,9 @@ export default function CsSellingPage() {
   const [payments, setPayments] = useState<Row[]>([]);
   const [leads, setLeads] = useState<Row[]>([]);
   const [customers, setCustomers] = useState<Row[]>([]);
+  // Reseller list dari DB terpisah — fetch di page-level, teruskan
+  // ke drawer supaya bisa merge di customer dropdown.
+  const [resellers, setResellers] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -841,6 +914,20 @@ export default function CsSellingPage() {
       setPayments(p);
       setLeads(l);
       setCustomers(c);
+      // Fetch reseller list — swallow error kalau env belum diset atau
+      // DB reseller down, biar drawer tetap jalan tanpa reseller.
+      try {
+        const rRes = await fetch('/api/reseller/pendaftar');
+        const rJson = await rRes.json();
+        if (rJson.success) {
+          setResellers(rJson.data.rows || []);
+          console.log('[cs-selling] reseller loaded:', rJson.data.rows?.length || 0);
+        } else {
+          console.warn('[cs-selling] reseller fetch failed:', rJson.error);
+        }
+      } catch (rErr) {
+        console.warn('[cs-selling] reseller fetch error:', rErr);
+      }
     } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
@@ -1168,6 +1255,7 @@ export default function CsSellingPage() {
         onClose={() => { setDrawerOpen(false); setEditOrder(null); }}
         onSaved={fetchAll}
         customers={customers}
+        resellers={resellers}
         leads={leads}
         editOrder={editOrder}
         editPayments={editPayments}
