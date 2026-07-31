@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 // paket & barang now fetched from DB
 import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
@@ -321,23 +321,40 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
   // ke customer suggestions supaya CS Selling bisa search + pick
   // reseller langsung.
   const [resellersList, setResellersList] = useState<Row[]>([]);
+  const [resellerErr, setResellerErr] = useState('');
   // Marker: kalau user pick reseller dari dropdown, simpan snapshot
   // di sini supaya save handler bisa tulis ke orders.reseller_*.
   const [pickedReseller, setPickedReseller] = useState<{ id: string; nama: string; kota: string } | null>(null);
+  // Fetch reseller SATU KALI di mount + re-fetch tiap kali drawer buka
+  // supaya data fresh + tidak tergantung timing 'open' state (dulu bug:
+  // kalau fetch gagal pertama kali, tidak retry).
+  const fetchResellers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/reseller/pendaftar');
+      const j = await res.json();
+      if (j.success) {
+        setResellersList(j.data.rows || []);
+        setResellerErr('');
+      } else {
+        console.warn('reseller fetch failed:', j.error);
+        setResellerErr(String(j.error || 'unknown'));
+      }
+    } catch (e) {
+      console.warn('reseller fetch error:', e);
+      setResellerErr(String(e));
+    }
+  }, []);
+  useEffect(() => { fetchResellers(); }, [fetchResellers]);
   useEffect(() => {
     if (open) {
       dbGet('leads').then(setLeadsList).catch(() => {});
       dbGet('promo').then(setPromoList).catch(() => {});
       dbGet('paket').then(setPaketList).catch(() => {});
       dbGet('customers').then(setCustomersList).catch(() => {});
-      // Fetch reseller list — swallow error kalau env belum diset atau
-      // DB reseller down, biar dropdown tetap jalan tanpa reseller.
-      fetch('/api/reseller/pendaftar')
-        .then(r => r.json())
-        .then(j => { if (j.success) setResellersList(j.data.rows || []); })
-        .catch(() => {});
+      // Re-fetch reseller kalau drawer buka (mungkin ada pendaftar baru).
+      fetchResellers();
     }
-  }, [open]);
+  }, [open, fetchResellers]);
 
   // Reset pickedReseller kalau user ubah nama customer manual
   // (bukan lewat pick dropdown). Ini penting: kalau user awal pick
@@ -365,12 +382,14 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
 
   // Helper: pick value from reseller row dengan alias case-insensitive.
   // Reseller DB kolom bervariasi (FULL_NAME, full_name, name, etc).
+  // Lookup pakai lowercased map supaya benar-benar case-insensitive
+  // tanpa harus enumerate variasi.
   function pickReselField(row: Row, keys: string[]): string {
+    const map: Record<string, unknown> = {};
+    for (const k of Object.keys(row)) map[k.toLowerCase()] = row[k];
     for (const k of keys) {
-      for (const variant of [k, k.toUpperCase(), k.toLowerCase()]) {
-        const v = row[variant];
-        if (v != null && String(v).trim()) return String(v).trim();
-      }
+      const v = map[k.toLowerCase()];
+      if (v != null && String(v).trim()) return String(v).trim();
     }
     return '';
   }
@@ -771,6 +790,10 @@ export default function CreateOrderDrawer({ open, onClose }: { open: boolean; on
                     Dari data reseller: {pickedReseller.kota || '-'}
                   </div>
                 )}
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Sumber: {customersList.length} customer lokal · {resellersList.length} reseller
+                  {resellerErr && <span className="text-rose-400 ml-1">· gagal load reseller: {resellerErr}</span>}
+                </p>
               </div>
               <div>
                 <label className={labelCls}>Alamat Lengkap<span className="text-red-500 ml-0.5">*</span></label>
