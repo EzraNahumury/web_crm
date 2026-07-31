@@ -8,6 +8,66 @@ import { normBagian } from '@/lib/utils';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
+// ── Unicode-safe PDF cells ─────────────────────────────────────────────
+// jsPDF's built-in fonts are Latin-only (WinAnsi), so Arabic / CJK / other
+// non-Latin names turn into mojibake in generated PDFs (e.g. "þ•þóþ-þƒ").
+// Fix: detect cells containing non-Latin characters and render them as a
+// canvas image — the browser shapes complex scripts correctly (Arabic
+// joining, CJK glyphs, RTL bidi). Latin text stays native (crisp,
+// selectable). Wire into any autoTable via didParseCell + didDrawCell.
+const HAS_NON_LATIN = /[^ -˿‐-‧]/;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function uniDidParseCell(data: any) {
+  if (data.section !== 'body') return;
+  const txt = Array.isArray(data.cell.text) ? data.cell.text.join('\n') : String(data.cell.text ?? '');
+  if (txt && HAS_NON_LATIN.test(txt)) {
+    data.cell._uniText = txt; // same cell object is reused in didDrawCell
+    data.cell.text = ['']; // suppress the garbled native draw
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function uniDidDrawCell(data: any) {
+  if (data.section !== 'body') return;
+  const txt = data.cell._uniText;
+  if (txt) drawUnicodeCellText(data.doc, txt, data.cell);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function drawUnicodeCellText(pdf: any, text: string, cell: any) {
+  try {
+    const fontPx = 32, padPx = 8;
+    const fontStack = `${fontPx}px "Segoe UI", Tahoma, "Noto Sans", "Noto Naskh Arabic", "Microsoft YaHei", "SimSun", Arial, sans-serif`;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.font = fontStack;
+    const wPx = Math.ceil(ctx.measureText(text).width) + padPx * 2;
+    const hPx = fontPx + padPx * 2;
+    canvas.width = wPx; canvas.height = hPx;
+    ctx.font = fontStack; // context resets when the canvas is resized
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#000000';
+    ctx.fillText(text, padPx, hPx / 2);
+    const dataUrl = canvas.toDataURL('image/png');
+
+    // Fit inside the cell (mm units), keep aspect ratio, honor halign.
+    const availW = Math.max(1, cell.width - 2);
+    const availH = Math.max(1, cell.height - 1.5);
+    const aspect = wPx / hPx;
+    let hMM = Math.min(availH, 4);
+    let wMM = hMM * aspect;
+    if (wMM > availW) { wMM = availW; hMM = wMM / aspect; }
+    const halign = cell.styles?.halign || 'left';
+    let x = cell.x + 1;
+    if (halign === 'center') x = cell.x + (cell.width - wMM) / 2;
+    else if (halign === 'right') x = cell.x + cell.width - wMM - 1;
+    const y = cell.y + (cell.height - hMM) / 2;
+    pdf.addImage(dataUrl, 'PNG', x, y, wMM, hMM);
+  } catch { /* leave blank rather than crash the whole PDF */ }
+}
+
 const PROD_STAGES = [
   'Proofing','Layout Printing','Approval Layout','Proses Printing','Sublim Press',
   'QC Panel','Potong Kain','QC Cutting','Jahit','QC Jersey','Finishing','Pengiriman',
@@ -1419,6 +1479,8 @@ export default function WorkOrderDetailPage() {
           startY: 32,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           head: head as any,
+          didParseCell: uniDidParseCell,
+          didDrawCell: uniDidDrawCell,
           body,
           styles: { fontSize: 8, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
           headStyles: { fillColor: [6, 95, 70], halign: 'center', valign: 'middle', textColor: 255, lineWidth: 0.3, lineColor: [0, 0, 0] },
@@ -1587,6 +1649,8 @@ export default function WorkOrderDetailPage() {
           startY: 32,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           head: head as any,
+          didParseCell: uniDidParseCell,
+          didDrawCell: uniDidDrawCell,
           body: parsedRows.map((r, i) => {
             const cells: (string | number)[] = [
               i + 1, r.nama, r.np, r.ukuran, r.kets[0] ?? '',
@@ -1636,6 +1700,8 @@ export default function WorkOrderDetailPage() {
           startY: 32,
           margin: { left: margin, right: rightBoxW + margin + 4 },
           head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'CHECK']],
+          didParseCell: uniDidParseCell,
+          didDrawCell: uniDidDrawCell,
           body: freshShip.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
             String(i + 1),
             String(r.nama || ''),
@@ -1733,6 +1799,8 @@ export default function WorkOrderDetailPage() {
         autoTable(pdf, {
           startY: 32,
           head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
+          didParseCell: uniDidParseCell,
+          didDrawCell: uniDidDrawCell,
           body: gudangBody,
           styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
           headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
@@ -4174,6 +4242,8 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         startY: 32,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         head: head as any,
+        didParseCell: uniDidParseCell,
+        didDrawCell: uniDidDrawCell,
         body,
         styles: { fontSize: 8, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
         headStyles: { fillColor: [6, 95, 70], halign: 'center', valign: 'middle', textColor: 255, lineWidth: 0.3, lineColor: [0, 0, 0] },
@@ -4684,6 +4754,8 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
         startY: 32,
         margin: { left: margin, right: rightBoxW + margin + 4 },
         head: [['NO', 'NAMA', 'NP', 'SIZE', 'KET', 'CHECK']],
+        didParseCell: uniDidParseCell,
+        didDrawCell: uniDidDrawCell,
         body: rows.map((r, i) => [
           String(i + 1),
           String(r.nama || ''),
@@ -5010,6 +5082,8 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
       autoTable(pdf, {
         startY: 32,
         head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
+        didParseCell: uniDidParseCell,
+        didDrawCell: uniDidDrawCell,
         body: rows.map((r, i) => [
           String(i + 1),
           String(r.bagian || ''),
