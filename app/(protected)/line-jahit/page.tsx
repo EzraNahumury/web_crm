@@ -2,6 +2,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from 'recharts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -124,7 +127,7 @@ function fmtPoin(n: number): string {
   return val.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 }
 
-type SubMenu = 'line-jahit' | 'kedatangan';
+type SubMenu = 'line-jahit' | 'kedatangan' | 'grafik';
 
 export default function LineJahitPage() {
   const toast = useToast();
@@ -399,6 +402,16 @@ export default function LineJahitPage() {
           }`}
         >
           Kedatangan Penjahit
+        </button>
+        <button
+          onClick={() => setActiveMenu('grafik')}
+          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+            activeMenu === 'grafik'
+              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+          }`}
+        >
+          Grafik
         </button>
       </div>
 
@@ -712,6 +725,16 @@ export default function LineJahitPage() {
 
       {activeMenu === 'kedatangan' && (
         <KedatanganView month={month} onSubmitted={fetchAll} />
+      )}
+
+      {activeMenu === 'grafik' && (
+        <GrafikView
+          month={month}
+          monthLabel={monthLabel}
+          rows={rows}
+          paketList={paketList}
+          targetByDate={targetByDate}
+        />
       )}
 
       {editingRow && (
@@ -1127,6 +1150,177 @@ function KedatanganView({ month, onSubmitted }: {
   return (
     <div className="max-w-lg">
       <KedatanganPenjahitForm defaultMonth={month} onSubmitted={onSubmitted} />
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   GrafikView — sub-tab Grafik. LineChart 2-series per hari:
+   - Target (biru) — targetByDate dari attendance (beban gaji / rate)
+   - Realisasi (emerald) — sum realisasiPoin(row) per tanggal
+   Chart style mirror grafik ADS INTERNAL — data-heavy line chart
+   dengan gap fill kalau ada hari kosong.
+   ───────────────────────────────────────────────────────────────────── */
+function GrafikView({ month, monthLabel, rows, paketList, targetByDate }: {
+  month: string;
+  monthLabel: string;
+  rows: LineJahitRow[];
+  paketList: Paket[];
+  targetByDate: Record<string, number>;
+}) {
+  // Days in month — build full range supaya hari kosong tampil 0 (chart
+  // tidak lompat).
+  const dayList = useMemo(() => {
+    const [y, m] = month.split('-').map(Number);
+    if (!y || !m) return [];
+    const last = new Date(y, m, 0).getDate();
+    const out: string[] = [];
+    for (let d = 1; d <= last; d++) {
+      out.push(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    }
+    return out;
+  }, [month]);
+
+  // Aggregate realisasi per tanggal dari rows (LineJahit).
+  const realisasiByDate = useMemo(() => {
+    const t: Record<string, number> = {};
+    for (const r of rows) {
+      const key = String(r.tanggal || '').slice(0, 10);
+      if (!key) continue;
+      t[key] = (t[key] || 0) + realisasiPoin(r, paketList);
+    }
+    return t;
+  }, [rows, paketList]);
+
+  const chartData = useMemo(() => {
+    return dayList.map(d => {
+      const target = Math.round(targetByDate[d] || 0);
+      const realisasi = Math.round(realisasiByDate[d] || 0);
+      const [, mm, dd] = d.split('-').map(Number);
+      return {
+        tanggal: d,
+        label: `${dd}/${mm}`,
+        target,
+        realisasi,
+        selisih: realisasi - target,
+      };
+    });
+  }, [dayList, targetByDate, realisasiByDate]);
+
+  const totalTarget = useMemo(() => chartData.reduce((s, p) => s + p.target, 0), [chartData]);
+  const totalRealisasi = useMemo(() => chartData.reduce((s, p) => s + p.realisasi, 0), [chartData]);
+  const konv = totalTarget > 0 ? (totalRealisasi / totalTarget) * 100 : 0;
+  const selisih = totalRealisasi - totalTarget;
+  const activeDays = chartData.filter(p => p.target > 0 || p.realisasi > 0).length;
+
+  return (
+    <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-semibold text-white">Target vs Realisasi · {monthLabel}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Biru = target poin (dari beban gaji penjahit ÷ rate dasar). Emerald = realisasi poin (dari input Line Jahit).
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+          <ChipStat label="Target" value={fmtPoin(totalTarget)} color="blue" />
+          <ChipStat label="Realisasi" value={fmtPoin(totalRealisasi)} color="emerald" />
+          <ChipStat
+            label="Selisih"
+            value={`${selisih >= 0 ? '+' : ''}${fmtPoin(selisih)}`}
+            color={selisih >= 0 ? 'emerald' : 'rose'}
+          />
+          <ChipStat
+            label="Konv"
+            value={totalTarget > 0 ? `${konv.toFixed(1)}%` : '—'}
+            color="fuchsia"
+          />
+          <ChipStat label="Hari Aktif" value={String(activeDays)} color="amber" />
+        </div>
+      </div>
+      <div className="p-4">
+        {totalTarget === 0 && totalRealisasi === 0 ? (
+          <div className="py-16 text-center text-sm text-slate-500">
+            Belum ada data target/realisasi di bulan ini.
+            <p className="text-xs text-slate-600 mt-1">Input Line Jahit + Kedatangan Penjahit dulu untuk lihat grafik.</p>
+          </div>
+        ) : (
+          <div style={{ width: '100%', height: 340 }}>
+            <ResponsiveContainer>
+              <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+                <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="label"
+                  stroke="#64748b"
+                  tick={{ fontSize: 10, fill: '#94a3b8' }}
+                  tickLine={{ stroke: '#334155' }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  allowDecimals={false}
+                  stroke="#64748b"
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  tickLine={{ stroke: '#334155' }}
+                  width={40}
+                />
+                <Tooltip content={<TargetRealisasiTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                <Legend wrapperStyle={{ paddingTop: 4, fontSize: 11 }} formatter={(v) => <span style={{ color: '#cbd5e1' }}>{v}</span>} />
+                <Line type="monotone" name="Target" dataKey="target" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                <Line type="monotone" name="Realisasi" dataKey="realisasi" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TargetRealisasiTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ payload: { target: number; realisasi: number; selisih: number }; name: string; value: number; color: string }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  const konv = row.target > 0 ? (row.realisasi / row.target) * 100 : 0;
+  return (
+    <div className="rounded-lg bg-[#0c1120] border border-white/[0.1] px-3 py-2 shadow-xl min-w-[180px]">
+      <p className="text-xs text-slate-400 mb-1">Tgl {label}</p>
+      <div className="space-y-0.5">
+        {payload.map(p => (
+          <div key={p.name} className="flex items-center gap-2 text-xs">
+            <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: p.color }} />
+            <span className="text-slate-300 flex-1">{p.name}</span>
+            <span className="text-white font-semibold tabular-nums">{fmtPoin(Number(p.value))}</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-2 text-xs pt-1 mt-1 border-t border-white/[0.06]">
+          <span className="w-2 h-2 rounded-sm shrink-0 bg-fuchsia-400" />
+          <span className="text-slate-300 flex-1">Konv</span>
+          <span className="text-fuchsia-300 font-semibold tabular-nums">{row.target > 0 ? `${konv.toFixed(1)}%` : '—'}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChipStat({ label, value, color }: {
+  label: string;
+  value: string;
+  color: 'blue' | 'emerald' | 'fuchsia' | 'amber' | 'rose';
+}) {
+  const scheme = {
+    blue: 'border-blue-500/30 bg-blue-500/10 text-blue-200',
+    emerald: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+    fuchsia: 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-200',
+    amber: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
+    rose: 'border-rose-500/30 bg-rose-500/10 text-rose-200',
+  }[color];
+  return (
+    <div className={`inline-flex items-center gap-1.5 rounded-lg border ${scheme} px-3 py-1.5`}>
+      <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">{label}</span>
+      <span className="text-sm font-bold tabular-nums">{value}</span>
     </div>
   );
 }
