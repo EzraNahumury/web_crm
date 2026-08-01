@@ -89,8 +89,12 @@ const ADMIN_NAV: SideNavItem[] = [
     ],
   },
   {
-    href: '/produksi', label: 'Produksi',
+    label: 'Produksi',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93s.844.083 1.18-.166l.715-.533a1.125 1.125 0 011.587.141l.773.773a1.125 1.125 0 01.141 1.587l-.533.715c-.249.336-.295.784-.166 1.18.13.396.506.71.93.78l.894.15c.542.09.94.56.94 1.109v1.094c0 .55-.398 1.02-.94 1.11l-.894.149c-.424.07-.764.384-.93.78s-.083.844.166 1.18l.533.715a1.125 1.125 0 01-.141 1.587l-.773.773a1.125 1.125 0 01-1.587.141l-.715-.533a1.125 1.125 0 00-1.18-.166c-.396.13-.71.506-.78.93l-.15.894c-.09.542-.56.94-1.109.94h-1.094c-.55 0-1.02-.398-1.11-.94l-.148-.894a1.125 1.125 0 00-.93-.78 1.125 1.125 0 00-1.18.166l-.715.533a1.125 1.125 0 01-1.587-.141l-.773-.773a1.125 1.125 0 01-.141-1.587l.533-.715c.249-.336.295-.784.166-1.18a1.125 1.125 0 00-.78-.93l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.764-.383.93-.78.13-.395.083-.843-.166-1.18l-.533-.715a1.125 1.125 0 01.141-1.587l.773-.773a1.125 1.125 0 011.587-.141l.715.533c.336.249.784.295 1.18.166.396-.13.71-.506.78-.93l.149-.894zM15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+    children: [
+      { href: '/produksi', label: 'Produksi' },
+      { href: '/produksi/history', label: 'History Produksi' },
+    ],
   },
   {
     href: '/work-orders', label: 'Work Orders',
@@ -172,7 +176,7 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'Approval Finance': ['/approval-finance'],
   'CS Order': ['/orders', '/orders/bukti-pembayaran'],
   'Work Orders': ['/work-orders'],
-  'Produksi': ['/produksi'],
+  'Produksi': ['/produksi', '/produksi/history'],
   'Monitoring Produksi': ['/monitoring-produksi', '/monitoring-produksi/history'],
   'Approval Gudang': ['/approval-gudang'],
   'CRM Deadline Lock': ['/crm-deadline-lock'],
