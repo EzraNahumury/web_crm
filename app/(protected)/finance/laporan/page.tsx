@@ -107,7 +107,6 @@ export default function LaporanFinancePage() {
   }, [month]);
 
   const totalNominal = useMemo(() => filteredRows.reduce((s, r) => s + (Number(r.nominal_order) || 0), 0), [filteredRows]);
-  const totalDp = useMemo(() => filteredRows.reduce((s, r) => s + (Number(r.dp_produksi) || 0) + (Number(r.dp_desain) || 0), 0), [filteredRows]);
 
   if (loading) return (
     <div className="space-y-4">
@@ -158,11 +157,10 @@ export default function LaporanFinancePage() {
       )}
 
       {/* Stat cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard label="Periode" value={month ? monthLabel : 'Semua Bulan'} accent="cyan" />
         <StatCard label="Total Customer" value={filteredRows.length.toLocaleString('id-ID')} accent="emerald" />
         <StatCard label="Total Nominal" value={fmtRp(totalNominal)} accent="blue" />
-        <StatCard label="Total DP Diterima" value={fmtRp(totalDp)} accent="amber" />
       </div>
 
       {/* Search */}
