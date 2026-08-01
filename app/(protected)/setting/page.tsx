@@ -36,7 +36,7 @@ const MENU_ITEMS = [
   'Dashboard',
   'CS Selling',
   'Antrian Design',
-  'Approval Finance',
+  'Finance',
   'CS Order',
   'Produksi',
   'Work Orders',

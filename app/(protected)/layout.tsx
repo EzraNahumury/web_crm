@@ -178,6 +178,9 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'CS Selling': ['/cs-selling', '/cs-selling/form-leads'],
   'Antrian Design': ['/antrian-design', '/antrian-design/history-reject'],
   'Finance': ['/approval-finance', '/finance/laporan'],
+  // Legacy alias: user yg role/menuAccess-nya masih pakai 'Approval Finance'
+  // (nama lama sebelum rename ke 'Finance') tetap dapat akses ke menu.
+  'Approval Finance': ['/approval-finance', '/finance/laporan'],
   'CS Order': ['/orders', '/orders/bukti-pembayaran'],
   'Work Orders': ['/work-orders'],
   'Produksi': ['/produksi', '/produksi/history'],
