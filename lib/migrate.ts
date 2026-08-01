@@ -1020,6 +1020,21 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD INDEX `idx_orders_reseller_kota` (`reseller_kota`)",
     ],
   },
+  {
+    // History Produksi status pengiriman ke customer. Setelah WO selesai
+    // (orders.status=DONE), operator produksi centang 'Status Terkirim'
+    // di History Produksi:
+    //   • status_terkirim: TINYINT(1), 1 = sudah dikirim
+    //   • status_terkirim_at: TIMESTAMP saat centang aksi
+    // Order dengan status_terkirim=1 muncul di menu Laporan Finance
+    // sebagai audit trail — Finance bisa lihat rincian order awal.
+    name: '060_orders_status_terkirim',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `status_terkirim` TINYINT(1) NOT NULL DEFAULT 0",
+      "ALTER TABLE `orders` ADD COLUMN `status_terkirim_at` TIMESTAMP NULL",
+      "ALTER TABLE `orders` ADD INDEX `idx_orders_status_terkirim` (`status_terkirim`)",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

@@ -1,18 +1,22 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { dbGet } from '@/lib/api-db';
+import { dbGet, dbUpdate } from '@/lib/api-db';
+import { useToast } from '@/lib/toast';
 
 /**
- * History Produksi — list WO yang sudah SELESAI (setelah Finance approve
- * pelunasan di stage Shipment). Data source:
- * - work_orders WHERE status = 'SELESAI' (dari finalize di approval-finance)
- * - orders WHERE status = 'DONE'
- * - wo_progress untuk ambil tanggal selesai (Shipment.completed_at)
- * - production_stages untuk lookup Shipment stage
+ * History Produksi — 2 tab:
+ * - Belum Terkirim (default): WO SELESAI + orders.status=DONE tapi
+ *   status_terkirim=0. Operator centang → pindah ke tab kedua.
+ * - Sudah Terkirim: WO yg sudah di-centang. Data juga muncul di
+ *   Laporan Finance.
  *
- * Filter: bulan (by completed_at) + search (no_wo / customer_nama / paket).
- * Table: No WO | Customer | Paket | Qty | Tgl Order | Tgl Selesai | link to WO detail.
+ * Data source:
+ * - work_orders WHERE status='SELESAI'
+ * - orders WHERE status='DONE'
+ * - wo_progress untuk Shipment.completed_at (tgl selesai produksi)
+ * - production_stages lookup Shipment
+ * - wo_detail_items untuk qty
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,6 +50,10 @@ function fmtDateTime(v: string | Date | null | undefined): string {
   return `${d} ${B[Number(mo) - 1]} ${y}${time}`;
 }
 
+function nowSql(): string {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}
+
 interface HistoryRow {
   woId: number;
   no_wo: string;
@@ -56,10 +64,14 @@ interface HistoryRow {
   tanggal_selesai: string;
   order_id: number;
   no_order: string;
-  pelunasan_approved_at: string;
+  status_terkirim: number;
+  status_terkirim_at: string;
 }
 
+type Tab = 'belum' | 'sudah';
+
 export default function HistoryProduksiPage() {
+  const toast = useToast();
   const [wos, setWos] = useState<Row[]>([]);
   const [orders, setOrders] = useState<Row[]>([]);
   const [progress, setProgress] = useState<Row[]>([]);
@@ -69,6 +81,8 @@ export default function HistoryProduksiPage() {
   const [error, setError] = useState('');
   const [month, setMonth] = useState(currentYm());
   const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<Tab>('belum');
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -78,7 +92,6 @@ export default function HistoryProduksiPage() {
         dbGet('orders').catch(() => []),
         dbGet('wo_progress').catch(() => []),
         dbGet('production_stages').catch(() => []),
-        // wo_detail_items untuk hitung qty per WO.
         dbGet('wo_detail_items').catch(() => []),
       ]);
       setWos(w);
@@ -95,15 +108,12 @@ export default function HistoryProduksiPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Build history rows dari WO status=SELESAI + join dengan Shipment
-  // completed_at + qty dari detail_items.
   const historyRows = useMemo<HistoryRow[]>(() => {
     const shipmentStage = stages.find(s => String(s.nama) === 'Shipment');
     const shipmentId = shipmentStage ? Number(shipmentStage.id) : null;
     const ordersById: Record<number, Row> = {};
     for (const o of orders) ordersById[Number(o.id)] = o;
 
-    // Sum qty per WO dari wo_detail_items.
     const qtyByWo: Record<number, number> = {};
     for (const di of detailItems) {
       const woId = Number(di.work_order_id);
@@ -116,10 +126,8 @@ export default function HistoryProduksiPage() {
       const st = String(w.status || '').toUpperCase();
       if (st !== 'SELESAI') continue;
       const order = ordersById[Number(w.order_id)];
-      // Filter: cuma yg orders.status = DONE (memastikan pelunasan approved).
       if (!order || String(order.status || '').toUpperCase() !== 'DONE') continue;
 
-      // Ambil completed_at dari wo_progress Shipment.
       let tanggalSelesai = '';
       if (shipmentId) {
         const sp = progress.find(p =>
@@ -127,7 +135,6 @@ export default function HistoryProduksiPage() {
         );
         if (sp?.completed_at) tanggalSelesai = String(sp.completed_at);
       }
-      // Fallback: pelunasan_approved_at kalau progress kosong.
       if (!tanggalSelesai && order.pelunasan_approved_at) {
         tanggalSelesai = String(order.pelunasan_approved_at);
       }
@@ -142,20 +149,23 @@ export default function HistoryProduksiPage() {
         tanggal_selesai: tanggalSelesai,
         order_id: Number(order.id),
         no_order: String(order.no_order || ''),
-        pelunasan_approved_at: String(order.pelunasan_approved_at || ''),
+        status_terkirim: Number(order.status_terkirim) || 0,
+        status_terkirim_at: String(order.status_terkirim_at || ''),
       });
     }
-    // Sort by tanggal_selesai DESC (terbaru dulu).
     return out.sort((a, b) => String(b.tanggal_selesai).localeCompare(String(a.tanggal_selesai)));
   }, [wos, orders, progress, stages, detailItems]);
 
+  // Partition per tab.
+  const belumRows = useMemo(() => historyRows.filter(r => r.status_terkirim !== 1), [historyRows]);
+  const sudahRows = useMemo(() => historyRows.filter(r => r.status_terkirim === 1), [historyRows]);
+  const activeRows = tab === 'belum' ? belumRows : sudahRows;
+
   const filteredRows = useMemo(() => {
-    let list = historyRows;
-    // Filter by month (tanggal_selesai).
+    let list = activeRows;
     if (month) {
       list = list.filter(r => String(r.tanggal_selesai || '').slice(0, 7) === month);
     }
-    // Search filter.
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter(r =>
@@ -166,7 +176,7 @@ export default function HistoryProduksiPage() {
       );
     }
     return list;
-  }, [historyRows, month, search]);
+  }, [activeRows, month, search]);
 
   const monthLabel = useMemo(() => {
     const [y, m] = month.split('-').map(Number);
@@ -175,6 +185,35 @@ export default function HistoryProduksiPage() {
 
   const totalQty = useMemo(() => filteredRows.reduce((s, r) => s + r.qty, 0), [filteredRows]);
   const totalWo = filteredRows.length;
+
+  // Toggle status_terkirim untuk 1 order. Optimistic update untuk feedback
+  // cepat, roll back kalau server error.
+  async function toggleStatusTerkirim(row: HistoryRow, checked: boolean) {
+    setBusyId(row.woId);
+    // Optimistic update
+    setOrders(prev => prev.map(o =>
+      Number(o.id) === row.order_id
+        ? { ...o, status_terkirim: checked ? 1 : 0, status_terkirim_at: checked ? nowSql() : null }
+        : o
+    ));
+    try {
+      await dbUpdate('orders', row.order_id, {
+        status_terkirim: checked ? 1 : 0,
+        status_terkirim_at: checked ? nowSql() : null,
+      });
+      toast.success(
+        checked ? 'Status Terkirim' : 'Status Terkirim Dibatalkan',
+        checked
+          ? `${row.customer} pindah ke tab Sudah Terkirim + muncul di Laporan Finance.`
+          : `${row.customer} kembali ke tab Belum Terkirim.`,
+      );
+      await fetchAll();
+    } catch (e) {
+      toast.error('Gagal', String(e));
+      await fetchAll(); // sync ulang dari server
+    }
+    setBusyId(null);
+  }
 
   if (loading) return (
     <div className="space-y-4">
@@ -198,7 +237,7 @@ export default function HistoryProduksiPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">History Produksi</h1>
               <p className="text-[13px] text-slate-300 mt-0.5">
-                WO yang sudah selesai — approved oleh Finance di stage Shipment. Read-only arsip.
+                WO yang sudah selesai. Centang <strong className="text-emerald-300">Status Terkirim</strong> saat barang dikirim ke customer.
               </p>
             </div>
           </div>
@@ -213,7 +252,6 @@ export default function HistoryProduksiPage() {
             <button
               onClick={() => setMonth('')}
               className="text-xs font-medium text-slate-300 hover:text-white px-3 py-2 rounded-xl border border-white/10 bg-[#111827] hover:bg-white/[0.04] transition-colors"
-              title="Show semua bulan"
             >
               Semua Bulan
             </button>
@@ -227,10 +265,40 @@ export default function HistoryProduksiPage() {
         </div>
       )}
 
+      {/* Tab switcher */}
+      <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#111827] border border-white/[0.06]">
+        <button
+          onClick={() => setTab('belum')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+            tab === 'belum'
+              ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/20'
+              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+          }`}
+        >
+          Belum Terkirim
+          <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full ${
+            tab === 'belum' ? 'bg-white/20 text-white' : 'bg-amber-500/20 text-amber-300'
+          }`}>{belumRows.length}</span>
+        </button>
+        <button
+          onClick={() => setTab('sudah')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+            tab === 'sudah'
+              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+          }`}
+        >
+          Sudah Terkirim
+          <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full ${
+            tab === 'sudah' ? 'bg-white/20 text-white' : 'bg-emerald-500/20 text-emerald-300'
+          }`}>{sudahRows.length}</span>
+        </button>
+      </div>
+
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard label="Periode" value={month ? monthLabel : 'Semua Bulan'} accent="cyan" />
-        <StatCard label="Total WO Selesai" value={totalWo.toLocaleString('id-ID')} accent="emerald" />
+        <StatCard label={tab === 'belum' ? 'Belum Terkirim' : 'Sudah Terkirim'} value={totalWo.toLocaleString('id-ID')} accent={tab === 'belum' ? 'amber' : 'emerald'} />
         <StatCard label="Total Pcs" value={totalQty.toLocaleString('id-ID')} accent="blue" />
       </div>
 
@@ -257,22 +325,31 @@ export default function HistoryProduksiPage() {
             <thead>
               <tr className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider border-b border-white/[0.06]">
                 <th className="text-left px-4 py-3 w-32">No WO</th>
-                <th className="text-left px-4 py-3 w-32">No Order</th>
+                <th className="text-left px-4 py-3 w-28">No Order</th>
                 <th className="text-left px-4 py-3 min-w-[220px]">Customer</th>
-                <th className="text-left px-4 py-3 min-w-[180px]">Paket</th>
-                <th className="text-right px-4 py-3 w-24">Qty (pcs)</th>
-                <th className="text-left px-4 py-3 w-36">Tgl Order</th>
-                <th className="text-left px-4 py-3 w-40">Tgl Selesai</th>
+                <th className="text-left px-4 py-3 min-w-[160px]">Paket</th>
+                <th className="text-right px-4 py-3 w-20">Qty</th>
+                <th className="text-left px-4 py-3 w-32">Tgl Order</th>
+                <th className="text-left px-4 py-3 w-36">Tgl Selesai</th>
+                {tab === 'sudah' && <th className="text-left px-4 py-3 w-36">Tgl Terkirim</th>}
+                <th className="text-center px-4 py-3 w-32">
+                  {tab === 'belum' ? 'Status Terkirim' : 'Aksi'}
+                </th>
                 <th className="w-16"></th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
-                    {historyRows.length === 0
-                      ? 'Belum ada WO yang selesai. Data mulai muncul setelah Finance approve pelunasan di stage Shipment.'
-                      : 'Tidak ada hasil untuk filter tersebut.'}
+                  <td colSpan={tab === 'sudah' ? 10 : 9} className="px-4 py-10 text-center text-sm text-slate-500">
+                    {tab === 'belum'
+                      ? (activeRows.length === 0
+                          ? 'Belum ada WO yang siap kirim. Data muncul setelah Finance approve pelunasan.'
+                          : 'Tidak ada hasil untuk filter tersebut.')
+                      : (activeRows.length === 0
+                          ? 'Belum ada WO yang di-centang Status Terkirim.'
+                          : 'Tidak ada hasil untuk filter tersebut.')
+                    }
                   </td>
                 </tr>
               ) : (
@@ -285,6 +362,33 @@ export default function HistoryProduksiPage() {
                     <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{r.qty.toLocaleString('id-ID')}</td>
                     <td className="px-4 py-3 text-slate-400 text-xs">{fmtDate(r.tanggal_order)}</td>
                     <td className="px-4 py-3 text-emerald-400 text-xs">{fmtDateTime(r.tanggal_selesai)}</td>
+                    {tab === 'sudah' && (
+                      <td className="px-4 py-3 text-emerald-300 text-xs">{fmtDateTime(r.status_terkirim_at)}</td>
+                    )}
+                    <td className="px-4 py-3 text-center">
+                      {tab === 'belum' ? (
+                        <label className={`inline-flex items-center gap-2 cursor-pointer group ${busyId === r.woId ? 'opacity-50 pointer-events-none' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={false}
+                            onChange={e => toggleStatusTerkirim(r, e.target.checked)}
+                            className="w-4 h-4 accent-emerald-500 cursor-pointer"
+                          />
+                          <span className="text-[11px] text-slate-400 group-hover:text-white transition-colors">
+                            Centang
+                          </span>
+                        </label>
+                      ) : (
+                        <button
+                          onClick={() => toggleStatusTerkirim(r, false)}
+                          disabled={busyId === r.woId}
+                          className="text-[10px] font-medium text-amber-300 border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-40 px-2 py-1 rounded-md transition-colors"
+                          title="Kembalikan ke tab Belum Terkirim"
+                        >
+                          Batalkan
+                        </button>
+                      )}
+                    </td>
                     <td className="px-2 py-3">
                       <Link
                         href={`/work-orders/${r.woId}`}
@@ -305,7 +409,7 @@ export default function HistoryProduksiPage() {
         {filteredRows.length > 0 && (
           <div className="px-4 py-3 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-slate-500">
             <span>{filteredRows.length} WO ditampilkan</span>
-            <span>Sort: Terbaru dulu (by Tgl Selesai)</span>
+            <span>Sort: Terbaru dulu</span>
           </div>
         )}
       </div>
@@ -316,12 +420,13 @@ export default function HistoryProduksiPage() {
 function StatCard({ label, value, accent }: {
   label: string;
   value: string;
-  accent: 'cyan' | 'emerald' | 'blue';
+  accent: 'cyan' | 'emerald' | 'blue' | 'amber';
 }) {
   const map = {
     cyan: { border: 'border-cyan-500/25', bg: 'from-cyan-500/10 to-transparent' },
     emerald: { border: 'border-emerald-500/25', bg: 'from-emerald-500/10 to-transparent' },
     blue: { border: 'border-blue-500/25', bg: 'from-blue-500/10 to-transparent' },
+    amber: { border: 'border-amber-500/25', bg: 'from-amber-500/10 to-transparent' },
   };
   const c = map[accent];
   return (
