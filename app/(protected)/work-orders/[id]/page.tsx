@@ -359,17 +359,23 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
         ${patternImg}
       </div>
       <!-- Font & Number | Keterangan Jahit (dipindah dari left column
-           supaya space besar & bisa nulis lebih panjang) -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:2px solid #000">
-        <div style="border-right:2px solid #000">
-          <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">Font &amp; Number</div>
-          <div style="padding:6px 8px;font-size:10px;min-height:100px;white-space:pre-wrap">${spec.font_nomor || ''}</div>
-        </div>
-        <div>
-          <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">Keterangan Jahit</div>
-          <div style="padding:6px 8px;font-size:10px;min-height:100px;white-space:pre-wrap">${spec.keterangan_jahit || ''}</div>
-        </div>
-      </div>
+           supaya space besar & bisa nulis lebih panjang). Pakai table
+           layout supaya cell border + width sama (grid kadang nge-crop
+           di html2canvas rasterize). -->
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+        <colgroup>
+          <col style="width:50%" />
+          <col style="width:50%" />
+        </colgroup>
+        <tr>
+          <td style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:6px 0;border-right:2px solid #000;border-bottom:2px solid #000">Font &amp; Number</td>
+          <td style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:6px 0;border-bottom:2px solid #000">Keterangan Jahit</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 10px;font-size:10px;vertical-align:top;border-right:2px solid #000;height:120px;white-space:pre-wrap">${spec.font_nomor || ''}</td>
+          <td style="padding:8px 10px;font-size:10px;vertical-align:top;height:120px;white-space:pre-wrap">${spec.keterangan_jahit || ''}</td>
+        </tr>
+      </table>
     </div>
 
     <!-- ─── RIGHT COLUMN — sekarang pakai <table> supaya row uniform,
