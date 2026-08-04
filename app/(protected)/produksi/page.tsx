@@ -5,6 +5,7 @@ import { useToast } from '@/lib/toast';
 import { useAuth } from '@/lib/auth-context';
 import { GUDANG_FORM_ITEMS } from '@/lib/gudang-form-items';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
+import { computeDeadlineLock, hasJaket } from '@/lib/business-days';
 import {
   computeStageTargets,
   totalDurasiHariKerja,
@@ -358,8 +359,16 @@ export default function ProduksiPage() {
   }, []);
 
   // Map work_order_id → { startISO, targetsByStage, targetSelesai }.
-  // startISO = tanggal Approval Design mulai (wo_progress.started_at).
-  // Fallback ke wo.created_at kalau row Approval Design belum dimulai.
+  //
+  // targetSelesai = HARUS konsisten dengan CS Orders 'Tgl Selesai'
+  // (yang pakai computeDeadlineLock dari orders.tanggal_acc_proofing /
+  // orders.deadline_lock). Sebelumnya di-compute ulang dari
+  // Approval Design started_at + Σ durasi stages → mismatch dengan
+  // Rincian Order (contoh WO IMAM: 24 Jul di CS Orders vs 7 Agu di
+  // Produksi).
+  //
+  // startISO tetap dari Approval Design started_at untuk per-stage
+  // targets (dipakai buat SLA per stage).
   const woTargets = useMemo(() => {
     const stagesByName: Record<string, number> = {};
     for (const s of stages) stagesByName[String(s.nama)] = Number(s.id);
@@ -369,21 +378,30 @@ export default function ProduksiPage() {
       const adProgress = adId
         ? progress.find(p => Number(p.work_order_id) === Number(wo.id) && Number(p.stage_id) === Number(adId))
         : undefined;
-      // Prefer started_at (tanggal admin klik "Selesai Konfirmasi" dan
-      // Approval Design terbuka). Fallback ke wo.created_at kalau row
-      // Approval Design belum di-set started_at (auto-created saat WO
-      // baru dibentuk).
       const start = String(adProgress?.started_at || adProgress?.created_at || wo.created_at || '').slice(0, 10);
       if (!start) continue;
       const targets = computeStageTargets(start, holidays);
-      out[Number(wo.id)] = {
-        startISO: start,
-        targets,
-        targetSelesai: targets['QC Final dan Packing'] || '',
-      };
+
+      // Compute deadline final dari orders (konsisten dengan CS Orders).
+      // Fallback ke QC Final dan Packing target (perhitungan lama) kalau
+      // orders data tidak ada (edge case).
+      const ord = ordersById[Number(wo.order_id)];
+      let targetSelesai = targets['QC Final dan Packing'] || '';
+      if (ord) {
+        const deadlineFromOrder = computeDeadlineLock({
+          pilihanPaket: ord.pilihan_paket,
+          tanggalAccProofing: ord.tanggal_acc_proofing,
+          deadlineLock: ord.deadline_lock,
+          holidays,
+          isJaket: hasJaket([String(ord.paket || '')]),
+        });
+        if (deadlineFromOrder) targetSelesai = deadlineFromOrder;
+      }
+
+      out[Number(wo.id)] = { startISO: start, targets, targetSelesai };
     }
     return out;
-  }, [wos, progress, stages, holidays]);
+  }, [wos, progress, stages, holidays, ordersById]);
 
   // Show actionable WOs at this stage. Includes legacy SEDANG rows so any
   // in-flight work from the old two-click flow still shows here and can be
