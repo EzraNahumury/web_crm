@@ -434,7 +434,14 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, resellers, 
 
       // Shared payload minus keys that only apply to insert vs update.
       // Kalau pickedReseller ada, snapshot reseller_id/nama/kota juga.
-      const sharedPayload = {
+      //
+      // Kalau editing order yang finance_status='REJECTED', reset finance
+      // fields ke null supaya order kembali ke queue 'Menunggu' di
+      // Approval Finance — CS Selling bisa perbaiki data / upload bukti
+      // ulang, lalu Finance review lagi. Analog dengan flow bukti
+      // pembayaran DP Produksi (orders/bukti-pembayaran).
+      const wasRejected = editOrder && String(editOrder.finance_status || '').toUpperCase() === 'REJECTED';
+      const sharedPayload: Record<string, unknown> = {
         customer_id: custId,
         customer_nama: customer.trim(),
         customer_phone: noHp || null,
@@ -452,6 +459,12 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, resellers, 
         reseller_nama: pickedReseller?.nama || null,
         reseller_kota: pickedReseller?.kota || null,
       };
+      if (wasRejected) {
+        sharedPayload.finance_status = null;
+        sharedPayload.finance_notes = null;
+        sharedPayload.finance_approved_by = null;
+        sharedPayload.finance_approved_at = null;
+      }
 
       let orderId: number;
       let noOrder = '';
@@ -574,7 +587,11 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, resellers, 
 
       invalidateCache('wp_orders', 'wp_dashboard');
       if (editOrder) {
-        toast.success('Order CS Selling Diperbarui', `${noOrder} berhasil diperbarui.`);
+        if (wasRejected) {
+          toast.success('Order Dikirim Ulang', `${noOrder} kembali ke Approval Finance untuk review ulang.`);
+        } else {
+          toast.success('Order CS Selling Diperbarui', `${noOrder} berhasil diperbarui.`);
+        }
       } else {
         toast.success('Order CS Selling Tersimpan', `${noOrder} diteruskan ke CS Order untuk dilengkapi.`);
       }
@@ -609,6 +626,28 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, resellers, 
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          {/* Banner CATATAN FINANCE — muncul kalau order rejected. CS
+              Selling bisa lihat alasan reject + tau kalau save akan
+              re-submit ke queue Menunggu. */}
+          {editOrder && String(editOrder.finance_status || '').toUpperCase() === 'REJECTED' && (
+            <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/40 grid place-items-center text-rose-200 shrink-0 mt-0.5">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold text-rose-300 uppercase tracking-widest">Catatan Finance</p>
+                  <p className="text-sm text-rose-100 mt-1 whitespace-pre-wrap">
+                    {editOrder.finance_notes || <span className="text-slate-400 italic">Ditolak tanpa catatan.</span>}
+                  </p>
+                  <p className="text-[11px] text-rose-300/80 mt-2">
+                    Perbaiki data / upload ulang bukti transfer, lalu klik Update. Order otomatis kembali ke Approval Finance.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <section>
             <h3 className="text-sm font-bold text-white mb-3">Data Customer</h3>
             <div className="space-y-3">
