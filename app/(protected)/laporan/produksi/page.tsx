@@ -1,17 +1,10 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { dbGet } from '@/lib/api-db';
 import DateRangePicker, { today, formatPeriod } from '../date-range-picker';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
-
-const TAHAP_PRODUKSI = [
-  'Approval Design', 'Approval Pattern', 'Proofing', 'Printing Layout',
-  'Approval Layout', 'Printing Process', 'Sublim Press', 'QC Panel Process',
-  'Fabric Cutting', 'QC Cutting', 'Sewing', 'QC Jersey',
-  'Steam Jersey', 'Finishing', 'Shipment',
-];
 
 export default function LaporanProduksiPage() {
   const [from, setFrom] = useState(today());
@@ -44,6 +37,17 @@ export default function LaporanProduksiPage() {
   }, []);
 
   const periode = formatPeriod(from, to);
+
+  // TAHAP_PRODUKSI dinamis dari DB — filter stages active + sort by urutan.
+  // Sebelumnya di-hardcode (missing Waiting List / Approval WO / QC Final
+  // dan Packing, include QC Cutting yang inactive, urutan salah).
+  const TAHAP_PRODUKSI = useMemo(() => {
+    return stages
+      .filter((s: Row) => s.active === undefined || s.active === 1 || s.active === true)
+      .sort((a: Row, b: Row) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0))
+      .map((s: Row) => String(s.nama || ''))
+      .filter(Boolean);
+  }, [stages]);
 
   // Helper: get qty for a set of progress items
   function getQty(items: Row[]) {
