@@ -92,41 +92,43 @@ export default function MonitoringProduksiPage() {
       const aksesorisSet = buildAksesorisSet(barangCs as Row[]);
       let mps = await dbGet('monitoring_produksi');
 
-      // Ambil id stage 'Approval Design'. Kalau tidak ditemukan (schema
-      // beda), fallback ke undefined dan gate di bawah otomatis tidak
-      // memblokir apa-apa supaya menu tidak break.
-      const approvalDesignStageId = (stages as Row[]).find(
-        (s: Row) => String(s.nama || '').toLowerCase() === 'approval design'
+      // TRIGGER Monitoring: begitu order sampai di Waiting List Produksi
+      // (yaitu WO sudah dibuat + row wo_progress Waiting List sudah ada),
+      // order langsung muncul di Monitoring. Sebelumnya trigger butuh
+      // Approval Design ≠ BELUM — sekarang cuma butuh WO exist + Waiting
+      // List row exist (status BELUM tetap valid).
+      //
+      // Rationale: user ingin tim monitoring bisa track order dari
+      // paling awal masuk board Produksi, bukan menunggu design started.
+      const waitingListStageId = (stages as Row[]).find(
+        (s: Row) => String(s.nama || '').toLowerCase() === 'waiting list'
       )?.id;
 
-      // Set order_id yang wo_progress[Approval Design]-nya sudah TERSEDIA
-      // (atau maju: SEDANG/SELESAI). Order ini eligible untuk tampil di
-      // Monitoring Produksi. Order yang masih di Waiting List (belum
-      // Finance approve invoice) tidak ada di set ini.
-      const orderReachedApprovalDesign = new Set<number>();
-      if (approvalDesignStageId != null) {
+      const orderReachedWaitingList = new Set<number>();
+      if (waitingListStageId != null) {
         const woIdToOrderId: Record<number, number> = {};
         for (const w of wos as Row[]) woIdToOrderId[Number(w.id)] = Number(w.order_id);
         for (const p of wps as Row[]) {
-          if (Number(p.stage_id) !== Number(approvalDesignStageId)) continue;
-          const st = String(p.status || '').toUpperCase();
-          if (st === 'BELUM') continue; // belum dibuka → skip
+          if (Number(p.stage_id) !== Number(waitingListStageId)) continue;
+          // Cukup row wo_progress Waiting List existing — apapun status-nya
+          // (BELUM/TERSEDIA/SEDANG/SELESAI). Ini bikin order langsung
+          // ke-tag begitu WO created (auto-create row dgn status BELUM).
           const orderId = woIdToOrderId[Number(p.work_order_id)];
-          if (orderId) orderReachedApprovalDesign.add(orderId);
+          if (orderId) orderReachedWaitingList.add(orderId);
         }
       }
 
-      // Lazy-sync: bikin row monitoring cuma untuk order yang WO-nya sudah
-      // sampai Approval Design ke atas. Order yang masih di Waiting List
-      // atau belum punya WO tidak akan dapat row monitoring — dengan begitu
-      // mereka tidak muncul di board Proofing yang default.
+      // Lazy-sync: bikin row monitoring untuk order yang sudah punya
+      // Waiting List row. Order yang belum punya WO tidak akan dapat row
+      // monitoring — dengan begitu order stuck di CS Selling/CS Order
+      // (belum di-WO) tidak muncul di board Proofing.
       const existing = new Set(mps.map((m: Row) => String(m.order_id)));
       const missing = (orders as Row[]).filter((o: Row) => {
         if (existing.has(String(o.id))) return false;
-        // Kalau approvalDesignStageId tidak ketemu (schema aneh), fallback:
+        // Fallback: kalau Waiting List stage tidak ditemukan (schema aneh),
         // biarkan semua order dapat row supaya menu tidak kosong total.
-        if (approvalDesignStageId == null) return true;
-        return orderReachedApprovalDesign.has(Number(o.id));
+        if (waitingListStageId == null) return true;
+        return orderReachedWaitingList.has(Number(o.id));
       });
       if (missing.length > 0) {
         await Promise.all(
@@ -160,13 +162,13 @@ export default function MonitoringProduksiPage() {
           if (!o) return false;
           // Sembunyikan data legacy sebelum cutoff (lihat lib/data-cutoff.ts).
           if (!isVisibleTanggalOrder(o.tanggal_order)) return false;
-          // Gate baru: order baru muncul di Monitoring kalau WO-nya sudah
-          // sampai Approval Design (status ≠ BELUM). Order di Waiting List
-          // atau tanpa WO tidak lolos.
-          // Fallback: kalau stage Approval Design tidak ada di DB (edge
-          // case schema legacy), biarkan lewat supaya data existing masih
-          // kelihatan.
-          if (approvalDesignStageId != null && !orderReachedApprovalDesign.has(Number(o.id))) {
+          // Gate baru: order muncul di Monitoring kalau WO sudah dibuat +
+          // row Waiting List existing (status apapun). Sebelumnya butuh
+          // Approval Design ≠ BELUM — sekarang cukup Waiting List row ada.
+          // Fallback: kalau stage Waiting List tidak ditemukan di DB
+          // (edge case schema legacy), biarkan lewat supaya data existing
+          // tetap kelihatan.
+          if (waitingListStageId != null && !orderReachedWaitingList.has(Number(o.id))) {
             return false;
           }
           return true;
