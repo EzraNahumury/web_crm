@@ -353,48 +353,55 @@ export default function ProduksiPage() {
   const visibleWoIds = new Set(wos.map((w: Row) => Number(w.id)));
   const visibleProgress = progress.filter((p: Row) => visibleWoIds.has(Number(p.work_order_id)));
 
-  // Global search results — cari WO across all stages by no_wo / customer_nama.
-  // Return list of matched WOs dengan stage saat ini (active row) untuk
-  // preview jump-to-stage.
-  const globalSearchResults = useMemo(() => {
+  // Set WO ID yang match global search — dipakai untuk filter
+  // wo_progress rows di badge tab counter + antrian list per stage.
+  // Kalau globalSearch kosong, semua WO lolos.
+  const globalMatchedWoIds = useMemo(() => {
     const q = globalSearch.trim().toLowerCase();
-    if (!q) return [];
-    const stageMap: Record<number, string> = {};
-    for (const s of stages) stageMap[Number(s.id)] = String(s.nama || '');
-    const matched = wos.filter((w: Row) =>
-      String(w.no_wo || '').toLowerCase().includes(q)
-      || String(w.customer_nama || '').toLowerCase().includes(q)
-    );
-    return matched.map((w: Row) => {
-      // Cari stage saat ini: prioritas SEDANG > TERSEDIA > last SELESAI.
-      const woProgress = visibleProgress.filter(p => Number(p.work_order_id) === Number(w.id));
-      const active = woProgress.find(p => p.status === 'SEDANG')
-        || woProgress.find(p => p.status === 'TERSEDIA');
-      let currentStageName = '';
-      let currentStatus = '';
-      if (active) {
-        currentStageName = stageMap[Number(active.stage_id)] || '';
-        currentStatus = String(active.status || '');
-      } else {
-        // Semua SELESAI atau tidak ada aktif — cari SELESAI paling akhir.
-        const selesais = woProgress
-          .filter(p => p.status === 'SELESAI')
-          .map(p => ({ id: Number(p.stage_id), urutan: Number(stages.find(s => Number(s.id) === Number(p.stage_id))?.urutan || 0) }))
-          .sort((a, b) => b.urutan - a.urutan);
-        if (selesais.length > 0) {
-          currentStageName = stageMap[selesais[0].id] || '';
-          currentStatus = 'SELESAI';
-        }
-      }
-      return {
-        woId: Number(w.id),
-        noWo: String(w.no_wo || `#${w.id}`),
-        customer: String(w.customer_nama || '(tanpa nama)'),
-        stageName: currentStageName || '—',
-        status: currentStatus,
-      };
-    }).slice(0, 8);
-  }, [globalSearch, wos, visibleProgress, stages]);
+    if (!q) return null; // null = no filter (semua lolos)
+    const s = new Set<number>();
+    for (const w of wos as Row[]) {
+      if (
+        String(w.no_wo || '').toLowerCase().includes(q)
+        || String(w.customer_nama || '').toLowerCase().includes(q)
+      ) s.add(Number(w.id));
+    }
+    return s;
+  }, [globalSearch, wos]);
+
+  // Progress yg lolos filter global. Kalau ada globalSearch active
+  // → cuma progress yg WO-nya match. Kalau tidak, pakai visibleProgress
+  // apa adanya.
+  const searchedProgress = useMemo(() => {
+    if (!globalMatchedWoIds) return visibleProgress;
+    return visibleProgress.filter((p: Row) => globalMatchedWoIds.has(Number(p.work_order_id)));
+  }, [visibleProgress, globalMatchedWoIds]);
+
+  // Count matched per stage — untuk auto-jump ke tab pertama yang punya
+  // hasil kalau tab aktif kosong.
+  const matchedCountByStage = useMemo(() => {
+    const c: Record<string, number> = {};
+    if (!globalMatchedWoIds) return c;
+    for (const stageName of PROD_STAGES) {
+      const stageRow = stages.find(s => s.nama === stageName);
+      if (!stageRow) continue;
+      c[stageName] = searchedProgress.filter(p =>
+        Number(p.stage_id) === Number(stageRow.id)
+        && (p.status === 'TERSEDIA' || p.status === 'SEDANG')
+      ).length;
+    }
+    return c;
+  }, [globalMatchedWoIds, searchedProgress, stages]);
+
+  // Auto-jump ke stage pertama yang punya hasil kalau tab aktif kosong.
+  useEffect(() => {
+    if (!globalSearch.trim()) return;
+    if (matchedCountByStage[activeStage] && matchedCountByStage[activeStage] > 0) return;
+    const firstWithMatch = PROD_STAGES.find(s => matchedCountByStage[s] > 0);
+    if (firstWithMatch && firstWithMatch !== activeStage) {
+      setActiveStage(firstWithMatch);
+    }
+  }, [globalSearch, matchedCountByStage, activeStage]);
 
   // Hari ini dalam format ISO — dipakai untuk klasifikasi telat vs target.
   const todayISO = useMemo(() => {
@@ -453,7 +460,7 @@ export default function ProduksiPage() {
   // Show actionable WOs at this stage. Includes legacy SEDANG rows so any
   // in-flight work from the old two-click flow still shows here and can be
   // advanced with a single click.
-  const tersediaItems = progress.filter((p: Row) =>
+  const tersediaItems = searchedProgress.filter((p: Row) =>
     p.stage_id === activeStageId && (p.status === 'TERSEDIA' || p.status === 'SEDANG')
   );
 
@@ -961,7 +968,8 @@ export default function ProduksiPage() {
               type="text"
               value={globalSearch}
               onChange={e => setGlobalSearch(e.target.value)}
-              placeholder="Cari WO / customer di semua stage..."
+              placeholder="Cari di semua stage..."
+              title="Filter WO/customer di semua stage sekaligus. Auto-jump ke tab yang punya hasil."
               className="w-full bg-[#0d1117] border border-white/10 text-white text-sm placeholder-slate-500 rounded-xl pl-9 pr-8 py-2.5 focus:outline-none focus:border-emerald-500/40"
             />
             {globalSearch && (
@@ -974,50 +982,6 @@ export default function ProduksiPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-            )}
-            {globalSearch && globalSearchResults.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1 max-h-96 overflow-y-auto rounded-lg bg-[#0c1120] border border-white/10 shadow-xl z-30">
-                <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-500 border-b border-white/[0.06]">
-                  {globalSearchResults.length} WO ditemukan
-                </div>
-                {globalSearchResults.map(r => (
-                  <button
-                    key={r.woId}
-                    type="button"
-                    onClick={() => {
-                      // Kalau stage aktif dikenal, jump ke tab. Kalau tidak
-                      // (SELESAI di stage last), tetap set + close search.
-                      if (r.stageName && PROD_STAGES.includes(r.stageName)) {
-                        setActiveStage(r.stageName);
-                      }
-                      setGlobalSearch('');
-                    }}
-                    className="w-full text-left px-4 py-2.5 hover:bg-white/[0.04] border-b border-white/[0.04] last:border-b-0 transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs font-mono text-blue-300 shrink-0">{r.noWo}</p>
-                      <p className="text-sm text-white font-medium truncate flex-1">{r.customer}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] text-slate-500">Stage:</span>
-                      <span className="text-[10px] font-semibold text-emerald-300">{r.stageName || '—'}</span>
-                      {r.status && (
-                        <span className={`inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                          r.status === 'SEDANG' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                          : r.status === 'TERSEDIA' ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
-                          : r.status === 'SELESAI' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-slate-500/15 text-slate-300 border border-slate-500/30'
-                        }`}>{r.status}</span>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-            {globalSearch && globalSearchResults.length === 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1 rounded-lg bg-[#0c1120] border border-white/10 shadow-xl z-30 px-4 py-3 text-xs text-slate-500">
-                Tidak ada WO / customer cocok.
-              </div>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -1060,7 +1024,7 @@ export default function ProduksiPage() {
           {PROD_STAGES.map(stage => {
             const stageRow = stages.find((s: Row) => s.nama === stage);
             const stageId = stageRow?.id;
-            const count = visibleProgress.filter((p: Row) => p.stage_id === stageId && (p.status === 'TERSEDIA' || p.status === 'SEDANG')).length;
+            const count = searchedProgress.filter((p: Row) => p.stage_id === stageId && (p.status === 'TERSEDIA' || p.status === 'SEDANG')).length;
             const hasAccess = stageId ? canManageStage(stageId) : false;
             const isActiveTab = activeStage === stage;
             return (
