@@ -66,6 +66,7 @@ const ADMIN_NAV: SideNavItem[] = [
     children: [
       { href: '/cs-selling', label: 'Daftar Order' },
       { href: '/cs-selling/form-leads', label: 'Form Leads' },
+      { href: '/cs-selling/resubmit-finance', label: 'Resubmit Finance' },
     ],
   },
   {
@@ -175,7 +176,7 @@ const ADMIN_NAV: SideNavItem[] = [
 // Map menu names to sidebar hrefs for filtering
 const MENU_HREF_MAP: Record<string, string[]> = {
   'Dashboard': ['/dashboard'],
-  'CS Selling': ['/cs-selling', '/cs-selling/form-leads'],
+  'CS Selling': ['/cs-selling', '/cs-selling/form-leads', '/cs-selling/resubmit-finance'],
   'Antrian Design': ['/antrian-design', '/antrian-design/history-reject'],
   'Finance': ['/approval-finance', '/finance/laporan'],
   // Legacy alias: user yg role/menuAccess-nya masih pakai 'Approval Finance'
