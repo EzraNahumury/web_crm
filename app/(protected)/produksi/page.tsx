@@ -70,6 +70,10 @@ export default function ProduksiPage() {
   const [search, setSearch] = useState('');
   // Reset the search box whenever CS switches to a different stage tab.
   useEffect(() => { setSearch(''); }, [activeStage]);
+  // Global search di hero — cari across ALL stages. Kalau match, chip
+  // hasil tampil dengan info stage saat ini + button langsung navigate
+  // ke tab-nya.
+  const [globalSearch, setGlobalSearch] = useState('');
   const toast = useToast();
 
   // Reject flow: modal state + form fields.
@@ -348,6 +352,49 @@ export default function ProduksiPage() {
   // saat menghitung badge tab supaya count sinkron dengan antrian.
   const visibleWoIds = new Set(wos.map((w: Row) => Number(w.id)));
   const visibleProgress = progress.filter((p: Row) => visibleWoIds.has(Number(p.work_order_id)));
+
+  // Global search results — cari WO across all stages by no_wo / customer_nama.
+  // Return list of matched WOs dengan stage saat ini (active row) untuk
+  // preview jump-to-stage.
+  const globalSearchResults = useMemo(() => {
+    const q = globalSearch.trim().toLowerCase();
+    if (!q) return [];
+    const stageMap: Record<number, string> = {};
+    for (const s of stages) stageMap[Number(s.id)] = String(s.nama || '');
+    const matched = wos.filter((w: Row) =>
+      String(w.no_wo || '').toLowerCase().includes(q)
+      || String(w.customer_nama || '').toLowerCase().includes(q)
+    );
+    return matched.map((w: Row) => {
+      // Cari stage saat ini: prioritas SEDANG > TERSEDIA > last SELESAI.
+      const woProgress = visibleProgress.filter(p => Number(p.work_order_id) === Number(w.id));
+      const active = woProgress.find(p => p.status === 'SEDANG')
+        || woProgress.find(p => p.status === 'TERSEDIA');
+      let currentStageName = '';
+      let currentStatus = '';
+      if (active) {
+        currentStageName = stageMap[Number(active.stage_id)] || '';
+        currentStatus = String(active.status || '');
+      } else {
+        // Semua SELESAI atau tidak ada aktif — cari SELESAI paling akhir.
+        const selesais = woProgress
+          .filter(p => p.status === 'SELESAI')
+          .map(p => ({ id: Number(p.stage_id), urutan: Number(stages.find(s => Number(s.id) === Number(p.stage_id))?.urutan || 0) }))
+          .sort((a, b) => b.urutan - a.urutan);
+        if (selesais.length > 0) {
+          currentStageName = stageMap[selesais[0].id] || '';
+          currentStatus = 'SELESAI';
+        }
+      }
+      return {
+        woId: Number(w.id),
+        noWo: String(w.no_wo || `#${w.id}`),
+        customer: String(w.customer_nama || '(tanpa nama)'),
+        stageName: currentStageName || '—',
+        status: currentStatus,
+      };
+    }).slice(0, 8);
+  }, [globalSearch, wos, visibleProgress, stages]);
 
   // Hari ini dalam format ISO — dipakai untuk klasifikasi telat vs target.
   const todayISO = useMemo(() => {
@@ -891,17 +938,87 @@ export default function ProduksiPage() {
       {/* Hero header */}
       <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-emerald-500/[0.12] via-teal-500/[0.05] to-transparent p-5 sm:p-6">
         <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
-        <div className="relative flex items-center gap-3">
+        <div className="relative flex items-center gap-3 flex-wrap">
           <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/25 to-emerald-500/5 border border-emerald-500/25 grid place-items-center shrink-0">
             <svg className="w-5 h-5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 6.878V6a2.25 2.25 0 012.25-2.25h7.5A2.25 2.25 0 0118 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 004.5 9v.878m13.5-3A2.25 2.25 0 0119.5 9v.878m0 0a2.246 2.246 0 00-.75-.128H5.25c-.263 0-.515.045-.75.128m15 0A2.25 2.25 0 0121 12v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6c0-.98.626-1.813 1.5-2.122" />
             </svg>
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-w-[200px]">
             <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Produksi</h1>
             <p className="text-[13px] text-slate-300 mt-0.5">
               Antrian per tahap produksi. Klik <strong className="text-white">Selesai & Lanjut</strong> untuk memindahkan WO ke tahap berikutnya.
             </p>
+          </div>
+          {/* Global search — cari WO / customer di semua stage. Hasil
+              tampil sebagai dropdown chip dengan nama stage-nya + button
+              jump ke tab. */}
+          <div className="relative w-full sm:w-72 shrink-0">
+            <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <input
+              type="text"
+              value={globalSearch}
+              onChange={e => setGlobalSearch(e.target.value)}
+              placeholder="Cari WO / customer di semua stage..."
+              className="w-full bg-[#0d1117] border border-white/10 text-white text-sm placeholder-slate-500 rounded-xl pl-9 pr-8 py-2.5 focus:outline-none focus:border-emerald-500/40"
+            />
+            {globalSearch && (
+              <button
+                onClick={() => setGlobalSearch('')}
+                title="Clear"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+            {globalSearch && globalSearchResults.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 max-h-96 overflow-y-auto rounded-lg bg-[#0c1120] border border-white/10 shadow-xl z-30">
+                <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-500 border-b border-white/[0.06]">
+                  {globalSearchResults.length} WO ditemukan
+                </div>
+                {globalSearchResults.map(r => (
+                  <button
+                    key={r.woId}
+                    type="button"
+                    onClick={() => {
+                      // Kalau stage aktif dikenal, jump ke tab. Kalau tidak
+                      // (SELESAI di stage last), tetap set + close search.
+                      if (r.stageName && PROD_STAGES.includes(r.stageName)) {
+                        setActiveStage(r.stageName);
+                      }
+                      setGlobalSearch('');
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-white/[0.04] border-b border-white/[0.04] last:border-b-0 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-mono text-blue-300 shrink-0">{r.noWo}</p>
+                      <p className="text-sm text-white font-medium truncate flex-1">{r.customer}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[10px] text-slate-500">Stage:</span>
+                      <span className="text-[10px] font-semibold text-emerald-300">{r.stageName || '—'}</span>
+                      {r.status && (
+                        <span className={`inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                          r.status === 'SEDANG' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                          : r.status === 'TERSEDIA' ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                          : r.status === 'SELESAI' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-slate-500/15 text-slate-300 border border-slate-500/30'
+                        }`}>{r.status}</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {globalSearch && globalSearchResults.length === 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 rounded-lg bg-[#0c1120] border border-white/10 shadow-xl z-30 px-4 py-3 text-xs text-slate-500">
+                Tidak ada WO / customer cocok.
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
