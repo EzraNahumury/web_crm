@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { dbGet } from '@/lib/api-db';
+import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import DateRangePicker, { today, formatPeriod } from '../date-range-picker';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -14,16 +15,20 @@ export default function LaporanProduksiPage() {
   const [wos, setWos] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [orders, setOrders] = useState<Row[]>([]);
+
   async function fetchData() {
     try {
-      const [s, p, w] = await Promise.all([
+      const [s, p, w, o] = await Promise.all([
         dbGet('production_stages'),
         dbGet('wo_progress'),
         dbGet('work_orders'),
+        dbGet('orders').catch(() => []),
       ]);
       setStages(s.sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0)));
       setProgress(p);
       setWos(w);
+      setOrders(o);
     } catch {}
     setLoading(false);
   }
@@ -39,8 +44,6 @@ export default function LaporanProduksiPage() {
   const periode = formatPeriod(from, to);
 
   // TAHAP_PRODUKSI dinamis dari DB — filter stages active + sort by urutan.
-  // Sebelumnya di-hardcode (missing Waiting List / Approval WO / QC Final
-  // dan Packing, include QC Cutting yang inactive, urutan salah).
   const TAHAP_PRODUKSI = useMemo(() => {
     return stages
       .filter((s: Row) => s.active === undefined || s.active === 1 || s.active === true)
@@ -49,10 +52,30 @@ export default function LaporanProduksiPage() {
       .filter(Boolean);
   }, [stages]);
 
-  // Helper: get qty for a set of progress items
+  // Apply cutoff filter (HIDE_ORDERS_BEFORE = 2026-07-13) — SAMA dengan
+  // menu Produksi. Order dengan tanggal_order sebelum cutoff hidden.
+  // WO tanpa order match tetap tampil (fallback aman).
+  const ordersById = useMemo(() => {
+    const m: Record<number, Row> = {};
+    for (const o of orders) m[Number(o.id)] = o;
+    return m;
+  }, [orders]);
+  const visibleWos = useMemo(() => {
+    return wos.filter((w: Row) => {
+      const ord = ordersById[Number(w.order_id)];
+      return isVisibleTanggalOrder(ord?.tanggal_order);
+    });
+  }, [wos, ordersById]);
+  const visibleWoIds = useMemo(() => new Set(visibleWos.map((w: Row) => Number(w.id))), [visibleWos]);
+  const visibleProgress = useMemo(
+    () => progress.filter((p: Row) => visibleWoIds.has(Number(p.work_order_id))),
+    [progress, visibleWoIds]
+  );
+
+  // Helper: get qty for a set of progress items — dari visibleWos only.
   function getQty(items: Row[]) {
     return items.reduce((sum, p) => {
-      const wo = wos.find((w: Row) => w.id === p.work_order_id);
+      const wo = visibleWos.find((w: Row) => w.id === p.work_order_id);
       return sum + (wo?.jumlah || 0);
     }, 0);
   }
@@ -66,39 +89,35 @@ export default function LaporanProduksiPage() {
     return d >= f && d <= t;
   }
 
-  // TERSEDIA at stage X → count as "Selesai" at stage X-1 (previous stage)
-  const tersediaSelesaiPrev: Record<string, Row[]> = {};
-  for (const p of progress) {
-    if (p.status !== 'TERSEDIA') continue;
-    const stageIdx = stages.findIndex((s: Row) => s.id === p.stage_id);
-    if (stageIdx > 0) {
-      const prevId = String(stages[stageIdx - 1].id);
-      if (!tersediaSelesaiPrev[prevId]) tersediaSelesaiPrev[prevId] = [];
-      tersediaSelesaiPrev[prevId].push(p);
-    }
-  }
-
-  // Build stats per stage
+  // Build stats per stage — SAMAKAN definisi dengan menu Produksi:
+  //   Aktif/Total = TERSEDIA + SEDANG at THIS stage (WO yg SEKARANG
+  //     ada di stage ini — match badge counter tab menu Produksi).
+  //   Sedang Proses = SEDANG only (in-flight, sudah di-klik operator).
+  //   Selesai (Periode) = SELESAI at THIS stage dengan completed_at
+  //     di range periode (historic count).
   const stageStats = TAHAP_PRODUKSI.map(nama => {
     const stageRow = stages.find((s: Row) => s.nama === nama);
     const stageId = stageRow?.id;
-    // Selesai = fully done WOs only at LAST stage (Shipment) + TERSEDIA at next stage
-    const lastStage = stages.length > 0 ? stages[stages.length - 1] : null;
-    const isLastStage = lastStage && stageId === lastStage.id;
-    const selesaiDone = isLastStage ? progress.filter((p: Row) => {
+    // Selesai historic — SELESAI at THIS stage completed dalam periode.
+    const selesaiItems = visibleProgress.filter((p: Row) => {
       if (p.stage_id !== stageId || p.status !== 'SELESAI') return false;
-      if (!inRange(p.completed_at)) return false;
-      const wo = wos.find((w: Row) => w.id === p.work_order_id);
-      return wo?.status === 'SELESAI';
-    }) : [];
-    const selesaiItems = [...selesaiDone, ...(tersediaSelesaiPrev[String(stageId)] || [])];
-    const sedangItems = progress.filter((p: Row) => p.stage_id === stageId && p.status === 'SEDANG');
-    const totalItems = [...selesaiItems, ...sedangItems];
+      return inRange(p.completed_at);
+    });
+    // Sedang aktif — SEDANG at THIS stage (operator klik "Mulai" tapi
+    // belum SELESAI).
+    const sedangItems = visibleProgress.filter((p: Row) =>
+      p.stage_id === stageId && p.status === 'SEDANG'
+    );
+    // Aktif di stage sekarang — TERSEDIA + SEDANG (match badge menu
+    // Produksi). Ini yang jadi "Total (Aktif)".
+    const aktifItems = visibleProgress.filter((p: Row) =>
+      p.stage_id === stageId && (p.status === 'TERSEDIA' || p.status === 'SEDANG')
+    );
     return {
       nama,
       selesaiWo: selesaiItems.length, selesaiPcs: getQty(selesaiItems),
       sedangWo: sedangItems.length, sedangPcs: getQty(sedangItems),
-      totalWo: totalItems.length, totalPcs: getQty(totalItems),
+      totalWo: aktifItems.length, totalPcs: getQty(aktifItems),
     };
   });
 
