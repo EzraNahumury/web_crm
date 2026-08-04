@@ -240,15 +240,20 @@ export default function ProduksiPage() {
         .sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0));
       let updatedProgress: Row[] = p;
 
-      // Auto-create missing wo_progress rows for active WOs. This has
-      // to run for EVERY stage on EVERY active WO (not just when a WO
-      // has zero rows) because new stages introduced later (e.g.
-      // Approval WO, QC Final dan Packing di migration 016) tidak
-      // otomatis nempel ke WO yang sudah lebih tua — sehingga saat
-      // stage sebelumnya klik Selesai & Lanjut, tidak ada row target
-      // untuk di-set TERSEDIA dan WO seolah hilang dari tab
-      // berikutnya. Backfill di sini menutup gap itu.
-      const activeWos = w.filter((wo: Row) => wo.status === 'PROSES_PRODUKSI');
+      // Auto-create missing wo_progress rows untuk WO yang belum SELESAI.
+      // Sebelumnya cuma filter status='PROSES_PRODUKSI' — bug: WO dengan
+      // status 'PROSES', 'CONFIRMED', 'IN_PROGRESS' (variasi lama) atau
+      // status apapun yang bukan enum standar tidak dapat backfill →
+      // stage berikutnya kosong → WO hilang dari tab meski progress
+      // menunjukkan Finishing (done).
+      //
+      // Sekarang inklusif: backfill untuk SEMUA WO kecuali yang SELESAI
+      // atau DIBATALKAN. Ini nutup gap untuk WO lama dengan status
+      // legacy.
+      const activeWos = w.filter((wo: Row) => {
+        const st = String(wo.status || '').toUpperCase();
+        return st !== 'SELESAI' && st !== 'DIBATALKAN' && st !== 'CANCELED' && st !== 'CANCELLED';
+      });
       let didBackfill = false;
       for (const wo of activeWos) {
         const woProgressStages = new Set(

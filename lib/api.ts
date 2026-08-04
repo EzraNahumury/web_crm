@@ -183,10 +183,20 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
     wpByWo[wp.work_order_id].push(wp);
   }
 
-  // Sort stages by urutan
-  const sortedStages = [...stages].sort((a, b) => a.urutan - b.urutan);
+  // Sort stages by urutan. Filter inactive supaya progress count tidak
+  // ke-inflate oleh stage yang di-retire (QC Cutting di migration 016,
+  // active=0). Kalau tidak filter, totalStages di bawah = jumlah semua
+  // stage termasuk inactive → progressPercent selalu < 100 walau semua
+  // stage aktif sudah SELESAI → currentStageName jadi 'Finishing (done)'
+  // bukannya lanjut ke stage berikutnya (QC Final / Shipment).
+  //
+  // Konsisten dengan produksi/page.tsx line 237-240.
+  const sortedStages = [...stages]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((s: any) => s.active === undefined || s.active === 1 || s.active === true)
+    .sort((a, b) => a.urutan - b.urutan);
   const stageMap: Record<number, DbStage> = {};
-  for (const s of stages) stageMap[s.id] = s;
+  for (const s of sortedStages) stageMap[s.id] = s;
 
   return rows.map((r, i) => {
     const orderItems = itemsMap[r.id] || [];
@@ -216,8 +226,12 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
       let totalStages = 0;
       let latestActiveStageId: number | null = null;
 
+      // activeStageIds — cuma stages yang aktif dipakai buat count
+      // progress. Menghindari row wo_progress lama yang stage-nya sudah
+      // di-retire (mis. QC Cutting) ikut ke count.
+      const activeStageIdSet = new Set(sortedStages.map(s => s.id));
       for (const wo of orderWos) {
-        const progressList = wpByWo[wo.id] || [];
+        const progressList = (wpByWo[wo.id] || []).filter(p => activeStageIdSet.has(p.stage_id));
         const selesaiCount = progressList.filter(p => p.status === 'SELESAI').length;
         totalDone += selesaiCount;
         totalStages += sortedStages.length;
