@@ -277,9 +277,11 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     ? `<img src="${spec.dokumen_pattern}" style="max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto"/>`
     : `<div style="color:#94a3b8;font-size:11px;text-align:center;padding:150px 0">— gambar pattern —</div>`;
 
+  // cls di sini cuma color/style extra. font-weight:700 sudah base di
+  // renderer supaya SEMUA label bold (permintaan user).
   const accRows = [
     ['Tagline', spec.tagline, 'color:#dc2626'],
-    ['Authentic', spec.authentic, 'font-weight:800'],
+    ['Authentic', spec.authentic, ''],
     ['Size', spec.info_ukuran, ''],
     ['Logo', spec.info_logo, ''],
     ['Webing', spec.webbing, ''],
@@ -336,15 +338,11 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       <div style="border-bottom:2px solid #000;background:#fff;min-height:220px;display:flex;align-items:center;justify-content:center;padding:4px">
         ${desainImg}
       </div>
-      <!-- DEADLINE (kiri) + Keterangan Jahit (kanan) -->
-      <div style="display:grid;grid-template-columns:110px 1fr;border-bottom:2px solid #000">
-        <div style="background:#bbf7d0;border-right:2px solid #000;padding:6px 8px">
-          <div style="color:#dc2626;font-weight:900;font-size:13px">DEADLINE :</div>
-        </div>
-        <div style="padding:6px 8px;min-height:90px">
-          <div style="font-size:10px;font-weight:800">Keterangan Jahit :</div>
-          <div style="font-size:10px;margin-top:2px;white-space:pre-wrap">${spec.keterangan_jahit || ''}</div>
-        </div>
+      <!-- DEADLINE full-width row (Keterangan Jahit dipindah ke area
+           kosong di middle column — Approval Admin diganti Keterangan
+           Jahit supaya space lebih luas). -->
+      <div style="background:#bbf7d0;border-bottom:2px solid #000;padding:8px 10px">
+        <div style="color:#dc2626;font-weight:900;font-size:13px">DEADLINE :</div>
       </div>
       <!-- Bahan table -->
       <div style="flex:1;display:flex;flex-direction:column">
@@ -360,15 +358,16 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       <div style="border-bottom:2px solid #000;background:#fff;flex:1;min-height:380px;display:flex;align-items:center;justify-content:center;padding:4px">
         ${patternImg}
       </div>
-      <!-- Font & Number | Approval Admin -->
+      <!-- Font & Number | Keterangan Jahit (dipindah dari left column
+           supaya space besar & bisa nulis lebih panjang) -->
       <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:2px solid #000">
         <div style="border-right:2px solid #000">
           <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">Font &amp; Number</div>
-          <div style="padding:6px 8px;font-size:10px;min-height:70px;white-space:pre-wrap">${spec.font_nomor || ''}</div>
+          <div style="padding:6px 8px;font-size:10px;min-height:100px;white-space:pre-wrap">${spec.font_nomor || ''}</div>
         </div>
         <div>
-          <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">Approval Admin / Data</div>
-          <div style="padding:6px 8px;font-size:10px;min-height:70px;white-space:pre-wrap">${spec.approval_admin || ''}</div>
+          <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">Keterangan Jahit</div>
+          <div style="padding:6px 8px;font-size:10px;min-height:100px;white-space:pre-wrap">${spec.keterangan_jahit || ''}</div>
         </div>
       </div>
     </div>
@@ -393,7 +392,7 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
         </tr>
         ${accRows.map(([k, v, cls]) => `
           <tr>
-            <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;width:38%;font-size:10.5px;${cls || 'font-weight:700'}">${k}</td>
+            <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;width:38%;font-size:10.5px;font-weight:700;${cls || ''}">${k}</td>
             <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;line-height:1.35;font-size:10.5px">${escapeHtml(String(v || ''))}</td>
           </tr>`).join('')}
         <!-- PENANGGUNG JAWAB section header -->
