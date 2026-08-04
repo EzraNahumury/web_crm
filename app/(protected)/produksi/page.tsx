@@ -289,6 +289,40 @@ export default function ProduksiPage() {
       }
       if (didBackfill) updatedProgress = await dbGet('wo_progress');
 
+      // Sync-forward repair: kalau ada stage yang BELUM tapi previous
+      // stage sudah SELESAI, bump ke TERSEDIA. Ini menutup gap untuk WO
+      // yang dulu klik 'Selesai & Lanjut' saat row next-stage belum ada
+      // (backfill baru bikin row status BELUM di fetch berikutnya, tapi
+      // tidak auto-promote karena handleSelesai sudah tidak dipanggil
+      // lagi). WO kasus IMAM: Finishing SELESAI, QC Final BELUM →
+      // sekarang di-promote otomatis ke TERSEDIA supaya muncul di tab.
+      let didRepair = false;
+      for (const wo of activeWos) {
+        const woProgress = updatedProgress
+          .filter((pr: Row) => pr.work_order_id === wo.id)
+          .sort((a: Row, b: Row) => {
+            const stageA = sortedStages.find(s => Number(s.id) === Number(a.stage_id));
+            const stageB = sortedStages.find(s => Number(s.id) === Number(b.stage_id));
+            return (Number(stageA?.urutan) || 0) - (Number(stageB?.urutan) || 0);
+          });
+        for (let i = 1; i < woProgress.length; i++) {
+          const prev = woProgress[i - 1];
+          const cur = woProgress[i];
+          const prevStatus = String(prev.status || '').toUpperCase();
+          const curStatus = String(cur.status || '').toUpperCase();
+          if (prevStatus === 'SELESAI' && curStatus === 'BELUM') {
+            try {
+              await dbUpdate('wo_progress', Number(cur.id), { status: 'TERSEDIA' });
+              // Update WO current_stage_id juga supaya konsisten.
+              await dbUpdate('work_orders', Number(wo.id), { current_stage_id: cur.stage_id });
+              didRepair = true;
+            } catch (err) { console.warn('sync-forward repair failed:', err); }
+            break; // cuma promote 1 stage sekaligus per WO
+          }
+        }
+      }
+      if (didRepair) updatedProgress = await dbGet('wo_progress');
+
       setStages(sortedStages);
       setProgress(updatedProgress);
       // Sembunyikan WO yang order-nya legacy (sebelum cutoff). Data tidak
