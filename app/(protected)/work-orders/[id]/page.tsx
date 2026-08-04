@@ -338,15 +338,19 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       <div style="border-bottom:2px solid #000;background:#fff;min-height:220px;display:flex;align-items:center;justify-content:center;padding:4px">
         ${desainImg}
       </div>
-      <!-- DEADLINE full-width row (Keterangan Jahit dipindah ke area
-           kosong di middle column — Approval Admin diganti Keterangan
-           Jahit supaya space lebih luas). -->
+      <!-- DEADLINE full-width row -->
       <div style="background:#bbf7d0;border-bottom:2px solid #000;padding:8px 10px">
         <div style="color:#dc2626;font-weight:900;font-size:13px">DEADLINE :</div>
       </div>
       <!-- Bahan table -->
-      <div style="flex:1;display:flex;flex-direction:column">
+      <div style="display:flex;flex-direction:column">
         ${bahanRowsHtml}
+      </div>
+      <!-- Keterangan Jahit — kotak besar kosong di bawah bahan (left
+           column). Flex-1 supaya isi sisa vertikal space. -->
+      <div style="flex:1;display:flex;flex-direction:column;border-top:2px solid #000">
+        <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:6px 0;border-bottom:2px solid #000">Keterangan Jahit</div>
+        <div style="flex:1;padding:8px 10px;font-size:10px;white-space:pre-wrap;min-height:120px">${spec.keterangan_jahit || ''}</div>
       </div>
     </div>
 
@@ -358,10 +362,8 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       <div style="border-bottom:2px solid #000;background:#fff;flex:1;min-height:380px;display:flex;align-items:center;justify-content:center;padding:4px">
         ${patternImg}
       </div>
-      <!-- Font & Number | Keterangan Jahit (dipindah dari left column
-           supaya space besar & bisa nulis lebih panjang). Pakai table
-           layout supaya cell border + width sama (grid kadang nge-crop
-           di html2canvas rasterize). -->
+      <!-- Font & Number | Approval Admin / Data (pakai table layout
+           supaya cell border + width sama). -->
       <table style="width:100%;border-collapse:collapse;table-layout:fixed">
         <colgroup>
           <col style="width:50%" />
@@ -369,11 +371,11 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
         </colgroup>
         <tr>
           <td style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:6px 0;border-right:2px solid #000;border-bottom:2px solid #000">Font &amp; Number</td>
-          <td style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:6px 0;border-bottom:2px solid #000">Keterangan Jahit</td>
+          <td style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:6px 0;border-bottom:2px solid #000">Approval Admin / Data</td>
         </tr>
         <tr>
-          <td style="padding:8px 10px;font-size:10px;vertical-align:top;border-right:2px solid #000;height:120px;white-space:pre-wrap">${spec.font_nomor || ''}</td>
-          <td style="padding:8px 10px;font-size:10px;vertical-align:top;height:120px;white-space:pre-wrap">${spec.keterangan_jahit || ''}</td>
+          <td style="padding:8px 10px;font-size:10px;vertical-align:top;border-right:2px solid #000;height:80px;white-space:pre-wrap">${spec.font_nomor || ''}</td>
+          <td style="padding:8px 10px;font-size:10px;vertical-align:top;height:80px;white-space:pre-wrap">${spec.approval_admin || ''}</td>
         </tr>
       </table>
     </div>
