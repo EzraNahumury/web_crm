@@ -3872,6 +3872,23 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   const [draggedHeader, setDraggedHeader] = useState<Wo2HeaderDrag | null>(null);
   const [headerDrop, setHeaderDrop] = useState<Wo2HeaderDrop | null>(null);
   const suppressHeaderClickRef = useRef(false);
+  // Ukuran font header tabel — bisa di-set besar/kecil, disimpan per-WO
+  // di localStorage. Default 12px (setara text-xs).
+  const [headerFontPx, setHeaderFontPx] = useState(12);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`wo2_header_font_${wo.id}`);
+      const n = raw ? Number(raw) : NaN;
+      if (n >= 8 && n <= 28) setHeaderFontPx(n);
+    } catch {}
+  }, [wo.id]);
+  function changeHeaderFont(delta: number) {
+    setHeaderFontPx(cur => {
+      const next = Math.min(28, Math.max(8, cur + delta));
+      try { localStorage.setItem(`wo2_header_font_${wo.id}`, String(next)); } catch {}
+      return next;
+    });
+  }
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -4275,6 +4292,12 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
           <p className="text-xs text-slate-500 mt-0.5">Customer: <span className="text-slate-300 font-medium">{wo.customer_nama || '-'}</span></p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 border border-white/10 rounded-lg px-1.5 py-0.5" title="Ukuran font header tabel">
+            <span className="text-[10px] text-slate-500 px-1 select-none">Font header</span>
+            <button onClick={() => changeHeaderFont(-1)} className="text-xs font-semibold text-slate-300 hover:text-white w-6 h-6 rounded hover:bg-white/[0.06] transition-colors" title="Perkecil">A−</button>
+            <span className="text-[11px] text-slate-400 tabular-nums w-6 text-center select-none">{headerFontPx}</span>
+            <button onClick={() => changeHeaderFont(1)} className="text-sm font-semibold text-slate-300 hover:text-white w-6 h-6 rounded hover:bg-white/[0.06] transition-colors" title="Perbesar">A+</button>
+          </div>
           <button onClick={() => setAddHeaderOpen(true)} className="text-xs font-medium text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Header</button>
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
           <button onClick={handleDownloadPDF} className="text-xs font-medium text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
@@ -4292,7 +4315,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
           reach it. Vertical scrolling happens inside the box. */}
       <div className="overflow-auto max-h-[70vh] rounded-xl border border-white/[0.08] bg-[#111827]">
         <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-          <thead>
+          <thead style={{ fontSize: `${headerFontPx}px` }}>
             <tr className="text-slate-200 font-bold text-center" style={{ background: '#065f46' }}>
               <th rowSpan={hasChildren ? 2 : 1} className="border border-white/10 px-2 py-2 w-10">NO</th>
               {kolom.map(k => {
