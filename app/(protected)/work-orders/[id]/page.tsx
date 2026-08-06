@@ -3872,22 +3872,54 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   const [draggedHeader, setDraggedHeader] = useState<Wo2HeaderDrag | null>(null);
   const [headerDrop, setHeaderDrop] = useState<Wo2HeaderDrop | null>(null);
   const suppressHeaderClickRef = useRef(false);
-  // Ukuran font header tabel — bisa di-set besar/kecil, disimpan per-WO
-  // di localStorage. Default 12px (setara text-xs).
-  const [headerFontPx, setHeaderFontPx] = useState(12);
+  // Ukuran font header PER-KOLOM — tiap header (parent, sub-kolom, atau
+  // kolom biasa) bisa dikecilkan/dibesarkan sendiri. Disimpan per-WO di
+  // localStorage sebagai map colId -> px. Kolom tanpa entry pakai default
+  // 12px (text-xs). Rentang 8-28px.
+  const HEADER_FONT_DEFAULT = 12;
+  const [headerFontMap, setHeaderFontMap] = useState<Record<string, number>>({});
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(`wo2_header_font_${wo.id}`);
-      const n = raw ? Number(raw) : NaN;
-      if (n >= 8 && n <= 28) setHeaderFontPx(n);
+      const raw = localStorage.getItem(`wo2_header_fonts_${wo.id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') setHeaderFontMap(parsed);
+      }
     } catch {}
   }, [wo.id]);
-  function changeHeaderFont(delta: number) {
-    setHeaderFontPx(cur => {
-      const next = Math.min(28, Math.max(8, cur + delta));
-      try { localStorage.setItem(`wo2_header_font_${wo.id}`, String(next)); } catch {}
-      return next;
+  function changeHeaderFont(colId: string, delta: number) {
+    setHeaderFontMap(cur => {
+      const base = cur[colId] ?? HEADER_FONT_DEFAULT;
+      const next = Math.min(28, Math.max(8, base + delta));
+      const map = { ...cur, [colId]: next };
+      try { localStorage.setItem(`wo2_header_fonts_${wo.id}`, JSON.stringify(map)); } catch {}
+      return map;
     });
+  }
+  const headerFontStyle = (colId: string): React.CSSProperties =>
+    headerFontMap[colId] ? { fontSize: `${headerFontMap[colId]}px` } : {};
+
+  // Mini A− / A+ control shown on header hover to resize just that column.
+  // stopPropagation so it never triggers the header's drag / sort onClick.
+  function headerFontControls(colId: string) {
+    return (
+      <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 inline-flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); changeHeaderFont(colId, -1); }}
+          title="Perkecil font header ini"
+          className="w-4 h-4 rounded grid place-items-center text-[9px] font-bold text-slate-200 bg-black/30 hover:bg-black/60"
+        >A−</button>
+        <button
+          type="button"
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); changeHeaderFont(colId, 1); }}
+          title="Perbesar font header ini"
+          className="w-4 h-4 rounded grid place-items-center text-[10px] font-bold text-slate-200 bg-black/30 hover:bg-black/60"
+        >A+</button>
+      </span>
+    );
   }
 
   const fetchAll = useCallback(async () => {
@@ -4292,12 +4324,6 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
           <p className="text-xs text-slate-500 mt-0.5">Customer: <span className="text-slate-300 font-medium">{wo.customer_nama || '-'}</span></p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 border border-white/10 rounded-lg px-1.5 py-0.5" title="Ukuran font header tabel">
-            <span className="text-[10px] text-slate-500 px-1 select-none">Font header</span>
-            <button onClick={() => changeHeaderFont(-1)} className="text-xs font-semibold text-slate-300 hover:text-white w-6 h-6 rounded hover:bg-white/[0.06] transition-colors" title="Perkecil">A−</button>
-            <span className="text-[11px] text-slate-400 tabular-nums w-6 text-center select-none">{headerFontPx}</span>
-            <button onClick={() => changeHeaderFont(1)} className="text-sm font-semibold text-slate-300 hover:text-white w-6 h-6 rounded hover:bg-white/[0.06] transition-colors" title="Perbesar">A+</button>
-          </div>
           <button onClick={() => setAddHeaderOpen(true)} className="text-xs font-medium text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Header</button>
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
           <button onClick={handleDownloadPDF} className="text-xs font-medium text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
@@ -4307,7 +4333,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik icon X untuk hapus kolom. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell ke bawah/atas untuk auto-fill (Excel-style). NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
+      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik icon X untuk hapus kolom. Hover header lalu klik A− / A+ untuk atur ukuran font kolom itu. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell ke bawah/atas untuk auto-fill (Excel-style). NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
 
       {/* Bounded-height scroll box so the horizontal scrollbar sits at the
           bottom edge of the visible box (always on-screen) instead of the
@@ -4315,7 +4341,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
           reach it. Vertical scrolling happens inside the box. */}
       <div className="overflow-auto max-h-[70vh] rounded-xl border border-white/[0.08] bg-[#111827]">
         <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-          <thead style={{ fontSize: `${headerFontPx}px` }}>
+          <thead>
             <tr className="text-slate-200 font-bold text-center" style={{ background: '#065f46' }}>
               <th rowSpan={hasChildren ? 2 : 1} className="border border-white/10 px-2 py-2 w-10">NO</th>
               {kolom.map(k => {
@@ -4362,7 +4388,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                         <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                           <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm9-13a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm1 5a1 1 0 11-2 0 1 1 0 012 0z" />
                         </svg>
-                        <span>{k.label}</span>
+                        <span style={headerFontStyle(k.id)}>{k.label}</span>
                         {curDir === 'asc' && (
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
@@ -4380,6 +4406,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                         )}
                       </span>
                       {headerDeleteButton(k.id, k.label, `Hapus kolom ${k.label}`)}
+                      {headerFontControls(k.id)}
                     </th>
                   );
                 }
@@ -4402,9 +4429,10 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                       <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                         <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm9-13a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm1 5a1 1 0 11-2 0 1 1 0 012 0z" />
                       </svg>
-                      <span>{k.label}</span>
+                      <span style={headerFontStyle(k.id)}>{k.label}</span>
                     </span>
                     {headerDeleteButton(k.id, k.label, `Hapus kolom ${k.label}`)}
+                    {headerFontControls(k.id)}
                   </th>
                 );
               })}
@@ -4433,9 +4461,10 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
                               <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                                 <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm9-13a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm1 5a1 1 0 11-2 0 1 1 0 012 0z" />
                               </svg>
-                              <span>{c.label}</span>
+                              <span style={headerFontStyle(c.id)}>{c.label}</span>
                             </span>
                             {headerDeleteButton(c.id, `${k.label} -> ${c.label}`, `Hapus sub-kolom ${c.label}`)}
+                            {headerFontControls(c.id)}
                           </th>
                         );
                       })
