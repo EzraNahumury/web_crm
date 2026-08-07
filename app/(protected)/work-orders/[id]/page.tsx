@@ -412,10 +412,10 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       <!-- EXPORT & ICC PRINT | JPEG - RGB -->
       <div style="display:grid;grid-template-columns:1fr 1fr">
         <div style="text-align:center;border-right:2px solid #000;padding:8px;font-size:10px;font-weight:800">
-          EXPORT<br/>&amp; ICC<br/>PRINT
+          ${String(spec.export_icc_label ?? 'EXPORT\n& ICC\nPRINT').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br/>')}
         </div>
         <div style="display:flex;align-items:center;justify-content:center;padding:8px;font-size:11px;font-weight:800">
-          ${spec.export_icc || 'JPEG - RGB'}
+          ${String(spec.export_icc || 'JPEG - RGB').replace(/&/g, '&amp;').replace(/</g, '&lt;')}
         </div>
       </div>
     </div>
@@ -2119,6 +2119,18 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
   // Fetch fresh data from DB on mount
   useEffect(() => { refreshSpecs(); }, []);
 
+  // Inline edit untuk 2 cell EXPORT (label kiri + nilai kanan) di spec card.
+  // Optimistic update state + persist; rollback via refetch kalau gagal.
+  async function saveSpecCell(specId: number, field: string, value: string) {
+    setSpecs((prev: Row[]) => prev.map((s: Row) => (s.id === specId ? { ...s, [field]: value } : s)));
+    try {
+      await dbUpdate('wo_spesifikasi', Number(specId), { [field]: value });
+    } catch (e) {
+      toast.error('Gagal Simpan', String(e));
+      refreshSpecs();
+    }
+  }
+
   async function handleDeleteSpec(spec: Row) {
     const yes = await toast.confirm({ title: 'Hapus Lembar Spesifikasi?', message: `"${spec.nama_spesifikasi}" akan dihapus permanen.`, type: 'danger', confirmText: 'Ya, Hapus' });
     if (!yes) return;
@@ -2535,7 +2547,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       // ─── EXPORT & ICC PRINT bottom right L(start):N(end) ───
       ws.mergeCells(`L${bahanStartRow}:L${bahanEndRow}`);
       const eiLbl = ws.getCell(`L${bahanStartRow}`);
-      eiLbl.value = 'EXPORT\n& ICC\nPRINT';
+      eiLbl.value = spec.export_icc_label || 'EXPORT\n& ICC\nPRINT';
       eiLbl.font = { name: 'Arial', size: 10, bold: true };
       eiLbl.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
       eiLbl.border = allBorders;
@@ -3385,12 +3397,28 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                           })}
                         </div>
                       </div>
-                      {/* EXPORT & ICC PRINT */}
+                      {/* EXPORT & ICC PRINT — kedua cell bisa di-edit inline.
+                          Klik → hapus teks → ketik baru; simpan otomatis saat
+                          blur (keluar dari cell). */}
                       <div className="grid grid-cols-2">
-                        <div className="text-center border-r-2 border-black px-2 py-2 text-[10px] font-bold">
-                          EXPORT<br />&amp; ICC<br />PRINT
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={e => saveSpecCell(spec.id, 'export_icc_label', e.currentTarget.innerText.replace(/\n+$/, ''))}
+                          title="Klik untuk edit teks"
+                          className="text-center border-r-2 border-black px-2 py-2 text-[10px] font-bold outline-none focus:bg-yellow-100 cursor-text"
+                          style={{ whiteSpace: 'pre-line' }}
+                        >
+                          {spec.export_icc_label ?? 'EXPORT\n& ICC\nPRINT'}
                         </div>
-                        <div className="grid place-items-center px-2 py-2 text-[11px] font-bold">
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={e => saveSpecCell(spec.id, 'export_icc', e.currentTarget.innerText.replace(/\n+$/, ''))}
+                          title="Klik untuk edit teks"
+                          className="text-center px-2 py-2 text-[11px] font-bold outline-none focus:bg-yellow-100 cursor-text flex items-center justify-center"
+                          style={{ whiteSpace: 'pre-line' }}
+                        >
                           {spec.export_icc || 'JPEG - RGB'}
                         </div>
                       </div>

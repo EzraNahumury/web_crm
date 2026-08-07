@@ -1035,6 +1035,17 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD INDEX `idx_orders_status_terkirim` (`status_terkirim`)",
     ],
   },
+  {
+    // WO1 spec card: 2 cell kiri-bawah ('EXPORT & ICC PRINT' label + nilai
+    // export) sekarang bisa di-edit inline langsung di card. Nilai kanan
+    // sudah pakai kolom export_icc; label kiri dulu hardcoded → tambah
+    // kolom export_icc_label supaya bisa diubah & tersimpan. NULL = pakai
+    // default 'EXPORT & ICC PRINT'.
+    name: '061_wo_spesifikasi_export_icc_label',
+    up: [
+      "ALTER TABLE `wo_spesifikasi` ADD COLUMN `export_icc_label` VARCHAR(120) NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
