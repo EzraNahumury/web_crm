@@ -1046,6 +1046,20 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `wo_spesifikasi` ADD COLUMN `export_icc_label` VARCHAR(120) NULL",
     ],
   },
+  {
+    // WO4 Form Permintaan Gudang multi-form. Beberapa WO butuh > 1 form
+    // (misal jersey + pants dengan bahan berbeda). Tambah form_no supaya
+    // 1 WO bisa punya banyak form independent, masing-masing 16 items
+    // fixed + 6 sizes + extras.
+    //
+    // form_no default 1 → existing rows dianggap Form #1 (backward compat).
+    // Index composite (work_order_id, form_no) untuk group + query cepat.
+    name: '062_wo_permintaan_gudang_form_no',
+    up: [
+      "ALTER TABLE `wo_permintaan_gudang` ADD COLUMN `form_no` INT NOT NULL DEFAULT 1",
+      "ALTER TABLE `wo_permintaan_gudang` ADD INDEX `idx_wo_pg_form` (`work_order_id`, `form_no`)",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

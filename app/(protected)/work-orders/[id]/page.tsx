@@ -277,16 +277,18 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     ? `<img src="${spec.dokumen_pattern}" style="max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto"/>`
     : `<div style="color:#94a3b8;font-size:11px;text-align:center;padding:150px 0">— gambar pattern —</div>`;
 
-  // cls di sini cuma color/style extra. font-weight:700 sudah base di
-  // renderer supaya SEMUA label bold (permintaan user).
+  // labelCls / valueCls di sini cuma color/style extra. font-weight:700
+  // sudah base di renderer label supaya SEMUA label bold. Value default
+  // hitam normal — kecuali Logo yang value-nya juga di-highlight merah
+  // (permintaan user: 3D Tatami dst tampil merah).
   const accRows = [
-    ['Tagline', spec.tagline, 'color:#dc2626'],
-    ['Authentic', spec.authentic, ''],
-    ['Size', spec.info_ukuran, ''],
-    ['Logo', spec.info_logo, ''],
-    ['Webing', spec.webbing, ''],
-    ['Packing', spec.info_packing, ''],
-  ] as [string, string, string][];
+    { label: 'Tagline', value: spec.tagline, labelCls: 'color:#dc2626', valueCls: '' },
+    { label: 'Authentic', value: spec.authentic, labelCls: '', valueCls: '' },
+    { label: 'Size', value: spec.info_ukuran, labelCls: '', valueCls: '' },
+    { label: 'Logo', value: spec.info_logo, labelCls: '', valueCls: 'color:#dc2626;font-weight:700' },
+    { label: 'Webing', value: spec.webbing, labelCls: '', valueCls: '' },
+    { label: 'Packing', value: spec.info_packing, labelCls: '', valueCls: '' },
+  ];
 
   const customerRows = [
     ['Nama', wo.customer || ''],
@@ -398,10 +400,10 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
         <tr>
           <td colspan="2" style="border:1px solid #000;background:#fff;padding:6px;text-align:center;font-weight:800;font-size:11px">Accessories</td>
         </tr>
-        ${accRows.map(([k, v, cls]) => `
+        ${accRows.map(({ label, value, labelCls, valueCls }) => `
           <tr>
-            <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;width:38%;font-size:10.5px;font-weight:700;${cls || ''}">${k}</td>
-            <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;line-height:1.35;font-size:10.5px">${escapeHtml(String(v || ''))}</td>
+            <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;width:38%;font-size:10.5px;font-weight:700;${labelCls || ''}">${label}</td>
+            <td style="border:1px solid #000;padding:8px 10px;vertical-align:middle;line-height:1.35;font-size:10.5px;${valueCls || ''}">${escapeHtml(String(value || ''))}</td>
           </tr>`).join('')}
         <!-- PENANGGUNG JAWAB section header -->
         <tr>
@@ -5045,68 +5047,138 @@ function TabWO4({ wo }: { wo: Row; detailItems: Row[] }) {
 
 function TabFormPermintaanGudang({ wo }: { wo: Row }) {
   const toast = useToast();
-  const [rows, setRows] = useState<GudangRow[]>([]);
+  // Multi-form: Record<form_no, rows>. Sebelumnya cuma 1 form → sekarang
+  // beberapa (misal 1 WO butuh 2 form untuk jersey + pants beda bahan).
+  const [formsData, setFormsData] = useState<Record<number, GudangRow[]>>({});
+  const [activeForm, setActiveForm] = useState<number>(1);
   const [barangList, setBarangList] = useState<Row[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { dbGet('barang').then(setBarangList).catch(() => {}); }, []);
 
+  // Helper: bangun 22 baris fixed template (16 items + 6 sizes) untuk 1 form.
+  // Kalau ada byBagian data existing, isi field bahan/warna/kuantitas.
+  const buildFormRows = useCallback((sourceRows: Row[], formNo: number): GudangRow[] => {
+    const byBagian: Record<string, Row> = {};
+    for (const r of sourceRows) {
+      if (Number(r.form_no || 1) !== formNo) continue;
+      byBagian[String(r.bagian || '').toUpperCase()] = r;
+    }
+    const assembled: GudangRow[] = [];
+    let idx = 1;
+    for (const it of WO4_ITEMS) {
+      const found = byBagian[it];
+      assembled.push({
+        id: found ? Number(found.id) : null,
+        urutan: idx++, kategori: 'BAHAN_UTAMA',
+        bagian: it, bahan: String(found?.bahan || ''),
+        warna: String(found?.warna || ''), kuantitas: Number(found?.kuantitas) || 0,
+        isFixed: true,
+      });
+    }
+    for (const sz of WO4_SIZES) {
+      const found = byBagian[sz];
+      assembled.push({
+        id: found ? Number(found.id) : null,
+        urutan: idx++, kategori: 'MATERIAL_TAMBAHAN',
+        bagian: sz, bahan: String(found?.bahan || ''),
+        warna: String(found?.warna || ''), kuantitas: Number(found?.kuantitas) || 0,
+        isFixed: true,
+      });
+    }
+    // Extras — row extra per form.
+    const fixedSet = new Set([...WO4_ITEMS, ...WO4_SIZES].map(s => s.toUpperCase()));
+    for (const r of sourceRows) {
+      if (Number(r.form_no || 1) !== formNo) continue;
+      const b = String(r.bagian || '').toUpperCase();
+      if (!fixedSet.has(b)) {
+        assembled.push({
+          id: Number(r.id), urutan: idx++, kategori: String(r.kategori || 'BAHAN_UTAMA'),
+          bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
+          warna: String(r.warna || ''), kuantitas: Number(r.kuantitas) || 0,
+          isFixed: false,
+        });
+      }
+    }
+    return assembled;
+  }, []);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
       const items = await dbGet<Row>('wo_permintaan_gudang', undefined, { work_order_id: wo.id });
       const sorted = items.slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
-      const byBagian: Record<string, Row> = {};
-      for (const r of sorted) byBagian[String(r.bagian || '').toUpperCase()] = r;
-      // Assemble: 16 fixed items + 6 fixed sizes + extras
-      const assembled: GudangRow[] = [];
-      let idx = 1;
-      for (const it of WO4_ITEMS) {
-        const found = byBagian[it];
-        assembled.push({
-          id: found ? Number(found.id) : null,
-          urutan: idx++, kategori: 'BAHAN_UTAMA',
-          bagian: it, bahan: String(found?.bahan || ''),
-          warna: String(found?.warna || ''), kuantitas: Number(found?.kuantitas) || 0,
-          isFixed: true,
-        });
+      // Deteksi form_no unik. Kalau tidak ada data sama sekali → default 1 form saja.
+      const formSet = new Set<number>();
+      for (const r of sorted) formSet.add(Number(r.form_no || 1));
+      const formNos = Array.from(formSet).sort((a, b) => a - b);
+      if (formNos.length === 0) formNos.push(1);
+
+      const nextForms: Record<number, GudangRow[]> = {};
+      for (const fn of formNos) {
+        nextForms[fn] = buildFormRows(sorted as Row[], fn);
       }
-      for (const sz of WO4_SIZES) {
-        const found = byBagian[sz];
-        assembled.push({
-          id: found ? Number(found.id) : null,
-          urutan: idx++, kategori: 'MATERIAL_TAMBAHAN',
-          bagian: sz, bahan: String(found?.bahan || ''),
-          warna: String(found?.warna || ''), kuantitas: Number(found?.kuantitas) || 0,
-          isFixed: true,
-        });
-      }
-      // Extras: any items in DB not in the fixed list
-      const fixedSet = new Set([...WO4_ITEMS, ...WO4_SIZES].map(s => s.toUpperCase()));
-      for (const r of sorted) {
-        const b = String(r.bagian || '').toUpperCase();
-        if (!fixedSet.has(b)) {
-          assembled.push({
-            id: Number(r.id), urutan: idx++, kategori: String(r.kategori || 'BAHAN_UTAMA'),
-            bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
-            warna: String(r.warna || ''), kuantitas: Number(r.kuantitas) || 0,
-            isFixed: false,
-          });
-        }
-      }
-      setRows(assembled);
+      setFormsData(nextForms);
+      // Kalau activeForm tidak ada di list, reset ke form pertama.
+      if (!nextForms[activeForm]) setActiveForm(formNos[0]);
     } catch (e) { toast.error('Gagal Muat', String(e)); }
     setLoading(false);
-  }, [wo.id, toast]);
+  }, [wo.id, toast, buildFormRows, activeForm]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  const formNos = useMemo(
+    () => Object.keys(formsData).map(Number).sort((a, b) => a - b),
+    [formsData],
+  );
+  const rows = formsData[activeForm] || [];
+
+  function updateActiveRows(updater: (prev: GudangRow[]) => GudangRow[]) {
+    setFormsData(prev => ({ ...prev, [activeForm]: updater(prev[activeForm] || []) }));
+  }
+
   function setField(idx: number, field: keyof GudangRow, val: string | number) {
-    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+    updateActiveRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
   }
   function addRow() {
-    setRows(prev => [...prev, { id: null, urutan: prev.length + 1, kategori: 'BAHAN_UTAMA', bagian: '', bahan: '', warna: '', kuantitas: 0, isFixed: false }]);
+    updateActiveRows(prev => [...prev, { id: null, urutan: prev.length + 1, kategori: 'BAHAN_UTAMA', bagian: '', bahan: '', warna: '', kuantitas: 0, isFixed: false }]);
+  }
+  function addForm() {
+    const nextNo = formNos.length > 0 ? Math.max(...formNos) + 1 : 1;
+    setFormsData(prev => ({ ...prev, [nextNo]: buildFormRows([], nextNo) }));
+    setActiveForm(nextNo);
+    toast.success('Form Ditambahkan', `Form #${nextNo} baru siap diisi.`);
+  }
+  async function removeForm(formNo: number) {
+    if (formNos.length <= 1) {
+      toast.warning('Minimal 1 Form', 'Tidak bisa hapus form terakhir.');
+      return;
+    }
+    const yes = await toast.confirm({
+      title: `Hapus Form #${formNo}?`,
+      message: 'Semua data di form ini (16 items + 6 sizes + extras) akan dihapus permanen.',
+      type: 'danger',
+      confirmText: 'Ya, Hapus',
+    });
+    if (!yes) return;
+    try {
+      // Delete semua row DB yg punya form_no ini.
+      const dbRows = (formsData[formNo] || []).filter(r => r.id);
+      for (const r of dbRows) {
+        try { await dbDelete('wo_permintaan_gudang', r.id!); } catch {}
+      }
+      setFormsData(prev => {
+        const copy = { ...prev };
+        delete copy[formNo];
+        return copy;
+      });
+      if (activeForm === formNo) {
+        const remaining = formNos.filter(n => n !== formNo);
+        setActiveForm(remaining[0] || 1);
+      }
+      toast.success('Form Dihapus', `Form #${formNo} telah dihapus.`);
+    } catch (e) { toast.error('Gagal Hapus', String(e)); }
   }
 
   // Excel-style fill handle (bahan/warna/kuantitas). Bagian di-skip
@@ -5116,15 +5188,19 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
     (srcRow: number, endRow: number, colId: string, value: string) => {
       const lo = Math.min(srcRow, endRow);
       const hi = Math.max(srcRow, endRow);
-      setRows(prev => prev.map((r, i) => {
-        if (i < lo || i > hi || i === srcRow) return r;
-        if (colId === 'kuantitas') {
-          return { ...r, kuantitas: Number(value) || 0 };
-        }
-        return { ...r, [colId]: value } as GudangRow;
-      }));
+      setFormsData(prev => {
+        const cur = prev[activeForm] || [];
+        const next = cur.map((r, i) => {
+          if (i < lo || i > hi || i === srcRow) return r;
+          if (colId === 'kuantitas') {
+            return { ...r, kuantitas: Number(value) || 0 };
+          }
+          return { ...r, [colId]: value } as GudangRow;
+        });
+        return { ...prev, [activeForm]: next };
+      });
     },
-    [],
+    [activeForm],
   );
   const { beginFill, isInRange, previewSrc, previewCol } = useFillDrag(applyFillRange);
   async function removeRow(idx: number) {
@@ -5133,35 +5209,43 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
     if (row.id) {
       try { await dbDelete('wo_permintaan_gudang', row.id); } catch (e) { toast.error('Gagal', String(e)); return; }
     }
-    setRows(prev => prev.filter((_, i) => i !== idx));
+    updateActiveRows(prev => prev.filter((_, i) => i !== idx));
   }
   async function saveAll() {
     setSaving(true);
     try {
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
-        // Skip fixed rows that have no data (empty bahan/warna/kuantitas)
-        if (r.isFixed && !r.bahan && !r.warna && !r.kuantitas && !r.id) continue;
-        const payload = {
-          work_order_id: wo.id, urutan: i + 1,
-          kategori: r.kategori || 'BAHAN_UTAMA',
-          bagian: r.bagian || '', bahan: r.bahan || '',
-          warna: r.warna || null, kuantitas: Number(r.kuantitas) || 0,
-        };
-        if (r.id) await dbUpdate('wo_permintaan_gudang', r.id, payload);
-        else {
-          const newId = await dbCreate('wo_permintaan_gudang', payload);
-          setRows(prev => prev.map((row, idx) => idx === i ? { ...row, id: Number(newId) } : row));
+      // Save semua form (semua form_no yg ada di state).
+      for (const fn of formNos) {
+        const formRows = formsData[fn] || [];
+        for (let i = 0; i < formRows.length; i++) {
+          const r = formRows[i];
+          // Skip fixed rows that have no data (empty bahan/warna/kuantitas)
+          if (r.isFixed && !r.bahan && !r.warna && !r.kuantitas && !r.id) continue;
+          const payload = {
+            work_order_id: wo.id, urutan: i + 1,
+            form_no: fn,
+            kategori: r.kategori || 'BAHAN_UTAMA',
+            bagian: r.bagian || '', bahan: r.bahan || '',
+            warna: r.warna || null, kuantitas: Number(r.kuantitas) || 0,
+          };
+          if (r.id) await dbUpdate('wo_permintaan_gudang', r.id, payload);
+          else {
+            const newId = await dbCreate('wo_permintaan_gudang', payload);
+            // Update state dengan ID baru (untuk form yg spesifik).
+            setFormsData(prev => {
+              const cur = prev[fn] || [];
+              return { ...prev, [fn]: cur.map((row, idx2) => idx2 === i ? { ...row, id: Number(newId) } : row) };
+            });
+          }
         }
       }
-      toast.success('Tersimpan', 'Form permintaan gudang disimpan.');
+      toast.success('Tersimpan', `${formNos.length} form permintaan gudang disimpan.`);
       await fetchAll();
     } catch (e) { toast.error('Gagal', String(e)); }
     setSaving(false);
   }
 
-  // Download PDF khusus tab WO4 — pakai autoTable (crisp native text)
-  // sama dengan pattern WO2 & WO3.
+  // Download PDF: loop semua forms → 1 halaman per form.
   async function handleDownloadPDF() {
     try {
       const { jsPDF } = await import('jspdf');
@@ -5170,35 +5254,42 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
       const woName = String(wo.no_wo || 'export');
 
       const pdf = new jsPDF('l', 'mm', 'a4');
-      pdf.setFontSize(14);
-      pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}`, 14, 18);
-      pdf.setFontSize(10);
-      pdf.text(`No WO: ${woName}`, 14, 26);
+      let firstPage = true;
+      for (const fn of formNos) {
+        const formRows = formsData[fn] || [];
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.setFontSize(14);
+        const titleSuffix = formNos.length > 1 ? ` — Form #${fn}` : '';
+        pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}${titleSuffix}`, 14, 18);
+        pdf.setFontSize(10);
+        pdf.text(`No WO: ${woName}`, 14, 26);
 
-      autoTable(pdf, {
-        startY: 32,
-        head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
-        didParseCell: uniDidParseCell,
-        didDrawCell: uniDidDrawCell,
-        body: rows.map((r, i) => [
-          String(i + 1),
-          String(r.bagian || ''),
-          String(r.bahan || ''),
-          String(r.warna || ''),
-          String(r.kuantitas || 0),
-        ]),
-        styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
-        headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
-        bodyStyles: { halign: 'left' },
-        columnStyles: {
-          0: { cellWidth: 15, halign: 'center' },
-          3: { cellWidth: 30 },
-          4: { cellWidth: 25, halign: 'right' },
-        },
-      });
+        autoTable(pdf, {
+          startY: 32,
+          head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
+          didParseCell: uniDidParseCell,
+          didDrawCell: uniDidDrawCell,
+          body: formRows.map((r, i) => [
+            String(i + 1),
+            String(r.bagian || ''),
+            String(r.bahan || ''),
+            String(r.warna || ''),
+            String(r.kuantitas || 0),
+          ]),
+          styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+          headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
+          bodyStyles: { halign: 'left' },
+          columnStyles: {
+            0: { cellWidth: 15, halign: 'center' },
+            3: { cellWidth: 30 },
+            4: { cellWidth: 25, halign: 'right' },
+          },
+        });
+      }
 
       pdf.save(`WO4-FormPermintaanGudang-${woName}.pdf`);
-      toast.success('PDF Berhasil', `WO4-FormPermintaanGudang-${woName}.pdf`);
+      toast.success('PDF Berhasil', `WO4-FormPermintaanGudang-${woName}.pdf${formNos.length > 1 ? ` (${formNos.length} forms)` : ''}`);
     } catch (e) { toast.error('Gagal Download PDF', String(e)); }
   }
 
@@ -5213,12 +5304,48 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
         <h2 className="text-lg font-bold text-white">Form Permintaan Gudang</h2>
         <div className="flex items-center gap-2">
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
+          <button onClick={addForm} className="text-xs font-medium text-amber-300 border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Form</button>
           <button onClick={handleDownloadPDF} className="text-xs font-medium text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
           <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
             {saving ? 'Menyimpan...' : 'Simpan Semua'}
           </button>
         </div>
       </div>
+
+      {/* Form tabs — muncul kalau > 1 form. Kalau cuma 1 form, tab
+          hidden supaya UI clean seperti sebelumnya. */}
+      {formNos.length > 1 && (
+        <div className="rounded-xl bg-[#111827] border border-white/[0.06] p-2 flex items-center gap-1 flex-wrap">
+          {formNos.map(fn => {
+            const isActive = fn === activeForm;
+            return (
+              <div key={fn} className="flex items-center gap-1">
+                <button
+                  onClick={() => setActiveForm(fn)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    isActive
+                      ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/20'
+                      : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                  }`}
+                >
+                  Form #{fn}
+                </button>
+                {isActive && formNos.length > 1 && (
+                  <button
+                    onClick={() => removeForm(fn)}
+                    title={`Hapus Form #${fn}`}
+                    className="text-rose-400 hover:text-rose-300 border border-rose-500/30 hover:bg-rose-500/10 p-1.5 rounded-lg transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="rounded-xl border border-white/[0.08] bg-[#111827] overflow-x-auto">
         <table className="w-full text-xs">
