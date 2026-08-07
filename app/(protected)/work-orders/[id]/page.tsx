@@ -4128,12 +4128,14 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
     return (ketKey ? data[ketKey] : '') || data.ket1 || data.ket2 || '';
   }
 
-  async function syncWo2RowsToWo3() {
+  // sourceRows = urutan yang mau disimpan (biasanya displayRows supaya
+  // hasil sort ke-mirror ke WO 3). Default ke rows kalau tidak dikasih.
+  async function syncWo2RowsToWo3(sourceRows: UkuranRow[] = rows) {
     const existing = await dbGet<Row>('wo_pengiriman', undefined, { work_order_id: wo.id });
     const existingSorted = existing.slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
 
-    for (let i = 0; i < rows.length; i++) {
-      const source = rows[i];
+    for (let i = 0; i < sourceRows.length; i++) {
+      const source = sourceRows[i];
       const target = existingSorted[i];
       const payload: Row = {
         work_order_id: wo.id,
@@ -4151,7 +4153,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
 
     // Delete row WO3 yang extra (kalau WO2 lebih pendek). Ini bikin
     // WO3 tetap sinkron dengan WO2 — bukan cuma nambah tapi juga cleanup.
-    for (let i = rows.length; i < existingSorted.length; i++) {
+    for (let i = sourceRows.length; i < existingSorted.length; i++) {
       const extra = existingSorted[i];
       if (extra?.id) {
         try { await dbDelete('wo_pengiriman', Number(extra.id)); } catch {}
@@ -4231,8 +4233,14 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
       await dbUpdate('work_orders', wo.id, {
         wo2_kolom_json: JSON.stringify(kolom),
       });
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
+      // Simpan mengikuti urutan yang SEDANG TAMPIL (displayRows) supaya hasil
+      // sort ikut ke-persist: urutan ditulis dari atas ke bawah sesuai
+      // tampilan, dan fetchAll me-load ORDER BY urutan. Tanpa ini, sort cuma
+      // tampilan sementara dan hilang saat reload. fetchAll di akhir me-reload
+      // id baru dari DB, jadi tidak perlu patch id per-row di sini.
+      const ordered = displayRows;
+      for (let i = 0; i < ordered.length; i++) {
+        const r = ordered[i];
         // Pull known legacy fields from data ke old columns (backward compat)
         // + save data_json full snapshot.
         const payload: Row = {
@@ -4247,12 +4255,13 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
           data_json: JSON.stringify(r.data),
         };
         if (r.id) await dbUpdate('wo_ukuran_tim', r.id, payload);
-        else {
-          const newId = await dbCreate('wo_ukuran_tim', payload);
-          setRows(prev => prev.map((row, idx) => idx === i ? { ...row, id: Number(newId) } : row));
-        }
+        else await dbCreate('wo_ukuran_tim', payload);
       }
-      await syncWo2RowsToWo3();
+      await syncWo2RowsToWo3(ordered);
+      // Sort sudah ke-bake ke urutan fisik — reset supaya arrow indikator
+      // tidak menyort ulang tampilan hasil fetchAll (idempoten, tapi lebih bersih).
+      setSortBySize(null);
+      setSortByKet(null);
       toast.success('Tersimpan', 'Detail ukuran tim disimpan dan WO 3 diperbarui.');
       await fetchAll();
     } catch (e) { toast.error('Gagal', String(e)); }
