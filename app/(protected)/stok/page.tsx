@@ -684,13 +684,15 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
     if (!form.nama.trim()) { toast.warning('Validasi', 'Nama barang wajib diisi.'); return; }
     setSaving(true);
     try {
+      // Letak hardcode ke "Gudang Ayres" — cuma 1 gudang aktif, field
+      // dihilangkan dari form supaya operator tidak perlu pilih.
       const payload: Row = {
         kode_barang: form.kode.trim() || null,
         nama: form.nama.trim(),
         tipe_barang_id: form.tipeId ? Number(form.tipeId) : null,
         satuan: form.satuan,
         harga: Number(form.harga) || 0,
-        letak: form.letak || null,
+        letak: 'Gudang Ayres',
       };
       if (editingId) {
         await dbUpdate('barang', editingId, payload);
@@ -851,15 +853,6 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
                     placeholder="0"
                     className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:border-blue-500/40" />
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Letak (Gudang)</label>
-                <select value={form.letak} onChange={e => setForm(f => ({ ...f, letak: e.target.value }))}
-                  className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer">
-                  <option value="">Pilih gudang...</option>
-                  <option value="Gudang Ayres">Gudang Ayres</option>
-                </select>
-                <p className="text-[10px] text-slate-500 mt-1">Saat ini hanya <strong className="text-slate-400">Gudang Ayres</strong> yang aktif.</p>
               </div>
               <button onClick={handleSave} disabled={saving}
                 className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-lg shadow-blue-500/20">
