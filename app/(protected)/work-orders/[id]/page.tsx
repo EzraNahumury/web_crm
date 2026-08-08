@@ -1784,43 +1784,77 @@ export default function WorkOrderDetailPage() {
       }
 
       // === WO 4: Form Permintaan Gudang === (autoTable — crisp).
-      // Selalu ikut di Download All meski kosong — kalau belum ada data,
-      // pakai template default (KAIN UTAMA + accessories + sizes) dengan
-      // BAHAN/WARNA/KUANTITAS dikosongkan supaya form gudang blank tercetak.
+      // Format konsisten dengan tab WO 4 di halaman detail: section
+      // header (KAIN / ACCESSORIS / SIZE + LAIN-LAIN) dengan bg kuning,
+      // KAIN UTAMA + KAIN VARIASI N di-derive dari WO1 spec, accessories
+      // auto-fill kuantitas dari totalJumlah, sizes dari count WO2.
+      // Pakai buildWo4FormRows shared helper supaya UI + Download All
+      // selalu sync.
+      //
+      // Kalau WO punya beberapa form_no (multi-form), semua di-render:
+      // masing-masing 1 page terpisah dengan header "Form #N".
       {
-        if (!firstPage) pdf.addPage();
-        firstPage = false;
-        pdf.setFontSize(14);
-        pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}`, 14, 18);
-        pdf.setFontSize(10);
-        pdf.text(`No WO: ${woName}`, 14, 26);
+        const freshMasterBarang = (await dbGet('barang').catch(() => [])) as Row[];
+        const freshUkuranTim = (await dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: wo.id }).catch(() => [])) as Row[];
+        const masterSet = new Set(freshMasterBarang.map(b => String(b.nama || '').toUpperCase().trim()));
 
-        const blankTemplate = ['KAIN UTAMA', ...WO4_ACCESSORIES, ...WO4_SIZES];
-        const gudangBody = freshGudang.length > 0
-          ? freshGudang.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
-              String(i + 1),
+        const formNosGudang = detectWo4FormNos(freshGudang as Row[]);
+        for (const fn of formNosGudang) {
+          if (!firstPage) pdf.addPage();
+          firstPage = false;
+          pdf.setFontSize(14);
+          const titleSuffix = formNosGudang.length > 1 ? ` — Form #${fn}` : '';
+          pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}${titleSuffix}`, 14, 18);
+          pdf.setFontSize(10);
+          pdf.text(`No WO: ${woName}`, 14, 26);
+
+          const formRows = buildWo4FormRows({
+            sourceRows: freshGudang as Row[],
+            formNo: fn,
+            woId: Number(wo.id),
+            specs: freshSpecs as Row[],
+            specBahan: freshSpecBahan as Row[],
+            ukuranTim: freshUkuranTim,
+            masterBarangSet: masterSet,
+          });
+
+          // Build body dengan section headers (colSpan 5 bg kuning).
+          let numCtr = 0;
+          type CellDef = string | { content: string; colSpan: number; styles: { fillColor: [number, number, number]; textColor: [number, number, number]; halign: 'center'; fontStyle: 'bold'; fontSize: number } };
+          const body: CellDef[][] = formRows.map((r): CellDef[] => {
+            if (r.sectionHeader) {
+              return [{
+                content: r.sectionHeader,
+                colSpan: 5,
+                styles: { fillColor: [253, 224, 71], textColor: [15, 23, 42], halign: 'center', fontStyle: 'bold', fontSize: 10 },
+              }];
+            }
+            numCtr++;
+            return [
+              String(numCtr),
               String(r.bagian || ''),
               String(r.bahan || ''),
               String(r.warna || ''),
               String(r.kuantitas || 0),
-            ])
-          : blankTemplate.map((item, i) => [String(i + 1), item, '', '', '']);
+            ];
+          });
 
-        autoTable(pdf, {
-          startY: 32,
-          head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
-          didParseCell: uniDidParseCell,
-          didDrawCell: uniDidDrawCell,
-          body: gudangBody,
-          styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
-          headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
-          bodyStyles: { halign: 'left' },
-          columnStyles: {
-            0: { cellWidth: 15, halign: 'center' },
-            3: { cellWidth: 30 },
-            4: { cellWidth: 25, halign: 'right' },
-          },
-        });
+          autoTable(pdf, {
+            startY: 32,
+            head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
+            didParseCell: uniDidParseCell,
+            didDrawCell: uniDidDrawCell,
+            body,
+            styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
+            headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
+            bodyStyles: { halign: 'left' },
+            columnStyles: {
+              0: { cellWidth: 15, halign: 'center' },
+              3: { cellWidth: 30 },
+              4: { cellWidth: 25, halign: 'right' },
+            },
+          });
+        }
       }
 
       if (firstPage) {
@@ -5055,6 +5089,167 @@ type GudangRow = {
   sectionHeader?: string;
 };
 
+// Pure helper: derive WO4 rows untuk 1 form (KAIN + ACCESSORIS + SIZE +
+// section headers). Dipakai oleh TabFormPermintaanGudang (UI) DAN
+// Download All PDF supaya format konsisten. Pisah dari komponen supaya
+// bisa reuse tanpa hook context.
+export function buildWo4FormRows(args: {
+  sourceRows: Row[];              // existing wo_permintaan_gudang rows (all forms)
+  formNo: number;
+  woId: number;
+  specs: Row[];                   // wo_spesifikasi rows (all WOs)
+  specBahan: Row[];               // wo_spesifikasi_bahan rows (all specs)
+  ukuranTim: Row[];               // wo_ukuran_tim rows for this WO
+  masterBarangSet: Set<string>;   // uppercase master barang names
+}): GudangRow[] {
+  const { sourceRows, formNo, woId, specs, specBahan, ukuranTim, masterBarangSet } = args;
+
+  // Derive KAIN bahan mapping dari WO1 specs.
+  const specsForWo = specs.filter(s => Number(s.work_order_id) === Number(woId));
+  const specIds = new Set(specsForWo.map(s => Number(s.id)));
+  const bahanForWo = specBahan.filter(b => specIds.has(Number(b.spesifikasi_id)));
+  const bahanByBagian: Record<string, string> = {};
+  for (const b of bahanForWo) {
+    const bg = String(b.bagian || '').toUpperCase().trim();
+    if (!bg) continue;
+    const bh = String(b.bahan || '').trim();
+    if (!bh) continue;
+    if (!bahanByBagian[bg]) bahanByBagian[bg] = bh;
+  }
+  const totalJumlah = specsForWo.reduce((s, x) => s + (Number(x.jumlah) || 0), 0);
+
+  // Sizes count dari WO2 (wo_ukuran_tim) + alias 2XL → XXL.
+  const sizeCounts: Record<string, number> = {};
+  const extraSizesOrder: string[] = [];
+  const stdSet = new Set(WO4_SIZES.map(s => s.toUpperCase()));
+  const seenExtra = new Set<string>();
+  for (const t of ukuranTim) {
+    let sz = String(t.size || '').trim().toUpperCase();
+    if (!sz) continue;
+    if (sz === '2XL') sz = 'XXL';
+    sizeCounts[sz] = (sizeCounts[sz] || 0) + 1;
+    if (!stdSet.has(sz) && !seenExtra.has(sz)) {
+      seenExtra.add(sz);
+      extraSizesOrder.push(sz);
+    }
+  }
+
+  // Index existing DB rows by bagian (uppercase). Alias legacy '2XL' → 'XXL'.
+  const byBagian: Record<string, Row> = {};
+  for (const r of sourceRows) {
+    if (Number(r.form_no || 1) !== formNo) continue;
+    let bg = String(r.bagian || '').toUpperCase();
+    if (bg === '2XL' && !byBagian['XXL']) bg = 'XXL';
+    byBagian[bg] = r;
+  }
+
+  const sizesForForm = [...WO4_SIZES, ...extraSizesOrder];
+
+  // Derive unique bahan dari WO1 body-parts (first-appearance order).
+  const uniqueBahan: string[] = [];
+  const seenBahan = new Set<string>();
+  for (const part of WO4_BODY_PARTS_ORDER) {
+    const b = String(bahanByBagian[part] || '').trim();
+    if (!b) continue;
+    const key = b.toUpperCase();
+    if (seenBahan.has(key)) continue;
+    seenBahan.add(key);
+    uniqueBahan.push(b);
+  }
+  if (uniqueBahan.length === 0) uniqueBahan.push('');
+
+  const makeSection = (label: string): GudangRow => ({
+    id: null, urutan: 0, kategori: 'SECTION', bagian: '', bahan: '',
+    warna: '', kuantitas: 0, sectionHeader: label,
+  });
+
+  const assembled: GudangRow[] = [];
+  let idx = 1;
+  // ── SECTION: KAIN ──
+  assembled.push(makeSection('KAIN'));
+  for (let i = 0; i < uniqueBahan.length; i++) {
+    const bagian = i === 0 ? 'KAIN UTAMA' : `KAIN VARIASI ${i}`;
+    const found = byBagian[bagian.toUpperCase()];
+    assembled.push({
+      id: found ? Number(found.id) : null,
+      urutan: idx++, kategori: 'BAHAN_UTAMA',
+      bagian,
+      bahan: found ? String(found.bahan || '') : uniqueBahan[i],
+      warna: String(found?.warna || ''),
+      kuantitas: found ? (Number(found.kuantitas) || 0) : 0,
+      isFixed: true,
+    });
+  }
+  // ── SECTION: ACCESSORIS ──
+  assembled.push(makeSection('ACCESSORIS'));
+  for (const it of WO4_ACCESSORIES) {
+    const found = byBagian[it];
+    const savedBahan = String(found?.bahan || '').trim();
+    const bahanValid = savedBahan && masterBarangSet.has(savedBahan.toUpperCase());
+    assembled.push({
+      id: found ? Number(found.id) : null,
+      urutan: idx++, kategori: 'BAHAN_UTAMA',
+      bagian: it,
+      bahan: bahanValid ? savedBahan : '',
+      warna: String(found?.warna || ''),
+      kuantitas: found ? (Number(found.kuantitas) || 0) : totalJumlah,
+      isFixed: true,
+    });
+  }
+  // ── SECTION: SIZE ──
+  assembled.push(makeSection('SIZE'));
+  for (const sz of sizesForForm) {
+    const found = byBagian[sz];
+    const rawWarna = String(found?.warna || '');
+    const cleanWarna = rawWarna.trim().toUpperCase() === 'CUSTOM' ? '' : rawWarna;
+    const autoQty = sizeCounts[sz] || 0;
+    assembled.push({
+      id: found ? Number(found.id) : null,
+      urutan: idx++, kategori: 'MATERIAL_TAMBAHAN',
+      bagian: sz, bahan: String(found?.bahan || ''),
+      warna: cleanWarna,
+      kuantitas: found ? (Number(found.kuantitas) || 0) : autoQty,
+      isFixed: true,
+    });
+  }
+  // Extras (LAIN-LAIN) — skip legacy body-parts / KAIN VARIASI orphans / 2XL.
+  const currentFixed = new Set<string>();
+  for (let i = 0; i < uniqueBahan.length; i++) {
+    currentFixed.add((i === 0 ? 'KAIN UTAMA' : `KAIN VARIASI ${i}`).toUpperCase());
+  }
+  for (const s of WO4_ACCESSORIES) currentFixed.add(s.toUpperCase());
+  for (const s of sizesForForm) currentFixed.add(s.toUpperCase());
+  const extras: GudangRow[] = [];
+  for (const r of sourceRows) {
+    if (Number(r.form_no || 1) !== formNo) continue;
+    const b = String(r.bagian || '').toUpperCase();
+    if (currentFixed.has(b)) continue;
+    if (WO4_LEGACY_BODY_SET.has(b)) continue;
+    if (WO4_KAIN_VARIASI_RE.test(b)) continue;
+    if (b === 'KAIN UTAMA') continue;
+    if (b === '2XL') continue;
+    extras.push({
+      id: Number(r.id), urutan: idx++, kategori: String(r.kategori || 'BAHAN_UTAMA'),
+      bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
+      warna: String(r.warna || ''), kuantitas: Number(r.kuantitas) || 0,
+      isFixed: false,
+    });
+  }
+  if (extras.length > 0) {
+    assembled.push(makeSection('LAIN-LAIN'));
+    assembled.push(...extras);
+  }
+  return assembled;
+}
+
+// Unique form_no yang ada di DB rows. Kalau kosong, return [1].
+export function detectWo4FormNos(rows: Row[]): number[] {
+  const s = new Set<number>();
+  for (const r of rows) s.add(Number(r.form_no || 1));
+  if (s.size === 0) return [1];
+  return Array.from(s).sort((a, b) => a - b);
+}
+
 function TabWO4({ wo, specs, specBahan }: { wo: Row; detailItems: Row[]; specs: Row[]; specBahan: Row[] }) {
   return <TabFormPermintaanGudang wo={wo} specs={specs} specBahan={specBahan} />;
 }
@@ -5076,54 +5271,6 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       .then(setUkuranTim).catch(() => setUkuranTim([]));
   }, [wo.id]);
 
-  // Auto-fill lookup dari WO1 spec:
-  // - wo1BahanByBagian: bagian → bahan (dari wo_spesifikasi_bahan, first
-  //   non-empty untuk bagian ini across semua specs WO ini). CUMA
-  //   dipakai untuk BAHAN_UTAMA items (FRONT BODY, BACK BODY, dst).
-  // - totalJumlah: SUM(spec.jumlah) untuk semua specs → jadi kuantitas
-  //   default untuk semua items (BAHAN_UTAMA + accessories).
-  //   User contoh: 29 + 1 = 30.
-  //
-  // NOTE: Accessories items (AUTENTIC, WEBBING, WASHTAG, ELASTIC PANTS,
-  // DTF SPONSOR, POLIFLEX, DTF SIZE) TIDAK auto-fill bahan — value
-  // di WO1 (spec.authentic 'Ayress hologram', spec.webbing 'Ayres') itu
-  // nama style/model bukan nama bahan MASTER, jadi tidak boleh ditulis
-  // ke kolom BAHAN. Cukup KUANTITAS yang auto-fill.
-  const woAutoFill = useMemo(() => {
-    const specsForWo = specs.filter(s => Number(s.work_order_id) === Number(wo.id));
-    const specIds = new Set(specsForWo.map(s => Number(s.id)));
-    const bahanForWo = specBahan.filter(b => specIds.has(Number(b.spesifikasi_id)));
-    const bahanByBagian: Record<string, string> = {};
-    for (const b of bahanForWo) {
-      const bg = String(b.bagian || '').toUpperCase().trim();
-      if (!bg) continue;
-      const bh = String(b.bahan || '').trim();
-      if (!bh) continue;
-      if (!bahanByBagian[bg]) bahanByBagian[bg] = bh;
-    }
-    const totalJumlah = specsForWo.reduce((s, x) => s + (Number(x.jumlah) || 0), 0);
-    // Sizes count dari WO2 (wo_ukuran_tim.size). Group by size,
-    // count anggota per size. Normalize case supaya "xs" & "XS" match.
-    // Alias '2XL' → 'XXL' (template WO4 pakai XXL) supaya legacy data
-    // WO2 tidak jadi row extra terpisah. Sekaligus track sizes non-standar
-    // (misal XXXL) yang perlu di-tambah otomatis di WO4.
-    const sizeCounts: Record<string, number> = {};
-    const extraSizesOrder: string[] = [];
-    const stdSet = new Set(WO4_SIZES.map(s => s.toUpperCase()));
-    const seenExtra = new Set<string>();
-    for (const t of ukuranTim) {
-      let sz = String(t.size || '').trim().toUpperCase();
-      if (!sz) continue;
-      if (sz === '2XL') sz = 'XXL';
-      sizeCounts[sz] = (sizeCounts[sz] || 0) + 1;
-      if (!stdSet.has(sz) && !seenExtra.has(sz)) {
-        seenExtra.add(sz);
-        extraSizesOrder.push(sz);
-      }
-    }
-    return { bahanByBagian, totalJumlah, sizeCounts, extraSizesOrder };
-  }, [wo.id, specs, specBahan, ukuranTim]);
-
   // Master barang name set (uppercase) — dipakai untuk validate bahan
   // accessories: kalau saved bahan bukan master barang, dianggap legacy
   // junk (dari mapping lama spec.authentic/webbing) → clear.
@@ -5131,135 +5278,15 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     return new Set(barangList.map(b => String(b.nama || '').toUpperCase().trim()));
   }, [barangList]);
 
-  // Helper: bangun baris fixed template per form.
-  // Struktur baru (konsolidasi per unique bahan dari WO1):
-  // - Section header "KAIN"
-  //   - Row 1: "KAIN UTAMA" (bahan pertama dari WO1 body-parts)
-  //   - Row 2..N: "KAIN VARIASI 1..N-1" (unique bahan lain, urut first-appearance)
-  // - Section header "ACCESSORIS"
-  //   - Accessories (7 items — bahan default kosong, kuantitas auto totalJumlah)
-  // - Section header "SIZE"
-  //   - Sizes (6 items — kuantitas auto dari count per size di WO2)
+  // Helper: bangun baris fixed template per form. Delegate ke pure
+  // helper buildWo4FormRows (dipakai juga oleh Download All PDF supaya
+  // format konsisten).
   const buildFormRows = useCallback((sourceRows: Row[], formNo: number): GudangRow[] => {
-    const byBagian: Record<string, Row> = {};
-    for (const r of sourceRows) {
-      if (Number(r.form_no || 1) !== formNo) continue;
-      let bg = String(r.bagian || '').toUpperCase();
-      // Alias legacy "2XL" → "XXL" (template lama). Hanya map kalau XXL
-      // belum ada, supaya tidak overwrite XXL yang di-save eksplisit.
-      if (bg === '2XL' && !byBagian['XXL']) bg = 'XXL';
-      byBagian[bg] = r;
-    }
-    const { bahanByBagian, totalJumlah, sizeCounts, extraSizesOrder } = woAutoFill;
-    // Sizes final = standar (XS..2XL) + non-standar dari WO2 (misal XXL, XXXL)
-    // yang tidak ada di WO4_SIZES. Auto-append supaya operator tidak perlu
-    // tambah manual — semua anggota WO2 pasti terwakili di WO4.
-    const sizesForForm = [...WO4_SIZES, ...extraSizesOrder];
-
-    // Derive unique bahan dari WO1 body parts (urut first-appearance).
-    // Contoh: FULL BODY=JAGUARD, COLLAR=RIB, PANTS=BRAZIL → [JAGUARD, RIB, BRAZIL].
-    const uniqueBahan: string[] = [];
-    const seenBahan = new Set<string>();
-    for (const part of WO4_BODY_PARTS_ORDER) {
-      const b = String(bahanByBagian[part] || '').trim();
-      if (!b) continue;
-      const key = b.toUpperCase();
-      if (seenBahan.has(key)) continue;
-      seenBahan.add(key);
-      uniqueBahan.push(b);
-    }
-    // Fallback: minimal 1 KAIN UTAMA row supaya form tidak kosong total.
-    if (uniqueBahan.length === 0) uniqueBahan.push('');
-
-    // Helper — bikin section header row (visual only, tidak ke DB).
-    const makeSection = (label: string): GudangRow => ({
-      id: null, urutan: 0, kategori: 'SECTION', bagian: '', bahan: '',
-      warna: '', kuantitas: 0, sectionHeader: label,
+    return buildWo4FormRows({
+      sourceRows, formNo, woId: Number(wo.id),
+      specs, specBahan, ukuranTim, masterBarangSet,
     });
-
-    const assembled: GudangRow[] = [];
-    let idx = 1;
-    // ── SECTION: KAIN ──
-    assembled.push(makeSection('KAIN'));
-    for (let i = 0; i < uniqueBahan.length; i++) {
-      const bagian = i === 0 ? 'KAIN UTAMA' : `KAIN VARIASI ${i}`;
-      const found = byBagian[bagian.toUpperCase()];
-      assembled.push({
-        id: found ? Number(found.id) : null,
-        urutan: idx++, kategori: 'BAHAN_UTAMA',
-        bagian,
-        bahan: found ? String(found.bahan || '') : uniqueBahan[i],
-        warna: String(found?.warna || ''),
-        kuantitas: found ? (Number(found.kuantitas) || 0) : 0,
-        isFixed: true,
-      });
-    }
-    // ── SECTION: ACCESSORIS ──
-    // Bahan DEFAULT kosong. Kalau saved bahan cocok master barang → preserve;
-    // kalau bukan (legacy junk dari mapping lama) → clear. Kuantitas auto
-    // totalJumlah (1 per jersey) kecuali operator sudah edit manual.
-    assembled.push(makeSection('ACCESSORIS'));
-    for (const it of WO4_ACCESSORIES) {
-      const found = byBagian[it];
-      const savedBahan = String(found?.bahan || '').trim();
-      const bahanValid = savedBahan && masterBarangSet.has(savedBahan.toUpperCase());
-      assembled.push({
-        id: found ? Number(found.id) : null,
-        urutan: idx++, kategori: 'BAHAN_UTAMA',
-        bagian: it,
-        bahan: bahanValid ? savedBahan : '',
-        warna: String(found?.warna || ''),
-        kuantitas: found ? (Number(found.kuantitas) || 0) : totalJumlah,
-        isFixed: true,
-      });
-    }
-    // ── SECTION: SIZE ──
-    assembled.push(makeSection('SIZE'));
-    for (const sz of sizesForForm) {
-      const found = byBagian[sz];
-      const rawWarna = String(found?.warna || '');
-      const cleanWarna = rawWarna.trim().toUpperCase() === 'CUSTOM' ? '' : rawWarna;
-      const autoQty = sizeCounts[sz] || 0;
-      assembled.push({
-        id: found ? Number(found.id) : null,
-        urutan: idx++, kategori: 'MATERIAL_TAMBAHAN',
-        bagian: sz, bahan: String(found?.bahan || ''),
-        warna: cleanWarna,
-        kuantitas: found ? (Number(found.kuantitas) || 0) : autoQty,
-        isFixed: true,
-      });
-    }
-    // Extras — row extra per form (operator input manual, tidak auto).
-    const currentFixed = new Set<string>();
-    for (let i = 0; i < uniqueBahan.length; i++) {
-      currentFixed.add((i === 0 ? 'KAIN UTAMA' : `KAIN VARIASI ${i}`).toUpperCase());
-    }
-    for (const s of WO4_ACCESSORIES) currentFixed.add(s.toUpperCase());
-    for (const s of sizesForForm) currentFixed.add(s.toUpperCase());
-    const extras: GudangRow[] = [];
-    for (const r of sourceRows) {
-      if (Number(r.form_no || 1) !== formNo) continue;
-      const b = String(r.bagian || '').toUpperCase();
-      if (currentFixed.has(b)) continue;
-      if (WO4_LEGACY_BODY_SET.has(b)) continue;
-      if (WO4_KAIN_VARIASI_RE.test(b)) continue;
-      if (b === 'KAIN UTAMA') continue;
-      // Legacy '2XL' rows sudah di-alias ke 'XXL' di byBagian, jadi
-      // jangan muncul lagi sebagai extras.
-      if (b === '2XL') continue;
-      extras.push({
-        id: Number(r.id), urutan: idx++, kategori: String(r.kategori || 'BAHAN_UTAMA'),
-        bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
-        warna: String(r.warna || ''), kuantitas: Number(r.kuantitas) || 0,
-        isFixed: false,
-      });
-    }
-    if (extras.length > 0) {
-      assembled.push(makeSection('LAIN-LAIN'));
-      assembled.push(...extras);
-    }
-    return assembled;
-  }, [woAutoFill, masterBarangSet]);
+  }, [wo.id, specs, specBahan, ukuranTim, masterBarangSet]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
