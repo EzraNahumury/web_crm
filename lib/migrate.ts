@@ -1073,6 +1073,17 @@ const MIGRATIONS: Migration[] = [
         "WHERE `menu_name` = 'Stok'",
     ],
   },
+  {
+    // Laporan Produksi punya kolom KET dan NOTE per WO yang di-edit
+    // langsung di halaman laporan (bukan sync dari kolom lain). KET =
+    // catatan kecil per baris (default kosong), NOTE = catatan longer
+    // form (contoh: "ANTRI FINISHING", "KURANG 2 JERSEY").
+    name: '064_work_orders_laporan_ket_note',
+    up: [
+      "ALTER TABLE `work_orders` ADD COLUMN `laporan_ket` TEXT NULL",
+      "ALTER TABLE `work_orders` ADD COLUMN `laporan_note` TEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
