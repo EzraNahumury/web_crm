@@ -159,8 +159,12 @@ export default function LaporanProduksiPage() {
     const list: WoRowExpanded[] = [];
     for (const wo of wos) {
       const ord = ordersById[Number(wo.order_id)];
-      // Apply cutoff filter — sama dengan menu Produksi.
-      if (!isVisibleTanggalOrder(ord?.tanggal_order)) continue;
+      // Cutoff strict: HARUS punya order dengan tanggal_order >= 13 Juli.
+      // WO orphan (tanpa order) atau tanggal_order kosong di-hide, beda
+      // dengan menu Produksi yang lebih longgar (untuk hindari legacy
+      // data bocor ke laporan bulanan).
+      if (!ord?.tanggal_order) continue;
+      if (!isVisibleTanggalOrder(ord.tanggal_order)) continue;
 
       // Deadline Lock — compute via biz-days rule. Kalau prioritas tanpa
       // deadline_lock manual, hasilnya '' (kosong sesuai request user).
@@ -174,15 +178,27 @@ export default function LaporanProduksiPage() {
           })
         : '';
 
-      // STATUS — ambil stage aktif (SEDANG lebih prioritas, kalau tidak
-      // ada ambil TERSEDIA tertinggi, kalau semua SELESAI ambil stage
-      // terakhir SELESAI). Kalau status_terkirim=1 → KIRIM.
+      // STATUS — derive murni dari wo_progress + status_terkirim, SAMA
+      // dengan tab counter di menu Produksi.
+      //   1. status_terkirim=1 (CS centang History Produksi) → KIRIM
+      //   2. Ada progress row Shipment SELESAI → KIRIM (Finance approved pelunasan)
+      //   3. Else: pilih stage aktif dengan (urutan * 10) + weight:
+      //        SEDANG=3, TERSEDIA=2, SELESAI=1 — highest wins.
+      //      WO yang lagi TERSEDIA/SEDANG di Shipment tab akan status
+      //      SHIPMENT (bukan KIRIM), sesuai perilaku menu Produksi.
+      //   4. Kalau progress kosong → status kosong ('—' di UI).
+      // NOTE: sengaja TIDAK pakai wo.status='SELESAI' sebagai shortcut
+      // karena data legacy banyak yang status='SELESAI' tanpa proper
+      // Shipment SELESAI progress — bikin KIRIM inflated.
       const woProg = progressByWo[Number(wo.id)] || [];
       let stageNama = '';
-      if (Number(ord?.status_terkirim) === 1 || String(wo.status).toUpperCase() === 'SELESAI') {
+      const shipmentDoneRow = woProg.find(p => {
+        const stg = stagesByIdMap[Number(p.stage_id)];
+        return stg && String(stg.nama) === 'Shipment' && String(p.status || '').toUpperCase() === 'SELESAI';
+      });
+      if (Number(ord?.status_terkirim) === 1 || shipmentDoneRow) {
         stageNama = 'Shipment';
       } else {
-        // Cari stage aktif dengan urutan terbesar (kalau ada SEDANG, itu prioritas).
         let bestUrut = -1;
         let bestNama = '';
         for (const p of woProg) {
@@ -190,8 +206,8 @@ export default function LaporanProduksiPage() {
           const stg = stagesByIdMap[Number(p.stage_id)];
           if (!stg) continue;
           const ur = Number(stg.urutan || 0);
-          // Prioritas: SEDANG > TERSEDIA > SELESAI (highest urutan).
           const weight = st === 'SEDANG' ? 3 : st === 'TERSEDIA' ? 2 : st === 'SELESAI' ? 1 : 0;
+          if (weight === 0) continue;
           const combined = ur * 10 + weight;
           if (combined > bestUrut) {
             bestUrut = combined;
@@ -200,7 +216,7 @@ export default function LaporanProduksiPage() {
         }
         stageNama = bestNama;
       }
-      const status = STATUS_SHORTHAND[stageNama] || stageNama.toUpperCase();
+      const status = stageNama ? (STATUS_SHORTHAND[stageNama] || stageNama.toUpperCase()) : '';
 
       // Split paket → main + variant (misal "PRO A" → PRO / A). Kalau
       // tidak match pattern, seluruh paket masuk kolom PAKET dan variant kosong.
