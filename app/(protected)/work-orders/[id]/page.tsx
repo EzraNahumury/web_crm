@@ -1785,8 +1785,8 @@ export default function WorkOrderDetailPage() {
 
       // === WO 4: Form Permintaan Gudang === (autoTable — crisp).
       // Selalu ikut di Download All meski kosong — kalau belum ada data,
-      // pakai daftar item standar (WO4_ITEMS) dengan BAHAN/WARNA/KUANTITAS
-      // dikosongkan supaya form gudang blank tetap tercetak.
+      // pakai template default (KAIN UTAMA + accessories + sizes) dengan
+      // BAHAN/WARNA/KUANTITAS dikosongkan supaya form gudang blank tercetak.
       {
         if (!firstPage) pdf.addPage();
         firstPage = false;
@@ -1795,6 +1795,7 @@ export default function WorkOrderDetailPage() {
         pdf.setFontSize(10);
         pdf.text(`No WO: ${woName}`, 14, 26);
 
+        const blankTemplate = ['KAIN UTAMA', ...WO4_ACCESSORIES, ...WO4_SIZES];
         const gudangBody = freshGudang.length > 0
           ? freshGudang.sort((a: Row, b: Row) => Number(a.urutan) - Number(b.urutan)).map((r: Row, i: number) => [
               String(i + 1),
@@ -1803,7 +1804,7 @@ export default function WorkOrderDetailPage() {
               String(r.warna || ''),
               String(r.kuantitas || 0),
             ])
-          : WO4_ITEMS.map((item, i) => [String(i + 1), item, '', '', '']);
+          : blankTemplate.map((item, i) => [String(i + 1), item, '', '', '']);
 
         autoTable(pdf, {
           startY: 32,
@@ -5027,13 +5028,23 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
 }
 
 /* ═══ Tab WO 4 — Form Permintaan Gudang (image #466) ═══ */
-const WO4_ITEMS = [
+// Order body parts di WO1 → dipakai untuk menentukan urutan first-appearance
+// unique bahan (KAIN UTAMA = first bahan, KAIN VARIASI 1..N = subsequent).
+const WO4_BODY_PARTS_ORDER = [
   'FULL BODY', 'FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION',
   'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS',
+];
+const WO4_ACCESSORIES = [
   'AUTENTIC', 'WEBBING', 'WASHTAG', 'ELASTIC PANTS',
   'DTF SPONSOR', 'POLIFLEX', 'DTF SIZE',
 ];
 const WO4_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL'];
+// Legacy body-part bagian names (data lama sebelum konsolidasi KAIN UTAMA/VARIASI).
+// Dipakai di fixedSet supaya orphan rows tidak muncul lagi sebagai "extras".
+const WO4_LEGACY_BODY_SET = new Set(WO4_BODY_PARTS_ORDER.map(s => s.toUpperCase()));
+// Legacy "kain variasi" label pattern — kalau sudah di-save di DB (KAIN VARIASI 1..N),
+// row-nya dikenali di fixedSet lewat prefix check di sini.
+const WO4_KAIN_VARIASI_RE = /^KAIN\s+VARIASI\s+\d+$/i;
 
 type GudangRow = {
   id: number | null; urutan: number;
@@ -5099,18 +5110,13 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     return { bahanByBagian, totalJumlah, sizeCounts };
   }, [wo.id, specs, specBahan, ukuranTim]);
 
-  // Item classification: mana yg BAHAN_UTAMA (auto-fill bahan +
-  // kuantitas) vs accessories (cuma kuantitas). Berdasarkan urutan
-  // WO4_ITEMS, 9 pertama adalah bahan utama (FULL BODY dst sampai
-  // PANTS), sisanya accessories.
-  const WO4_BAHAN_UTAMA_SET = useMemo(() => new Set([
-    'FULL BODY', 'FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION',
-    'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS',
-  ]), []);
-
-  // Helper: bangun 22 baris fixed template (16 items + 6 sizes) untuk 1 form.
-  // Kalau ada byBagian data existing di DB, pakai itu. Kalau row DB belum
-  // ada (id null), auto-fill bahan + kuantitas dari WO1 spec (kalau ada).
+  // Helper: bangun baris fixed template per form.
+  // Struktur baru (konsolidasi per unique bahan dari WO1):
+  // - Row 1: "KAIN UTAMA" (bahan pertama dari WO1 body-parts)
+  // - Row 2..N: "KAIN VARIASI 1..N-1" (unique bahan lain, urut first-appearance)
+  // - Accessories (7 items)
+  // - Sizes (6 items)
+  // Kalau WO1 belum punya bahan sama sekali, minimal tampil 1 KAIN UTAMA kosong.
   const buildFormRows = useCallback((sourceRows: Row[], formNo: number): GudangRow[] => {
     const byBagian: Record<string, Row> = {};
     for (const r of sourceRows) {
@@ -5119,35 +5125,55 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     }
     const { bahanByBagian, totalJumlah, sizeCounts } = woAutoFill;
 
+    // Derive unique bahan dari WO1 body parts (urut first-appearance).
+    // Contoh: FULL BODY=JAGUARD, COLLAR=RIB, PANTS=BRAZIL → [JAGUARD, RIB, BRAZIL].
+    const uniqueBahan: string[] = [];
+    const seenBahan = new Set<string>();
+    for (const part of WO4_BODY_PARTS_ORDER) {
+      const b = String(bahanByBagian[part] || '').trim();
+      if (!b) continue;
+      const key = b.toUpperCase();
+      if (seenBahan.has(key)) continue;
+      seenBahan.add(key);
+      uniqueBahan.push(b);
+    }
+    // Fallback: minimal 1 KAIN UTAMA row supaya form tidak kosong total.
+    if (uniqueBahan.length === 0) uniqueBahan.push('');
+
     const assembled: GudangRow[] = [];
     let idx = 1;
-    for (const it of WO4_ITEMS) {
+    // KAIN UTAMA + KAIN VARIASI 1..N-1
+    for (let i = 0; i < uniqueBahan.length; i++) {
+      const bagian = i === 0 ? 'KAIN UTAMA' : `KAIN VARIASI ${i}`;
+      const found = byBagian[bagian.toUpperCase()];
+      assembled.push({
+        id: found ? Number(found.id) : null,
+        urutan: idx++, kategori: 'BAHAN_UTAMA',
+        bagian,
+        bahan: found ? String(found.bahan || '') : uniqueBahan[i],
+        warna: String(found?.warna || ''),
+        kuantitas: found ? (Number(found.kuantitas) || 0) : 0,
+        isFixed: true,
+      });
+    }
+    // Accessories (AUTENTIC..DTF SIZE): bahan manual, kuantitas auto-fill
+    // totalJumlah (jumlah per jersey — 1 accessory per jersey).
+    for (const it of WO4_ACCESSORIES) {
       const found = byBagian[it];
-      const isBahanUtama = WO4_BAHAN_UTAMA_SET.has(it);
-      // Kalau row DB ada, pakai apa adanya (jangan overwrite). Kalau tidak:
-      // - BAHAN_UTAMA (9 items pertama): auto-fill BAHAN dari
-      //   wo_spesifikasi_bahan. KUANTITAS kosong (0) — operator gudang
-      //   isi manual sesuai kebutuhan bahan (meteran), BUKAN jumlah jersey.
-      // - Accessories (AUTENTIC..DTF SIZE): bahan KOSONG (bukan bahan
-      //   MASTER), tapi kuantitas auto-fill totalJumlah (jumlah per jersey).
-      const suggestBahan = isBahanUtama ? (bahanByBagian[it.toUpperCase()] || '') : '';
-      const suggestKuantitas = isBahanUtama ? 0 : totalJumlah;
       assembled.push({
         id: found ? Number(found.id) : null,
         urutan: idx++, kategori: 'BAHAN_UTAMA',
         bagian: it,
-        bahan: found ? String(found.bahan || '') : suggestBahan,
+        bahan: found ? String(found.bahan || '') : '',
         warna: String(found?.warna || ''),
-        kuantitas: found ? (Number(found.kuantitas) || 0) : suggestKuantitas,
+        kuantitas: found ? (Number(found.kuantitas) || 0) : totalJumlah,
         isFixed: true,
       });
     }
+    // Sizes (XS/S/M/L/XL/2XL): auto-fill kuantitas dari count anggota per
+    // size di WO2 (wo_ukuran_tim). Strip legacy "CUSTOM" di warna.
     for (const sz of WO4_SIZES) {
       const found = byBagian[sz];
-      // Sizes (XS/S/M/L/XL/2XL): auto-fill KUANTITAS dari count anggota
-      // per size di WO2 (wo_ukuran_tim). Kalau row DB sudah ada, pakai
-      // saved value (jangan overwrite manual edit operator).
-      // Strip legacy "CUSTOM" text yang pernah masuk ke kolom warna.
       const rawWarna = String(found?.warna || '');
       const cleanWarna = rawWarna.trim().toUpperCase() === 'CUSTOM' ? '' : rawWarna;
       const autoQty = sizeCounts[sz] || 0;
@@ -5161,18 +5187,29 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       });
     }
     // Extras — row extra per form (operator input manual, tidak auto).
-    const fixedSet = new Set([...WO4_ITEMS, ...WO4_SIZES].map(s => s.toUpperCase()));
+    // fixedSet: accessories + sizes + kain utama/variasi + legacy body-parts
+    // (biar orphan rows dari format lama tidak muncul lagi sebagai extras).
+    const currentFixed = new Set<string>();
+    for (let i = 0; i < uniqueBahan.length; i++) {
+      currentFixed.add((i === 0 ? 'KAIN UTAMA' : `KAIN VARIASI ${i}`).toUpperCase());
+    }
+    for (const s of WO4_ACCESSORIES) currentFixed.add(s.toUpperCase());
+    for (const s of WO4_SIZES) currentFixed.add(s.toUpperCase());
     for (const r of sourceRows) {
       if (Number(r.form_no || 1) !== formNo) continue;
       const b = String(r.bagian || '').toUpperCase();
-      if (!fixedSet.has(b)) {
-        assembled.push({
-          id: Number(r.id), urutan: idx++, kategori: String(r.kategori || 'BAHAN_UTAMA'),
-          bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
-          warna: String(r.warna || ''), kuantitas: Number(r.kuantitas) || 0,
-          isFixed: false,
-        });
-      }
+      if (currentFixed.has(b)) continue;
+      // Legacy body-parts (FULL BODY, dst) atau legacy KAIN VARIASI di
+      // luar range unique bahan sekarang → hide (jangan tampil sebagai extras).
+      if (WO4_LEGACY_BODY_SET.has(b)) continue;
+      if (WO4_KAIN_VARIASI_RE.test(b)) continue;
+      if (b === 'KAIN UTAMA') continue;
+      assembled.push({
+        id: Number(r.id), urutan: idx++, kategori: String(r.kategori || 'BAHAN_UTAMA'),
+        bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
+        warna: String(r.warna || ''), kuantitas: Number(r.kuantitas) || 0,
+        isFixed: false,
+      });
     }
     return assembled;
   }, [woAutoFill]);
@@ -5486,7 +5523,7 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). Auto-fill: BAHAN items 1–9 dari WO1, KUANTITAS accessories (10–16) dari total jumlah, KUANTITAS sizes (17–22) dari count per size di WO2. Kuantitas BAHAN utama (meteran) & warna sizes tetap manual — operator gudang isi sesuai kebutuhan.</p>
+      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). Auto-fill: KAIN UTAMA + KAIN VARIASI dibangun otomatis per unique bahan di WO1 (1 baris per bahan, bukan per body part). KUANTITAS accessories dari total jumlah. KUANTITAS sizes dari count per size di WO2. Kuantitas kain (meteran) & warna sizes tetap manual — operator gudang isi sesuai kebutuhan.</p>
     </div>
   );
 }
