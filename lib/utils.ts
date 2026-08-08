@@ -271,3 +271,40 @@ export function normBagian(s: string | null | undefined): string {
     .replace(/([A-Za-z])(body)\b/gi, '$1 $2')
     .toUpperCase();
 }
+
+// Whitelist sanitizer untuk NB HTML (Rincian Order → Note). Keperluan:
+// operator bisa Ctrl+B untuk bold, dan display read-only di halaman
+// lain (Finance Laporan, Approval Finance) render bold-nya tanpa
+// membocorkan tag jahat. Whitelist tag: b, strong, i, em, u, br, p,
+// div, span, ul, ol, li, font (dari execCommand). Strip semua
+// attribute kecuali `style` untuk color/font-weight — tapi block
+// javascript: URL dsb. Bukan pengganti library sanitizer produksi;
+// cukup untuk internal CRM tempat operator dipercaya.
+export function sanitizeNbHtml(html: string | null | undefined): string {
+  if (!html) return '';
+  const s = String(html);
+  // Kalau tidak ada tag, treat sebagai plain-text (escape + \n → <br>).
+  if (!/<[a-z]/i.test(s)) {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+  }
+  const ALLOWED = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'div', 'span', 'ul', 'ol', 'li', 'font']);
+  // Strip <script>…</script> full.
+  let out = s.replace(/<script\b[\s\S]*?<\/script>/gi, '');
+  // Strip on*="…" event handlers.
+  out = out.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  // Strip javascript: URLs in href/src.
+  out = out.replace(/\s+(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, v) => {
+    const val = String(v).replace(/^["']|["']$/g, '');
+    if (/^\s*javascript:/i.test(val)) return '';
+    return m;
+  });
+  // Drop any tag not in allowlist.
+  out = out.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (m, tag) => {
+    return ALLOWED.has(String(tag).toLowerCase()) ? m : '';
+  });
+  return out;
+}

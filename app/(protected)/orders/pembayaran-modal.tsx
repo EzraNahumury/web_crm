@@ -51,6 +51,60 @@ const NB_TEMPLATE = `Note:
 * Free Ongkir
 * Cashback 5% next order (tidak bisa diubah)`;
 
+// Convert legacy plain-text NB (dengan \n) ke HTML dengan <br>. Kalau
+// value sudah HTML (mengandung tag), return apa adanya. Dipakai saat
+// load nb dari DB → set ke contentEditable div.
+function nbToHtml(val: string): string {
+  if (!val) return '';
+  // Heuristic: kalau ada tag HTML valid, treat as HTML. Kalau tidak, escape + \n → <br>.
+  if (/<(br|div|p|span|b|strong|i|em)\b/i.test(val)) return val;
+  return val
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+}
+
+// contentEditable NB editor. Support rich formatting (Ctrl+B untuk bold
+// otomatis dari browser). Uncontrolled — init dari `value` prop pakai
+// innerHTML, sync ke parent via onChange saat user ketik. Re-init cuma
+// kalau external value berubah (pindah order), bukan tiap keystroke,
+// supaya cursor tidak melompat ke awal.
+function NbEditor({ value, onChange, readOnly, placeholder }: {
+  value: string;
+  onChange: (html: string) => void;
+  readOnly?: boolean;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const lastExternal = useRef<string>('');
+  useEffect(() => {
+    if (!ref.current) return;
+    // Kalau value dari luar (order pick / reset template) beda dengan
+    // last-seen external, force sync innerHTML.
+    if (value !== lastExternal.current) {
+      const html = nbToHtml(value);
+      if (ref.current.innerHTML !== html) ref.current.innerHTML = html;
+      lastExternal.current = value;
+    }
+  }, [value]);
+  return (
+    <div
+      ref={ref}
+      contentEditable={!readOnly}
+      suppressContentEditableWarning
+      data-placeholder={placeholder}
+      onInput={e => {
+        const html = (e.target as HTMLDivElement).innerHTML;
+        lastExternal.current = html;
+        onChange(html);
+      }}
+      className="flex-1 min-h-[180px] w-full border border-slate-300 rounded px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 overflow-auto whitespace-pre-wrap"
+      style={{ wordBreak: 'break-word' }}
+    />
+  );
+}
+
 export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, readOnly = false }: Props) {
   const toast = useToast();
   const invoiceRef = useRef<HTMLDivElement>(null);
@@ -874,11 +928,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
               {/* NB + Summary panel (Grand Total → Sisa Tagihan) */}
               <div className="grid grid-cols-2 gap-3 mb-2 items-stretch">
                 <div className="flex flex-col">
-                  <div className="text-sm font-bold mb-1">NB:</div>
-                  <textarea value={nb} onChange={e => setNb(e.target.value)}
-                    readOnly={readOnly}
-                    placeholder="Catatan bahan, promo, size dsb..."
-                    className="flex-1 min-h-[180px] w-full border border-slate-300 rounded px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-none" />
+                  <div className="text-sm font-bold mb-1">NB: <span className="font-normal text-[10px] text-slate-500">(highlight teks → Ctrl+B untuk bold)</span></div>
+                  <NbEditor value={nb} onChange={setNb} readOnly={readOnly} placeholder="Catatan bahan, promo, size dsb..." />
                 </div>
                 <table className="w-full border-collapse text-sm h-fit">
                   <tbody>

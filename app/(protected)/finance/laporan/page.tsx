@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { dbGet } from '@/lib/api-db';
+import { sanitizeNbHtml } from '@/lib/utils';
 
 /**
  * Laporan Finance — arsip customer yang sudah 'Status Terkirim' di
@@ -339,7 +340,12 @@ function RincianOrderModal({ order, items, payments, onClose }: {
               <InfoRow label="Tanggal Order" value={fmtDate(order.tanggal_order)} />
               <InfoRow label="Estimasi Deadline" value={fmtDate(order.estimasi_deadline)} />
               <InfoRow label="Tgl Terkirim" value={fmtDateTime(order.status_terkirim_at)} highlight />
-              <InfoRow label="Keterangan" value={order.keterangan || '-'} span={2} />
+              <div className="md:col-span-2">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Keterangan</p>
+                {order.keterangan
+                  ? <div className="text-sm mt-0.5 text-white break-words whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: sanitizeNbHtml(String(order.keterangan)) }} />
+                  : <p className="text-sm mt-0.5 text-slate-500">—</p>}
+              </div>
             </div>
           </div>
 

@@ -74,6 +74,9 @@ export default function ProduksiPage() {
   // hasil tampil dengan info stage saat ini + button langsung navigate
   // ke tab-nya.
   const [globalSearch, setGlobalSearch] = useState('');
+  // Views modal — muncul setelah Approval WO, buka popup dengan
+  // gambar Desain Mock Up + Pattern dari WO1 spec.
+  const [viewsWoId, setViewsWoId] = useState<number | null>(null);
   const toast = useToast();
 
   // Reject flow: modal state + form fields.
@@ -1286,10 +1289,22 @@ export default function ProduksiPage() {
                       : isShipmentStage
                         ? 'Upload bukti pelunasan → dikirim ke Finance untuk review; setelah approve WO selesai'
                         : undefined;
+              // Views button muncul untuk semua stage SETELAH "Approval WO"
+              // (index > 4 di PROD_STAGES). Buka modal berisi gambar
+              // Desain Mock Up + Pattern dari WO1 spec.
+              const showViewsBtn = PROD_STAGES.indexOf(activeStage) > PROD_STAGES.indexOf('Approval WO');
               return (
               <WoCard key={item.id} item={item} actions={
                 activeStageCanManage || isFullAccess ? (
                   <>
+                    {showViewsBtn && (
+                      <button onClick={() => setViewsWoId(Number(item.wo?.id) || null)}
+                        className="text-xs font-medium text-sky-300 border border-sky-500/20 bg-sky-500/10 px-3 py-1.5 rounded-lg hover:bg-sky-500/20 transition-colors flex items-center gap-1.5"
+                        title="Lihat desain mock up + pattern">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        Views
+                      </button>
+                    )}
                     {user?.username === ROLLBACK_EMAIL && stages.findIndex((s: Row) => s.id === item.stage_id) > 0 && (
                       <button onClick={() => handleKembalikan(item)}
                         className="text-xs font-medium text-amber-400 border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 rounded-lg hover:bg-amber-500/20 transition-colors flex items-center gap-1.5"
@@ -1597,6 +1612,10 @@ export default function ProduksiPage() {
           </div>
         </>
       )}
+
+      {viewsWoId != null && (
+        <ViewsModal woId={viewsWoId} onClose={() => setViewsWoId(null)} />
+      )}
     </div>
   );
 }
@@ -1865,4 +1884,103 @@ function RechartLine({
     </div>
   );
   return <>{Chart}</>;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   ViewsModal — popup gambar Desain Mock Up + Pattern per WO.
+   Muncul dari button "Views" di card produksi (setelah Approval WO).
+   Fetch wo_spesifikasi on-demand supaya base64 image tidak ikut load
+   di list utama. Kalau WO punya beberapa spec, tampil semua.
+   ───────────────────────────────────────────────────────────────────── */
+function ViewsModal({ woId, onClose }: { woId: number; onClose: () => void }) {
+  const [specs, setSpecs] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [wo, setWo] = useState<Row | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [specRows, woArr] = await Promise.all([
+          dbGet<Row>('wo_spesifikasi', undefined, { work_order_id: woId }),
+          dbGet<Row>('work_orders', undefined, { id: woId }),
+        ]);
+        if (!cancelled) {
+          setSpecs(specRows);
+          setWo(woArr[0] || null);
+        }
+      } catch {
+        if (!cancelled) { setSpecs([]); setWo(null); }
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [woId]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+          <div>
+            <h3 className="text-lg font-bold text-white">Desain Mock Up & Pattern</h3>
+            {wo && (
+              <p className="text-xs text-slate-500 mt-0.5">
+                <span className="text-blue-400 font-medium">{String(wo.no_wo || '')}</span>
+                {' · '}
+                <span className="text-slate-300">{String(wo.customer_nama || '')}</span>
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-white/[0.05] transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-6 space-y-6">
+          {loading ? (
+            <div className="h-64 grid place-items-center">
+              <div className="w-8 h-8 rounded-full border-2 border-blue-500/20 border-t-blue-400 animate-spin" />
+            </div>
+          ) : specs.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-white/10 py-14 text-center">
+              <p className="text-sm text-slate-400">WO belum punya spesifikasi.</p>
+            </div>
+          ) : (
+            specs.map((spec, idx) => (
+              <div key={spec.id || idx} className="rounded-xl border border-white/10 overflow-hidden">
+                <div className="px-4 py-2 bg-white/[0.03] border-b border-white/10">
+                  <p className="text-sm font-semibold text-white">{String(spec.nama_spesifikasi || `Spec #${idx + 1}`)}</p>
+                  {spec.paket && <p className="text-[11px] text-slate-500 mt-0.5">Paket: {String(spec.paket)}</p>}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-slate-100">
+                  <div className="rounded-lg overflow-hidden border border-slate-300 bg-white">
+                    <div className="bg-emerald-800 text-white text-xs font-bold text-center py-2 tracking-wider">DESAIN MOCK UP</div>
+                    <div className="p-3 min-h-[280px] flex items-center justify-center">
+                      {spec.dokumen_desain
+                        ? <img src={String(spec.dokumen_desain)} alt="Desain Mock Up" className="max-w-full max-h-[520px] object-contain" />
+                        : <span className="text-slate-400 text-xs">— tidak ada gambar desain —</span>}
+                    </div>
+                  </div>
+                  <div className="rounded-lg overflow-hidden border border-slate-300 bg-white">
+                    <div className="bg-slate-800 text-white text-xs font-bold text-center py-2 tracking-wider">PATTERN</div>
+                    <div className="p-3 min-h-[280px] flex items-center justify-center">
+                      {spec.dokumen_pattern
+                        ? <img src={String(spec.dokumen_pattern)} alt="Pattern" className="max-w-full max-h-[520px] object-contain" />
+                        : <span className="text-slate-400 text-xs">— tidak ada gambar pattern —</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }

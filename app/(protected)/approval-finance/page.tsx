@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { dbGet, dbUpdate, dbCreate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { useAuth } from '@/lib/auth-context';
+import { sanitizeNbHtml } from '@/lib/utils';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -579,7 +580,10 @@ export default function ApprovalFinancePage() {
                     <InfoRow label="Tgl Order" value={fmtDate(detail.tanggal_order)} />
                     <InfoRow label="Alamat" value={String(detail.customer_alamat || '-')} full />
                     {detail.keterangan && (
-                      <InfoRow label="Keterangan" value={String(detail.keterangan)} full />
+                      <div className="md:col-span-2">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Keterangan</p>
+                        <div className="text-sm mt-0.5 text-white break-words whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: sanitizeNbHtml(String(detail.keterangan)) }} />
+                      </div>
                     )}
                   </div>
 
@@ -724,9 +728,7 @@ export default function ApprovalFinancePage() {
                       {detail.keterangan && (
                         <div>
                           <div className="text-xs text-slate-500 mb-1.5">NB / Catatan</div>
-                          <div className="border border-white/10 rounded-lg px-3 py-2 bg-[#0d1117] text-xs text-slate-300 whitespace-pre-wrap">
-                            {String(detail.keterangan)}
-                          </div>
+                          <div className="border border-white/10 rounded-lg px-3 py-2 bg-[#0d1117] text-xs text-slate-300 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: sanitizeNbHtml(String(detail.keterangan)) }} />
                         </div>
                       )}
                     </>
