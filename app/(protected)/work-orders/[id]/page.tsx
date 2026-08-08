@@ -5050,6 +5050,9 @@ type GudangRow = {
   id: number | null; urutan: number;
   kategori: string; bagian: string; bahan: string; warna: string; kuantitas: number;
   isFixed?: boolean;
+  // Kalau di-set, row ini bukan data — cuma header pemisah section (KAIN /
+  // ACCESSORIS / SIZE) buat visual rapi di UI + PDF. Skip di save.
+  sectionHeader?: string;
 };
 
 function TabWO4({ wo, specs, specBahan }: { wo: Row; detailItems: Row[]; specs: Row[]; specBahan: Row[] }) {
@@ -5110,13 +5113,22 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     return { bahanByBagian, totalJumlah, sizeCounts };
   }, [wo.id, specs, specBahan, ukuranTim]);
 
+  // Master barang name set (uppercase) — dipakai untuk validate bahan
+  // accessories: kalau saved bahan bukan master barang, dianggap legacy
+  // junk (dari mapping lama spec.authentic/webbing) → clear.
+  const masterBarangSet = useMemo(() => {
+    return new Set(barangList.map(b => String(b.nama || '').toUpperCase().trim()));
+  }, [barangList]);
+
   // Helper: bangun baris fixed template per form.
   // Struktur baru (konsolidasi per unique bahan dari WO1):
-  // - Row 1: "KAIN UTAMA" (bahan pertama dari WO1 body-parts)
-  // - Row 2..N: "KAIN VARIASI 1..N-1" (unique bahan lain, urut first-appearance)
-  // - Accessories (7 items)
-  // - Sizes (6 items)
-  // Kalau WO1 belum punya bahan sama sekali, minimal tampil 1 KAIN UTAMA kosong.
+  // - Section header "KAIN"
+  //   - Row 1: "KAIN UTAMA" (bahan pertama dari WO1 body-parts)
+  //   - Row 2..N: "KAIN VARIASI 1..N-1" (unique bahan lain, urut first-appearance)
+  // - Section header "ACCESSORIS"
+  //   - Accessories (7 items — bahan default kosong, kuantitas auto totalJumlah)
+  // - Section header "SIZE"
+  //   - Sizes (6 items — kuantitas auto dari count per size di WO2)
   const buildFormRows = useCallback((sourceRows: Row[], formNo: number): GudangRow[] => {
     const byBagian: Record<string, Row> = {};
     for (const r of sourceRows) {
@@ -5140,9 +5152,16 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     // Fallback: minimal 1 KAIN UTAMA row supaya form tidak kosong total.
     if (uniqueBahan.length === 0) uniqueBahan.push('');
 
+    // Helper — bikin section header row (visual only, tidak ke DB).
+    const makeSection = (label: string): GudangRow => ({
+      id: null, urutan: 0, kategori: 'SECTION', bagian: '', bahan: '',
+      warna: '', kuantitas: 0, sectionHeader: label,
+    });
+
     const assembled: GudangRow[] = [];
     let idx = 1;
-    // KAIN UTAMA + KAIN VARIASI 1..N-1
+    // ── SECTION: KAIN ──
+    assembled.push(makeSection('KAIN'));
     for (let i = 0; i < uniqueBahan.length; i++) {
       const bagian = i === 0 ? 'KAIN UTAMA' : `KAIN VARIASI ${i}`;
       const found = byBagian[bagian.toUpperCase()];
@@ -5156,22 +5175,27 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
         isFixed: true,
       });
     }
-    // Accessories (AUTENTIC..DTF SIZE): bahan manual, kuantitas auto-fill
-    // totalJumlah (jumlah per jersey — 1 accessory per jersey).
+    // ── SECTION: ACCESSORIS ──
+    // Bahan DEFAULT kosong. Kalau saved bahan cocok master barang → preserve;
+    // kalau bukan (legacy junk dari mapping lama) → clear. Kuantitas auto
+    // totalJumlah (1 per jersey) kecuali operator sudah edit manual.
+    assembled.push(makeSection('ACCESSORIS'));
     for (const it of WO4_ACCESSORIES) {
       const found = byBagian[it];
+      const savedBahan = String(found?.bahan || '').trim();
+      const bahanValid = savedBahan && masterBarangSet.has(savedBahan.toUpperCase());
       assembled.push({
         id: found ? Number(found.id) : null,
         urutan: idx++, kategori: 'BAHAN_UTAMA',
         bagian: it,
-        bahan: found ? String(found.bahan || '') : '',
+        bahan: bahanValid ? savedBahan : '',
         warna: String(found?.warna || ''),
         kuantitas: found ? (Number(found.kuantitas) || 0) : totalJumlah,
         isFixed: true,
       });
     }
-    // Sizes (XS/S/M/L/XL/2XL): auto-fill kuantitas dari count anggota per
-    // size di WO2 (wo_ukuran_tim). Strip legacy "CUSTOM" di warna.
+    // ── SECTION: SIZE ──
+    assembled.push(makeSection('SIZE'));
     for (const sz of WO4_SIZES) {
       const found = byBagian[sz];
       const rawWarna = String(found?.warna || '');
@@ -5187,32 +5211,33 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       });
     }
     // Extras — row extra per form (operator input manual, tidak auto).
-    // fixedSet: accessories + sizes + kain utama/variasi + legacy body-parts
-    // (biar orphan rows dari format lama tidak muncul lagi sebagai extras).
     const currentFixed = new Set<string>();
     for (let i = 0; i < uniqueBahan.length; i++) {
       currentFixed.add((i === 0 ? 'KAIN UTAMA' : `KAIN VARIASI ${i}`).toUpperCase());
     }
     for (const s of WO4_ACCESSORIES) currentFixed.add(s.toUpperCase());
     for (const s of WO4_SIZES) currentFixed.add(s.toUpperCase());
+    const extras: GudangRow[] = [];
     for (const r of sourceRows) {
       if (Number(r.form_no || 1) !== formNo) continue;
       const b = String(r.bagian || '').toUpperCase();
       if (currentFixed.has(b)) continue;
-      // Legacy body-parts (FULL BODY, dst) atau legacy KAIN VARIASI di
-      // luar range unique bahan sekarang → hide (jangan tampil sebagai extras).
       if (WO4_LEGACY_BODY_SET.has(b)) continue;
       if (WO4_KAIN_VARIASI_RE.test(b)) continue;
       if (b === 'KAIN UTAMA') continue;
-      assembled.push({
+      extras.push({
         id: Number(r.id), urutan: idx++, kategori: String(r.kategori || 'BAHAN_UTAMA'),
         bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
         warna: String(r.warna || ''), kuantitas: Number(r.kuantitas) || 0,
         isFixed: false,
       });
     }
+    if (extras.length > 0) {
+      assembled.push(makeSection('LAIN-LAIN'));
+      assembled.push(...extras);
+    }
     return assembled;
-  }, [woAutoFill]);
+  }, [woAutoFill, masterBarangSet]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -5302,6 +5327,8 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
         const cur = prev[activeForm] || [];
         const next = cur.map((r, i) => {
           if (i < lo || i > hi || i === srcRow) return r;
+          // Jangan overwrite section header rows.
+          if (r.sectionHeader) return r;
           if (colId === 'kuantitas') {
             return { ...r, kuantitas: Number(value) || 0 };
           }
@@ -5327,12 +5354,16 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       // Save semua form (semua form_no yg ada di state).
       for (const fn of formNos) {
         const formRows = formsData[fn] || [];
+        let savedUrutan = 0;
         for (let i = 0; i < formRows.length; i++) {
           const r = formRows[i];
+          // Skip section header rows — visual only, tidak ke DB.
+          if (r.sectionHeader) continue;
           // Skip fixed rows that have no data (empty bahan/warna/kuantitas)
           if (r.isFixed && !r.bahan && !r.warna && !r.kuantitas && !r.id) continue;
+          savedUrutan++;
           const payload = {
-            work_order_id: wo.id, urutan: i + 1,
+            work_order_id: wo.id, urutan: savedUrutan,
             form_no: fn,
             kategori: r.kategori || 'BAHAN_UTAMA',
             bagian: r.bagian || '', bahan: r.bahan || '',
@@ -5375,18 +5406,33 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
         pdf.setFontSize(10);
         pdf.text(`No WO: ${woName}`, 14, 26);
 
+        // Build body dengan section headers (colSpan 5 dengan bg kuning).
+        // Real rows numbered 1..N (skip section rows di counter).
+        let numCtr = 0;
+        const body = formRows.map((r): (string | { content: string; colSpan: number; styles: { fillColor: [number, number, number]; textColor: [number, number, number]; halign: 'center'; fontStyle: 'bold'; fontSize: number } })[] => {
+          if (r.sectionHeader) {
+            return [{
+              content: r.sectionHeader,
+              colSpan: 5,
+              styles: { fillColor: [253, 224, 71], textColor: [15, 23, 42], halign: 'center', fontStyle: 'bold', fontSize: 10 },
+            }];
+          }
+          numCtr++;
+          return [
+            String(numCtr),
+            String(r.bagian || ''),
+            String(r.bahan || ''),
+            String(r.warna || ''),
+            String(r.kuantitas || 0),
+          ];
+        });
+
         autoTable(pdf, {
           startY: 32,
           head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
           didParseCell: uniDidParseCell,
           didDrawCell: uniDidDrawCell,
-          body: formRows.map((r, i) => [
-            String(i + 1),
-            String(r.bagian || ''),
-            String(r.bahan || ''),
-            String(r.warna || ''),
-            String(r.kuantitas || 0),
-          ]),
+          body,
           styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
           headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
           bodyStyles: { halign: 'left' },
@@ -5470,20 +5516,34 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => {
-              const cellFill = (col: 'bahan' | 'warna' | 'kuantitas') => {
-                const inRange = isInRange(i, col);
-                const isSrc = previewSrc === i && previewCol === col;
-                return { inRange, isSrc, cls: inRange
-                  ? 'bg-emerald-500/[0.12] ring-1 ring-inset ring-emerald-500/40'
-                  : isSrc ? 'ring-1 ring-inset ring-emerald-500/70' : '' };
-              };
-              const bahanF = cellFill('bahan');
-              const warnaF = cellFill('warna');
-              const kuanF = cellFill('kuantitas');
-              return (
+            {(() => {
+              // Number real rows only — sectionHeader rows tidak masuk hitungan NO.
+              let realRowNo = 0;
+              return rows.map((r, i) => {
+                // Section header — full-span pemisah, tidak editable.
+                if (r.sectionHeader) {
+                  return (
+                    <tr key={i}>
+                      <td colSpan={6} className="border border-white/10 px-3 py-2 text-center font-extrabold text-[13px] tracking-wider" style={{ background: '#fde68a', color: '#0f172a' }}>
+                        {r.sectionHeader}
+                      </td>
+                    </tr>
+                  );
+                }
+                realRowNo++;
+                const cellFill = (col: 'bahan' | 'warna' | 'kuantitas') => {
+                  const inRange = isInRange(i, col);
+                  const isSrc = previewSrc === i && previewCol === col;
+                  return { inRange, isSrc, cls: inRange
+                    ? 'bg-emerald-500/[0.12] ring-1 ring-inset ring-emerald-500/40'
+                    : isSrc ? 'ring-1 ring-inset ring-emerald-500/70' : '' };
+                };
+                const bahanF = cellFill('bahan');
+                const warnaF = cellFill('warna');
+                const kuanF = cellFill('kuantitas');
+                return (
               <tr key={i} className={`border-b border-white/[0.04] hover:bg-white/[0.02] ${!r.isFixed ? 'bg-blue-500/[0.03]' : ''}`}>
-                <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{i + 1}</td>
+                <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{realRowNo}</td>
                 <td className="border border-white/10">
                   {r.isFixed ? (
                     <span className="block px-2 py-1.5 text-xs text-slate-200 font-semibold">{r.bagian}</span>
@@ -5519,11 +5579,12 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
                 </td>
               </tr>
               );
-            })}
+            });
+            })()}
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). Auto-fill: KAIN UTAMA + KAIN VARIASI dibangun otomatis per unique bahan di WO1 (1 baris per bahan, bukan per body part). KUANTITAS accessories dari total jumlah. KUANTITAS sizes dari count per size di WO2. Kuantitas kain (meteran) & warna sizes tetap manual — operator gudang isi sesuai kebutuhan.</p>
+      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). Section header (KAIN/ACCESSORIS/SIZE) cuma pemisah visual — tidak masuk data. Auto-fill: KAIN UTAMA + KAIN VARIASI dari WO1 (1 baris per unique bahan). KUANTITAS accessories dari total jumlah WO1. KUANTITAS sizes dari count per size WO2. Bahan accessories default kosong (operator pilih dari master kalau perlu).</p>
     </div>
   );
 }
