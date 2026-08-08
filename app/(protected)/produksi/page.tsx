@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { GUDANG_FORM_ITEMS } from '@/lib/gudang-form-items';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { computeDeadlineLock, hasJaket } from '@/lib/business-days';
+import { buildAksesorisSet, sumQtyExcludingAksesoris } from '@/lib/qty-aksesoris';
 import {
   computeStageTargets,
   totalDurasiHariKerja,
@@ -219,7 +220,7 @@ export default function ProduksiPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, p, w, r, o, hol] = await Promise.all([
+      const [s, p, w, r, o, hol, oi, bcs] = await Promise.all([
         dbGet('production_stages'),
         dbGet('wo_progress'),
         dbGet('work_orders'),
@@ -230,8 +231,39 @@ export default function ProduksiPage() {
         dbGet('orders').catch(() => []),
         // libur_nasional — dipakai untuk hitung target durasi produksi.
         dbGet('libur_nasional').catch(() => []),
+        // order_items + barang_cs — dipakai untuk recompute wo.jumlah
+        // exclude aksesoris (hitung_qty=0). Sebelumnya wo.jumlah dari DB
+        // saja, stale kalau operator toggle barang_cs.hitung_qty setelah
+        // WO di-create.
+        dbGet('order_items').catch(() => []),
+        dbGet('barang_cs').catch(() => []),
       ]);
       setRejects(r);
+      // Build qty override map: order_id → sum(items.qty) yang bukan aksesoris.
+      const aksSet = buildAksesorisSet(bcs as Row[]);
+      const itemsByOrder: Record<number, Row[]> = {};
+      for (const it of oi as Row[]) {
+        const oid = Number(it.order_id);
+        if (!oid) continue;
+        if (!itemsByOrder[oid]) itemsByOrder[oid] = [];
+        itemsByOrder[oid].push(it);
+      }
+      const qtyByOrder: Record<number, number> = {};
+      for (const oid of Object.keys(itemsByOrder).map(Number)) {
+        qtyByOrder[oid] = sumQtyExcludingAksesoris(itemsByOrder[oid], aksSet);
+      }
+      // Override wo.jumlah dengan qty yang sudah exclude aksesoris.
+      // Cuma kalau order-nya punya items — kalau tidak, pakai wo.jumlah asli
+      // (fallback aman untuk WO manual tanpa order_items).
+      const woWithFixedQty = (w as Row[]).map(wo => {
+        const oid = Number(wo.order_id);
+        if (oid && qtyByOrder[oid] !== undefined) {
+          return { ...wo, jumlah: qtyByOrder[oid] };
+        }
+        return wo;
+      });
+      // downstream setWos gets the recomputed jumlah, jadi Total Qty +
+      // pcs badge langsung reflect exclusion aksesoris.
       const ordersMap: Record<number, Row> = {};
       for (const row of o as Row[]) ordersMap[Number(row.id)] = row;
       setOrdersById(ordersMap);
@@ -335,7 +367,8 @@ export default function ProduksiPage() {
       setProgress(updatedProgress);
       // Sembunyikan WO yang order-nya legacy (sebelum cutoff). Data tidak
       // dihapus — cuma tidak muncul di UI Produksi. Lihat lib/data-cutoff.ts.
-      const filteredWos = (w as Row[]).filter((wo: Row) => {
+      // Pakai woWithFixedQty supaya jumlah sudah exclude aksesoris.
+      const filteredWos = woWithFixedQty.filter((wo: Row) => {
         const ord = ordersMap[Number(wo.order_id)];
         return isVisibleTanggalOrder(ord?.tanggal_order);
       });

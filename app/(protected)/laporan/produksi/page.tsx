@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { dbGet, dbUpdate } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { computeDeadlineLock, hasJaket } from '@/lib/business-days';
+import { buildAksesorisSet, sumQtyExcludingAksesoris } from '@/lib/qty-aksesoris';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -96,16 +97,38 @@ export default function LaporanProduksiPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, p, w, o, h] = await Promise.all([
+      const [s, p, w, o, h, oi, bcs] = await Promise.all([
         dbGet('production_stages'),
         dbGet('wo_progress'),
         dbGet('work_orders'),
         dbGet('orders').catch(() => []),
         dbGet('libur_nasional').catch(() => []),
+        dbGet('order_items').catch(() => []),
+        dbGet('barang_cs').catch(() => []),
       ]);
       setStages(s.sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0)));
       setProgress(p);
-      setWos(w);
+      // Recompute wo.jumlah exclude aksesoris (barang_cs.hitung_qty=0).
+      const aksSet = buildAksesorisSet(bcs as Row[]);
+      const itemsByOrder: Record<number, Row[]> = {};
+      for (const it of oi as Row[]) {
+        const oid = Number(it.order_id);
+        if (!oid) continue;
+        if (!itemsByOrder[oid]) itemsByOrder[oid] = [];
+        itemsByOrder[oid].push(it);
+      }
+      const qtyByOrder: Record<number, number> = {};
+      for (const oid of Object.keys(itemsByOrder).map(Number)) {
+        qtyByOrder[oid] = sumQtyExcludingAksesoris(itemsByOrder[oid], aksSet);
+      }
+      const wFixed = (w as Row[]).map(wo => {
+        const oid = Number(wo.order_id);
+        if (oid && qtyByOrder[oid] !== undefined) {
+          return { ...wo, jumlah: qtyByOrder[oid] };
+        }
+        return wo;
+      });
+      setWos(wFixed);
       setOrders(o);
       const hs = new Set<string>();
       for (const row of h as Row[]) {

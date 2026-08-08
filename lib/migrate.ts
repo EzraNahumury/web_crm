@@ -1084,6 +1084,26 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `work_orders` ADD COLUMN `laporan_note` TEXT NULL",
     ],
   },
+  {
+    // Seed aksesoris ke barang_cs supaya rincian order dengan line item
+    // KERAH / ukuran (XL/XXL/dst) tidak ikut nge-inflate wo.jumlah di
+    // menu Produksi. Semua di-set hitung_qty=0 (MASUK QTY=Tidak).
+    // INSERT IGNORE — kalau operator sudah manual add & set hitung_qty=1,
+    // tidak overwrite. Harga 0 (aksesoris cuma add-on ke jersey utama).
+    name: '065_seed_barang_cs_aksesoris',
+    up: [
+      "INSERT IGNORE INTO `barang_cs` (`nama`, `harga`, `hitung_qty`) VALUES " +
+        "('KERAH KOMBINASI', 0, 0)," +
+        "('KERAH RAJUT', 0, 0)," +
+        "('KERAH RIB', 0, 0)," +
+        "('KERAH SUBLIM', 0, 0)," +
+        "('LENGAN PANJANG', 0, 0)," +
+        "('REFLEKTIF', 0, 0)," +
+        "('XS', 0, 0),('S', 0, 0),('M', 0, 0),('L', 0, 0)," +
+        "('XL', 0, 0),('XXL', 0, 0),('2XL', 0, 0)," +
+        "('XXXL', 0, 0),('3XL', 0, 0),('4XL', 0, 0),('5XL', 0, 0)",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
