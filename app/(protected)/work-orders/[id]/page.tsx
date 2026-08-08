@@ -1906,7 +1906,7 @@ export default function WorkOrderDetailPage() {
       {tab === 'wo1' && <TabWO1 wo={woData} specs={specs} specBahan={specBahan} />}
       {tab === 'wo2' && <TabWO2 wo={woData} gudangItems={gudangItems} specs={specs} specBahan={specBahan} />}
       {tab === 'wo3' && <TabWO3 wo={woData} detailItems={detailItems} specs={specs} specBahan={specBahan} />}
-      {tab === 'wo4' && <TabWO4 wo={woData} detailItems={detailItems} />}
+      {tab === 'wo4' && <TabWO4 wo={woData} detailItems={detailItems} specs={specs} specBahan={specBahan} />}
     </div>
   );
 }
@@ -5041,11 +5041,11 @@ type GudangRow = {
   isFixed?: boolean;
 };
 
-function TabWO4({ wo }: { wo: Row; detailItems: Row[] }) {
-  return <TabFormPermintaanGudang wo={wo} />;
+function TabWO4({ wo, specs, specBahan }: { wo: Row; detailItems: Row[]; specs: Row[]; specBahan: Row[] }) {
+  return <TabFormPermintaanGudang wo={wo} specs={specs} specBahan={specBahan} />;
 }
 
-function TabFormPermintaanGudang({ wo }: { wo: Row }) {
+function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row[]; specBahan: Row[] }) {
   const toast = useToast();
   // Multi-form: Record<form_no, rows>. Sebelumnya cuma 1 form → sekarang
   // beberapa (misal 1 WO butuh 2 form untuk jersey + pants beda bahan).
@@ -5057,28 +5057,73 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
 
   useEffect(() => { dbGet('barang').then(setBarangList).catch(() => {}); }, []);
 
+  // Auto-fill lookup dari WO1 spec:
+  // - wo1BahanByBagian: bagian → bahan (dari wo_spesifikasi_bahan, first
+  //   non-empty untuk bagian ini across semua specs WO ini).
+  // - wo1AccBahan: mapping accessories (AUTENTIC ← spec.authentic,
+  //   WEBBING ← spec.webbing) — first spec dengan value.
+  // - totalJumlah: SUM(spec.jumlah) untuk semua specs → jadi kuantitas
+  //   default untuk BAHAN_UTAMA items. User contoh: 29 + 1 = 30.
+  const woAutoFill = useMemo(() => {
+    const specsForWo = specs.filter(s => Number(s.work_order_id) === Number(wo.id));
+    const specIds = new Set(specsForWo.map(s => Number(s.id)));
+    const bahanForWo = specBahan.filter(b => specIds.has(Number(b.spesifikasi_id)));
+    // Bagian bahan (FRONT BODY, BACK BODY, ...) → bahan pertama non-empty.
+    const bahanByBagian: Record<string, string> = {};
+    for (const b of bahanForWo) {
+      const bg = String(b.bagian || '').toUpperCase().trim();
+      if (!bg) continue;
+      const bh = String(b.bahan || '').trim();
+      if (!bh) continue;
+      if (!bahanByBagian[bg]) bahanByBagian[bg] = bh;
+    }
+    // Accessories mapping — ambil dari spec pertama yg ada value.
+    const accBahan: Record<string, string> = {};
+    for (const s of specsForWo) {
+      if (!accBahan['AUTENTIC'] && s.authentic) accBahan['AUTENTIC'] = String(s.authentic);
+      if (!accBahan['WEBBING'] && s.webbing) accBahan['WEBBING'] = String(s.webbing);
+    }
+    const totalJumlah = specsForWo.reduce((s, x) => s + (Number(x.jumlah) || 0), 0);
+    return { bahanByBagian, accBahan, totalJumlah };
+  }, [wo.id, specs, specBahan]);
+
   // Helper: bangun 22 baris fixed template (16 items + 6 sizes) untuk 1 form.
-  // Kalau ada byBagian data existing, isi field bahan/warna/kuantitas.
+  // Kalau ada byBagian data existing di DB, pakai itu. Kalau row DB belum
+  // ada (id null), auto-fill bahan + kuantitas dari WO1 spec (kalau ada).
   const buildFormRows = useCallback((sourceRows: Row[], formNo: number): GudangRow[] => {
     const byBagian: Record<string, Row> = {};
     for (const r of sourceRows) {
       if (Number(r.form_no || 1) !== formNo) continue;
       byBagian[String(r.bagian || '').toUpperCase()] = r;
     }
+    const { bahanByBagian, accBahan, totalJumlah } = woAutoFill;
+    // Pre-fill: BAHAN_UTAMA items — pertama coba bahanByBagian (dari
+    // wo_spesifikasi_bahan), lalu accBahan (untuk AUTENTIC/WEBBING).
+    const suggestBahan = (bagian: string): string => {
+      const bg = bagian.toUpperCase();
+      return bahanByBagian[bg] || accBahan[bg] || '';
+    };
+
     const assembled: GudangRow[] = [];
     let idx = 1;
     for (const it of WO4_ITEMS) {
       const found = byBagian[it];
+      // Kalau row DB ada, pakai apa adanya (jangan overwrite). Kalau tidak
+      // ada → auto-fill dari WO1 spec.
       assembled.push({
         id: found ? Number(found.id) : null,
         urutan: idx++, kategori: 'BAHAN_UTAMA',
-        bagian: it, bahan: String(found?.bahan || ''),
-        warna: String(found?.warna || ''), kuantitas: Number(found?.kuantitas) || 0,
+        bagian: it,
+        bahan: found ? String(found.bahan || '') : suggestBahan(it),
+        warna: String(found?.warna || ''),
+        kuantitas: found ? (Number(found.kuantitas) || 0) : totalJumlah,
         isFixed: true,
       });
     }
     for (const sz of WO4_SIZES) {
       const found = byBagian[sz];
+      // Untuk sizes (XS/S/M/L/XL/2XL) — jangan auto-fill kuantitas
+      // karena butuh count per size dari wo_ukuran_tim (belum di-wire).
       assembled.push({
         id: found ? Number(found.id) : null,
         urutan: idx++, kategori: 'MATERIAL_TAMBAHAN',
@@ -5087,7 +5132,7 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
         isFixed: true,
       });
     }
-    // Extras — row extra per form.
+    // Extras — row extra per form (operator input manual, tidak auto).
     const fixedSet = new Set([...WO4_ITEMS, ...WO4_SIZES].map(s => s.toUpperCase()));
     for (const r of sourceRows) {
       if (Number(r.form_no || 1) !== formNo) continue;
@@ -5102,7 +5147,7 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
       }
     }
     return assembled;
-  }, []);
+  }, [woAutoFill]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -5413,7 +5458,7 @@ function TabFormPermintaanGudang({ wo }: { wo: Row }) {
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style).</p>
+      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). BAHAN utama + AUTENTIC + WEBBING + kuantitas otomatis ke-isi dari WO1 saat form dibuka pertama kali.</p>
     </div>
   );
 }
