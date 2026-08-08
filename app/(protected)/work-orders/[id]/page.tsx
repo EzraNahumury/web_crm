@@ -5104,13 +5104,22 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     const totalJumlah = specsForWo.reduce((s, x) => s + (Number(x.jumlah) || 0), 0);
     // Sizes count dari WO2 (wo_ukuran_tim.size). Group by size,
     // count anggota per size. Normalize case supaya "xs" & "XS" match.
+    // Sekaligus track extra sizes yang tidak ada di WO4_SIZES standar
+    // (contoh: XXL, XXXL) — supaya WO4 auto-tambah baris untuk mereka.
     const sizeCounts: Record<string, number> = {};
+    const extraSizesOrder: string[] = [];
+    const stdSet = new Set(WO4_SIZES.map(s => s.toUpperCase()));
+    const seenExtra = new Set<string>();
     for (const t of ukuranTim) {
       const sz = String(t.size || '').trim().toUpperCase();
       if (!sz) continue;
       sizeCounts[sz] = (sizeCounts[sz] || 0) + 1;
+      if (!stdSet.has(sz) && !seenExtra.has(sz)) {
+        seenExtra.add(sz);
+        extraSizesOrder.push(sz);
+      }
     }
-    return { bahanByBagian, totalJumlah, sizeCounts };
+    return { bahanByBagian, totalJumlah, sizeCounts, extraSizesOrder };
   }, [wo.id, specs, specBahan, ukuranTim]);
 
   // Master barang name set (uppercase) — dipakai untuk validate bahan
@@ -5135,7 +5144,11 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       if (Number(r.form_no || 1) !== formNo) continue;
       byBagian[String(r.bagian || '').toUpperCase()] = r;
     }
-    const { bahanByBagian, totalJumlah, sizeCounts } = woAutoFill;
+    const { bahanByBagian, totalJumlah, sizeCounts, extraSizesOrder } = woAutoFill;
+    // Sizes final = standar (XS..2XL) + non-standar dari WO2 (misal XXL, XXXL)
+    // yang tidak ada di WO4_SIZES. Auto-append supaya operator tidak perlu
+    // tambah manual — semua anggota WO2 pasti terwakili di WO4.
+    const sizesForForm = [...WO4_SIZES, ...extraSizesOrder];
 
     // Derive unique bahan dari WO1 body parts (urut first-appearance).
     // Contoh: FULL BODY=JAGUARD, COLLAR=RIB, PANTS=BRAZIL → [JAGUARD, RIB, BRAZIL].
@@ -5196,7 +5209,7 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     }
     // ── SECTION: SIZE ──
     assembled.push(makeSection('SIZE'));
-    for (const sz of WO4_SIZES) {
+    for (const sz of sizesForForm) {
       const found = byBagian[sz];
       const rawWarna = String(found?.warna || '');
       const cleanWarna = rawWarna.trim().toUpperCase() === 'CUSTOM' ? '' : rawWarna;
@@ -5216,7 +5229,7 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       currentFixed.add((i === 0 ? 'KAIN UTAMA' : `KAIN VARIASI ${i}`).toUpperCase());
     }
     for (const s of WO4_ACCESSORIES) currentFixed.add(s.toUpperCase());
-    for (const s of WO4_SIZES) currentFixed.add(s.toUpperCase());
+    for (const s of sizesForForm) currentFixed.add(s.toUpperCase());
     const extras: GudangRow[] = [];
     for (const r of sourceRows) {
       if (Number(r.form_no || 1) !== formNo) continue;
