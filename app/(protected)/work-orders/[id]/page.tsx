@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { normBagian } from '@/lib/utils';
@@ -1200,7 +1200,15 @@ type Tab = 'detail'|'wo1'|'wo2'|'wo3'|'wo4';
 export default function WorkOrderDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const [tab, setTab] = useState<Tab>('detail');
+  // Deep-link support: ?tab=wo4 opens langsung ke tab WO4.
+  // Dipakai dari Forecasting Bahan → button mata.
+  const searchParams = useSearchParams();
+  const initialTab = ((): Tab => {
+    const t = (searchParams?.get('tab') || '').toLowerCase();
+    if (t === 'wo1' || t === 'wo2' || t === 'wo3' || t === 'wo4' || t === 'detail') return t as Tab;
+    return 'detail';
+  })();
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [wo, setWo] = useState<Row | null>(null);
   const [order, setOrder] = useState<Row | null>(null);
   const [gudangItems, setGudangItems] = useState<Row[]>([]);
