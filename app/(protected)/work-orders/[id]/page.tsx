@@ -5112,19 +5112,20 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       const found = byBagian[it];
       const isBahanUtama = WO4_BAHAN_UTAMA_SET.has(it);
       // Kalau row DB ada, pakai apa adanya (jangan overwrite). Kalau tidak:
-      // - BAHAN_UTAMA (9 items pertama): auto-fill bahan dari
-      //   wo_spesifikasi_bahan + kuantitas dari totalJumlah.
-      // - Accessories (AUTENTIC, WEBBING, WASHTAG, ELASTIC PANTS,
-      //   DTF SPONSOR, POLIFLEX, DTF SIZE): bahan KOSONG (bukan bahan
-      //   MASTER), cuma kuantitas auto-fill.
+      // - BAHAN_UTAMA (9 items pertama): auto-fill BAHAN dari
+      //   wo_spesifikasi_bahan. KUANTITAS kosong (0) — operator gudang
+      //   isi manual sesuai kebutuhan bahan (meteran), BUKAN jumlah jersey.
+      // - Accessories (AUTENTIC..DTF SIZE): bahan KOSONG (bukan bahan
+      //   MASTER), tapi kuantitas auto-fill totalJumlah (jumlah per jersey).
       const suggestBahan = isBahanUtama ? (bahanByBagian[it.toUpperCase()] || '') : '';
+      const suggestKuantitas = isBahanUtama ? 0 : totalJumlah;
       assembled.push({
         id: found ? Number(found.id) : null,
         urutan: idx++, kategori: 'BAHAN_UTAMA',
         bagian: it,
         bahan: found ? String(found.bahan || '') : suggestBahan,
         warna: String(found?.warna || ''),
-        kuantitas: found ? (Number(found.kuantitas) || 0) : totalJumlah,
+        kuantitas: found ? (Number(found.kuantitas) || 0) : suggestKuantitas,
         isFixed: true,
       });
     }
@@ -5132,11 +5133,15 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       const found = byBagian[sz];
       // Untuk sizes (XS/S/M/L/XL/2XL) — jangan auto-fill kuantitas
       // karena butuh count per size dari wo_ukuran_tim (belum di-wire).
+      // Strip legacy "CUSTOM" text yang pernah masuk ke kolom warna
+      // (data lama) — user mau warna kosong default.
+      const rawWarna = String(found?.warna || '');
+      const cleanWarna = rawWarna.trim().toUpperCase() === 'CUSTOM' ? '' : rawWarna;
       assembled.push({
         id: found ? Number(found.id) : null,
         urutan: idx++, kategori: 'MATERIAL_TAMBAHAN',
         bagian: sz, bahan: String(found?.bahan || ''),
-        warna: String(found?.warna || ''), kuantitas: Number(found?.kuantitas) || 0,
+        warna: cleanWarna, kuantitas: Number(found?.kuantitas) || 0,
         isFixed: true,
       });
     }
@@ -5466,7 +5471,7 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). BAHAN utama (FRONT BODY..PANTS) + kuantitas semua item auto-terisi dari WO1 saat form dibuka pertama kali. Accessories (AUTENTIC/WEBBING/dst) kolom BAHAN tetap manual.</p>
+      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). Auto-fill dari WO1: BAHAN untuk items 1–9 (FULL BODY..PANTS), dan KUANTITAS untuk accessories (AUTENTIC..DTF SIZE). Kuantitas BAHAN utama (meteran) & warna sizes tetap manual — operator gudang isi sesuai kebutuhan.</p>
     </div>
   );
 }
