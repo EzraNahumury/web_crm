@@ -5038,7 +5038,7 @@ const WO4_ACCESSORIES = [
   'AUTENTIC', 'WEBBING', 'WASHTAG', 'ELASTIC PANTS',
   'DTF SPONSOR', 'POLIFLEX', 'DTF SIZE',
 ];
-const WO4_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL'];
+const WO4_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 // Legacy body-part bagian names (data lama sebelum konsolidasi KAIN UTAMA/VARIASI).
 // Dipakai di fixedSet supaya orphan rows tidak muncul lagi sebagai "extras".
 const WO4_LEGACY_BODY_SET = new Set(WO4_BODY_PARTS_ORDER.map(s => s.toUpperCase()));
@@ -5104,15 +5104,17 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     const totalJumlah = specsForWo.reduce((s, x) => s + (Number(x.jumlah) || 0), 0);
     // Sizes count dari WO2 (wo_ukuran_tim.size). Group by size,
     // count anggota per size. Normalize case supaya "xs" & "XS" match.
-    // Sekaligus track extra sizes yang tidak ada di WO4_SIZES standar
-    // (contoh: XXL, XXXL) — supaya WO4 auto-tambah baris untuk mereka.
+    // Alias '2XL' → 'XXL' (template WO4 pakai XXL) supaya legacy data
+    // WO2 tidak jadi row extra terpisah. Sekaligus track sizes non-standar
+    // (misal XXXL) yang perlu di-tambah otomatis di WO4.
     const sizeCounts: Record<string, number> = {};
     const extraSizesOrder: string[] = [];
     const stdSet = new Set(WO4_SIZES.map(s => s.toUpperCase()));
     const seenExtra = new Set<string>();
     for (const t of ukuranTim) {
-      const sz = String(t.size || '').trim().toUpperCase();
+      let sz = String(t.size || '').trim().toUpperCase();
       if (!sz) continue;
+      if (sz === '2XL') sz = 'XXL';
       sizeCounts[sz] = (sizeCounts[sz] || 0) + 1;
       if (!stdSet.has(sz) && !seenExtra.has(sz)) {
         seenExtra.add(sz);
@@ -5142,7 +5144,11 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     const byBagian: Record<string, Row> = {};
     for (const r of sourceRows) {
       if (Number(r.form_no || 1) !== formNo) continue;
-      byBagian[String(r.bagian || '').toUpperCase()] = r;
+      let bg = String(r.bagian || '').toUpperCase();
+      // Alias legacy "2XL" → "XXL" (template lama). Hanya map kalau XXL
+      // belum ada, supaya tidak overwrite XXL yang di-save eksplisit.
+      if (bg === '2XL' && !byBagian['XXL']) bg = 'XXL';
+      byBagian[bg] = r;
     }
     const { bahanByBagian, totalJumlah, sizeCounts, extraSizesOrder } = woAutoFill;
     // Sizes final = standar (XS..2XL) + non-standar dari WO2 (misal XXL, XXXL)
@@ -5238,6 +5244,9 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       if (WO4_LEGACY_BODY_SET.has(b)) continue;
       if (WO4_KAIN_VARIASI_RE.test(b)) continue;
       if (b === 'KAIN UTAMA') continue;
+      // Legacy '2XL' rows sudah di-alias ke 'XXL' di byBagian, jadi
+      // jangan muncul lagi sebagai extras.
+      if (b === '2XL') continue;
       extras.push({
         id: Number(r.id), urutan: idx++, kategori: String(r.kategori || 'BAHAN_UTAMA'),
         bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
