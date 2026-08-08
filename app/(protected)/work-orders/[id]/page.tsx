@@ -5059,16 +5059,21 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
 
   // Auto-fill lookup dari WO1 spec:
   // - wo1BahanByBagian: bagian → bahan (dari wo_spesifikasi_bahan, first
-  //   non-empty untuk bagian ini across semua specs WO ini).
-  // - wo1AccBahan: mapping accessories (AUTENTIC ← spec.authentic,
-  //   WEBBING ← spec.webbing) — first spec dengan value.
+  //   non-empty untuk bagian ini across semua specs WO ini). CUMA
+  //   dipakai untuk BAHAN_UTAMA items (FRONT BODY, BACK BODY, dst).
   // - totalJumlah: SUM(spec.jumlah) untuk semua specs → jadi kuantitas
-  //   default untuk BAHAN_UTAMA items. User contoh: 29 + 1 = 30.
+  //   default untuk semua items (BAHAN_UTAMA + accessories).
+  //   User contoh: 29 + 1 = 30.
+  //
+  // NOTE: Accessories items (AUTENTIC, WEBBING, WASHTAG, ELASTIC PANTS,
+  // DTF SPONSOR, POLIFLEX, DTF SIZE) TIDAK auto-fill bahan — value
+  // di WO1 (spec.authentic 'Ayress hologram', spec.webbing 'Ayres') itu
+  // nama style/model bukan nama bahan MASTER, jadi tidak boleh ditulis
+  // ke kolom BAHAN. Cukup KUANTITAS yang auto-fill.
   const woAutoFill = useMemo(() => {
     const specsForWo = specs.filter(s => Number(s.work_order_id) === Number(wo.id));
     const specIds = new Set(specsForWo.map(s => Number(s.id)));
     const bahanForWo = specBahan.filter(b => specIds.has(Number(b.spesifikasi_id)));
-    // Bagian bahan (FRONT BODY, BACK BODY, ...) → bahan pertama non-empty.
     const bahanByBagian: Record<string, string> = {};
     for (const b of bahanForWo) {
       const bg = String(b.bagian || '').toUpperCase().trim();
@@ -5077,15 +5082,18 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       if (!bh) continue;
       if (!bahanByBagian[bg]) bahanByBagian[bg] = bh;
     }
-    // Accessories mapping — ambil dari spec pertama yg ada value.
-    const accBahan: Record<string, string> = {};
-    for (const s of specsForWo) {
-      if (!accBahan['AUTENTIC'] && s.authentic) accBahan['AUTENTIC'] = String(s.authentic);
-      if (!accBahan['WEBBING'] && s.webbing) accBahan['WEBBING'] = String(s.webbing);
-    }
     const totalJumlah = specsForWo.reduce((s, x) => s + (Number(x.jumlah) || 0), 0);
-    return { bahanByBagian, accBahan, totalJumlah };
+    return { bahanByBagian, totalJumlah };
   }, [wo.id, specs, specBahan]);
+
+  // Item classification: mana yg BAHAN_UTAMA (auto-fill bahan +
+  // kuantitas) vs accessories (cuma kuantitas). Berdasarkan urutan
+  // WO4_ITEMS, 9 pertama adalah bahan utama (FULL BODY dst sampai
+  // PANTS), sisanya accessories.
+  const WO4_BAHAN_UTAMA_SET = useMemo(() => new Set([
+    'FULL BODY', 'FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION',
+    'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS',
+  ]), []);
 
   // Helper: bangun 22 baris fixed template (16 items + 6 sizes) untuk 1 form.
   // Kalau ada byBagian data existing di DB, pakai itu. Kalau row DB belum
@@ -5096,25 +5104,25 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       if (Number(r.form_no || 1) !== formNo) continue;
       byBagian[String(r.bagian || '').toUpperCase()] = r;
     }
-    const { bahanByBagian, accBahan, totalJumlah } = woAutoFill;
-    // Pre-fill: BAHAN_UTAMA items — pertama coba bahanByBagian (dari
-    // wo_spesifikasi_bahan), lalu accBahan (untuk AUTENTIC/WEBBING).
-    const suggestBahan = (bagian: string): string => {
-      const bg = bagian.toUpperCase();
-      return bahanByBagian[bg] || accBahan[bg] || '';
-    };
+    const { bahanByBagian, totalJumlah } = woAutoFill;
 
     const assembled: GudangRow[] = [];
     let idx = 1;
     for (const it of WO4_ITEMS) {
       const found = byBagian[it];
-      // Kalau row DB ada, pakai apa adanya (jangan overwrite). Kalau tidak
-      // ada → auto-fill dari WO1 spec.
+      const isBahanUtama = WO4_BAHAN_UTAMA_SET.has(it);
+      // Kalau row DB ada, pakai apa adanya (jangan overwrite). Kalau tidak:
+      // - BAHAN_UTAMA (9 items pertama): auto-fill bahan dari
+      //   wo_spesifikasi_bahan + kuantitas dari totalJumlah.
+      // - Accessories (AUTENTIC, WEBBING, WASHTAG, ELASTIC PANTS,
+      //   DTF SPONSOR, POLIFLEX, DTF SIZE): bahan KOSONG (bukan bahan
+      //   MASTER), cuma kuantitas auto-fill.
+      const suggestBahan = isBahanUtama ? (bahanByBagian[it.toUpperCase()] || '') : '';
       assembled.push({
         id: found ? Number(found.id) : null,
         urutan: idx++, kategori: 'BAHAN_UTAMA',
         bagian: it,
-        bahan: found ? String(found.bahan || '') : suggestBahan(it),
+        bahan: found ? String(found.bahan || '') : suggestBahan,
         warna: String(found?.warna || ''),
         kuantitas: found ? (Number(found.kuantitas) || 0) : totalJumlah,
         isFixed: true,
@@ -5458,7 +5466,7 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). BAHAN utama + AUTENTIC + WEBBING + kuantitas otomatis ke-isi dari WO1 saat form dibuka pertama kali.</p>
+      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). BAHAN utama (FRONT BODY..PANTS) + kuantitas semua item auto-terisi dari WO1 saat form dibuka pertama kali. Accessories (AUTENTIC/WEBBING/dst) kolom BAHAN tetap manual.</p>
     </div>
   );
 }
