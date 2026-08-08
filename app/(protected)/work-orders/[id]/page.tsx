@@ -5052,10 +5052,15 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
   const [formsData, setFormsData] = useState<Record<number, GudangRow[]>>({});
   const [activeForm, setActiveForm] = useState<number>(1);
   const [barangList, setBarangList] = useState<Row[]>([]);
+  const [ukuranTim, setUkuranTim] = useState<Row[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { dbGet('barang').then(setBarangList).catch(() => {}); }, []);
+  useEffect(() => {
+    dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: wo.id })
+      .then(setUkuranTim).catch(() => setUkuranTim([]));
+  }, [wo.id]);
 
   // Auto-fill lookup dari WO1 spec:
   // - wo1BahanByBagian: bagian → bahan (dari wo_spesifikasi_bahan, first
@@ -5083,8 +5088,16 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       if (!bahanByBagian[bg]) bahanByBagian[bg] = bh;
     }
     const totalJumlah = specsForWo.reduce((s, x) => s + (Number(x.jumlah) || 0), 0);
-    return { bahanByBagian, totalJumlah };
-  }, [wo.id, specs, specBahan]);
+    // Sizes count dari WO2 (wo_ukuran_tim.size). Group by size,
+    // count anggota per size. Normalize case supaya "xs" & "XS" match.
+    const sizeCounts: Record<string, number> = {};
+    for (const t of ukuranTim) {
+      const sz = String(t.size || '').trim().toUpperCase();
+      if (!sz) continue;
+      sizeCounts[sz] = (sizeCounts[sz] || 0) + 1;
+    }
+    return { bahanByBagian, totalJumlah, sizeCounts };
+  }, [wo.id, specs, specBahan, ukuranTim]);
 
   // Item classification: mana yg BAHAN_UTAMA (auto-fill bahan +
   // kuantitas) vs accessories (cuma kuantitas). Berdasarkan urutan
@@ -5104,7 +5117,7 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
       if (Number(r.form_no || 1) !== formNo) continue;
       byBagian[String(r.bagian || '').toUpperCase()] = r;
     }
-    const { bahanByBagian, totalJumlah } = woAutoFill;
+    const { bahanByBagian, totalJumlah, sizeCounts } = woAutoFill;
 
     const assembled: GudangRow[] = [];
     let idx = 1;
@@ -5131,17 +5144,19 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
     }
     for (const sz of WO4_SIZES) {
       const found = byBagian[sz];
-      // Untuk sizes (XS/S/M/L/XL/2XL) — jangan auto-fill kuantitas
-      // karena butuh count per size dari wo_ukuran_tim (belum di-wire).
-      // Strip legacy "CUSTOM" text yang pernah masuk ke kolom warna
-      // (data lama) — user mau warna kosong default.
+      // Sizes (XS/S/M/L/XL/2XL): auto-fill KUANTITAS dari count anggota
+      // per size di WO2 (wo_ukuran_tim). Kalau row DB sudah ada, pakai
+      // saved value (jangan overwrite manual edit operator).
+      // Strip legacy "CUSTOM" text yang pernah masuk ke kolom warna.
       const rawWarna = String(found?.warna || '');
       const cleanWarna = rawWarna.trim().toUpperCase() === 'CUSTOM' ? '' : rawWarna;
+      const autoQty = sizeCounts[sz] || 0;
       assembled.push({
         id: found ? Number(found.id) : null,
         urutan: idx++, kategori: 'MATERIAL_TAMBAHAN',
         bagian: sz, bahan: String(found?.bahan || ''),
-        warna: cleanWarna, kuantitas: Number(found?.kuantitas) || 0,
+        warna: cleanWarna,
+        kuantitas: found ? (Number(found.kuantitas) || 0) : autoQty,
         isFixed: true,
       });
     }
@@ -5471,7 +5486,7 @@ function TabFormPermintaanGudang({ wo, specs, specBahan }: { wo: Row; specs: Row
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). Auto-fill dari WO1: BAHAN untuk items 1–9 (FULL BODY..PANTS), dan KUANTITAS untuk accessories (AUTENTIC..DTF SIZE). Kuantitas BAHAN utama (meteran) & warna sizes tetap manual — operator gudang isi sesuai kebutuhan.</p>
+      <p className="text-[11px] text-slate-500">* Baris dengan background biru = row extra yang bisa dihapus. Baris fixed (template) tidak bisa dihapus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell BAHAN / WARNA / KUANTITAS untuk auto-fill (Excel-style). Auto-fill: BAHAN items 1–9 dari WO1, KUANTITAS accessories (10–16) dari total jumlah, KUANTITAS sizes (17–22) dari count per size di WO2. Kuantitas BAHAN utama (meteran) & warna sizes tetap manual — operator gudang isi sesuai kebutuhan.</p>
     </div>
   );
 }
