@@ -1104,6 +1104,40 @@ const MIGRATIONS: Migration[] = [
         "('XXXL', 0, 0),('3XL', 0, 0),('4XL', 0, 0),('5XL', 0, 0)",
     ],
   },
+  {
+    // One-time cleanup: user request untuk mulai dari nol di menu Stok.
+    // Kosongkan barang (master data barang), stok (qty per barang), dan
+    // stok_adjustment (riwayat mutasi). Migration idempotent — hanya
+    // jalan sekali (nama di-track di _migrations). Kalau nanti perlu
+    // reset lagi, buat migration baru dengan nama beda.
+    //
+    // Nullify wo_permintaan_gudang.barang_id dulu supaya DELETE barang
+    // tidak fail karena FK (deducted stok reference). Data WO tetap
+    // ada, cuma link barang-nya hilang.
+    //
+    // AUTO_INCREMENT reset ke 1 supaya ID baru mulai dari ID-1.
+    name: '066_clear_stok_data',
+    up: [
+      "DELETE FROM `stok_adjustment`",
+      "DELETE FROM `stok`",
+      // Nullify wo_permintaan_gudang.barang_id kalau kolomnya ada.
+      // Pakai dynamic SQL via prepared stmt supaya tidak fail kalau kolom
+      // belum ada (deployment lama tanpa deduct-stok flow).
+      "SET @has_col := (SELECT COUNT(*) FROM information_schema.COLUMNS " +
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wo_permintaan_gudang' " +
+        "AND COLUMN_NAME = 'barang_id')",
+      "SET @sql := IF(@has_col > 0, " +
+        "'UPDATE `wo_permintaan_gudang` SET `barang_id` = NULL WHERE `barang_id` IS NOT NULL', " +
+        "'DO 0')",
+      "PREPARE stmt FROM @sql",
+      "EXECUTE stmt",
+      "DEALLOCATE PREPARE stmt",
+      "DELETE FROM `barang`",
+      "ALTER TABLE `barang` AUTO_INCREMENT = 1",
+      "ALTER TABLE `stok` AUTO_INCREMENT = 1",
+      "ALTER TABLE `stok_adjustment` AUTO_INCREMENT = 1",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
