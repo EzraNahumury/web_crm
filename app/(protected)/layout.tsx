@@ -142,8 +142,14 @@ const ADMIN_NAV: SideNavItem[] = [
     ],
   },
   {
-    href: '/stok', label: 'Stok',
+    label: 'Gudang',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>,
+    children: [
+      { href: '/stok', label: 'Stok' },
+      { href: '/gudang/forecasting-bahan', label: 'Forecasting Bahan' },
+      { href: '/gudang/real-pengeluaran-bahan', label: 'Real Pengeluaran Bahan' },
+      { href: '/gudang/pembelian-bahan', label: 'Pembelian Bahan' },
+    ],
   },
   {
     href: '/setting', label: 'Setting',
@@ -191,7 +197,10 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'CRM Finishing': ['/crm-finishing', '/crm-finishing/history'],
   'Line Jahit': ['/line-jahit'],
   'Laporan': ['/laporan/produksi', '/laporan/penggunaan-bahan'],
-  'Stok': ['/stok'],
+  'Gudang': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan'],
+  // Legacy alias: user yg role/menuAccess-nya masih pakai 'Stok' (nama
+  // lama sebelum jadi child menu Gudang) tetap dapat akses ke halaman stok.
+  'Stok': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan'],
   'Settings': ['/setting'],
   'Master Data': ['/master'],
   'Analisa': ['/analisa/grafik', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/grafik-reseller', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/analisa-cs'],

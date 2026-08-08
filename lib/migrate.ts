@@ -1060,6 +1060,19 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `wo_permintaan_gudang` ADD INDEX `idx_wo_pg_form` (`work_order_id`, `form_no`)",
     ],
   },
+  {
+    // Menu "Stok" (single link) di-restructure jadi parent "Gudang" dengan
+    // sub-menu Stok + Forecasting Bahan + Real Pengeluaran Bahan + Pembelian
+    // Bahan. Semua role yang sebelumnya punya akses 'Stok' otomatis dapat
+    // akses 'Gudang' supaya tidak kehilangan visibility menu.
+    // INSERT IGNORE untuk avoid duplicate kalau row 'Gudang' sudah manual di-set.
+    name: '063_role_menu_stok_to_gudang',
+    up: [
+      "INSERT IGNORE INTO `role_menu_access` (`role_id`, `menu_name`) " +
+        "SELECT DISTINCT `role_id`, 'Gudang' FROM `role_menu_access` " +
+        "WHERE `menu_name` = 'Stok'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

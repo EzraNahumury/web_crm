@@ -106,15 +106,28 @@ export default function StokPage() {
   const totalAllStok = useMemo(() => stokDisplay.reduce((s, m) => s + m.qty, 0), [stokDisplay]);
 
   // Total per gudang: sum semua qty barang yang `letak`-nya sama.
+  // Sekarang hanya "Gudang Ayres" yang ditampilkan sebagai pilihan
+  // gudang (per keputusan operasional — 1 gudang tunggal). Gudang
+  // lain di master diabaikan; barang tanpa letak masuk "(Belum diset)".
+  const AYRES_LABEL = 'Gudang Ayres';
   const perGudang = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const g of gudangList) map[String(g.nama)] = 0;
+    const map: Record<string, number> = { [AYRES_LABEL]: 0 };
+    const norm = (s: string) => s.trim().toLowerCase();
+    const ayresKey = norm(AYRES_LABEL);
     for (const m of stokDisplay) {
-      const key = m.letak && m.letak !== '-' ? m.letak : '(Belum diset)';
-      map[key] = (map[key] || 0) + m.qty;
+      const letak = String(m.letak || '').trim();
+      if (!letak || letak === '-') {
+        map['(Belum diset)'] = (map['(Belum diset)'] || 0) + m.qty;
+      } else if (norm(letak) === ayresKey) {
+        map[AYRES_LABEL] = (map[AYRES_LABEL] || 0) + m.qty;
+      } else {
+        // Gudang selain Ayres → gabungkan ke (Belum diset) supaya
+        // display konsisten 1 gudang saja.
+        map['(Belum diset)'] = (map['(Belum diset)'] || 0) + m.qty;
+      }
     }
     return map;
-  }, [gudangList, stokDisplay]);
+  }, [stokDisplay]);
 
   const barangAkanHabis = useMemo(
     () => stokDisplay.filter(m => m.qty <= LOW_STOCK_THRESHOLD).sort((a, b) => a.qty - b.qty).slice(0, 15),
@@ -242,7 +255,7 @@ export default function StokPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Aplikasi Persediaan Barang Gudang</h1>
               <p className="text-[13px] text-slate-300 mt-0.5">
-                Manajemen stok bahan dengan kode SKU (Accurate). Total <strong className="text-white">{totalAllStok}</strong> barang di <strong className="text-white">{gudangList.length}</strong> gudang.
+                Manajemen stok bahan dengan kode SKU (Accurate). Total <strong className="text-white">{totalAllStok}</strong> barang di <strong className="text-white">Gudang Ayres</strong>.
               </p>
             </div>
           </div>
@@ -844,9 +857,9 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
                 <select value={form.letak} onChange={e => setForm(f => ({ ...f, letak: e.target.value }))}
                   className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer">
                   <option value="">Pilih gudang...</option>
-                  {gudangList.map(g => <option key={g.id} value={g.nama}>{g.nama}</option>)}
+                  <option value="Gudang Ayres">Gudang Ayres</option>
                 </select>
-                <p className="text-[10px] text-slate-500 mt-1">Kelola daftar gudang di <strong className="text-slate-400">Master → Gudang</strong>.</p>
+                <p className="text-[10px] text-slate-500 mt-1">Saat ini hanya <strong className="text-slate-400">Gudang Ayres</strong> yang aktif.</p>
               </div>
               <button onClick={handleSave} disabled={saving}
                 className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-lg shadow-blue-500/20">

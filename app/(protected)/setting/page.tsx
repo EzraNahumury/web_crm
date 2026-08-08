@@ -46,7 +46,7 @@ const MENU_ITEMS = [
   'CRM Finishing',
   'Line Jahit',
   'Laporan',
-  'Stok',
+  'Gudang',
   'Settings',
   'Master Data',
   'Analisa',
