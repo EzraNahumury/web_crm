@@ -439,7 +439,8 @@ function FormulirModal({ editingId, onClose, onSaved }: {
       pdf.text('Mengetahui,', 30, sigY);
       pdf.text('Menyetujui,', 140, sigY);
       pdf.setFont('helvetica', 'normal');
-      pdf.text(pemohon || '(________________)', 30, sigY + 25);
+      // Nama sengaja dikosongkan (garis bawah) supaya ditulis manual saat cetak.
+      pdf.text('(________________)', 30, sigY + 25);
       pdf.text('(________________)', 140, sigY + 25);
       pdf.setFontSize(9);
       pdf.text('Staf Gudang', 30, sigY + 30);
