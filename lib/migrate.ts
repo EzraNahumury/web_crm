@@ -1265,6 +1265,164 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Seed master barang dari daftar Accurate (2 batch: batch pertama
+    // = accessories & logo, batch kedua = kain-kain). User request seed
+    // hanya kode_barang + nama; harga/satuan/tipe/letak diisi manual
+    // via menu Stok. Default letak = 'Gudang Ayres' (satu-satunya
+    // gudang aktif). Migration 066 sebelumnya sudah clear barang table
+    // jadi seed ini mulai dari kondisi kosong.
+    name: '070_seed_barang_master_accurate',
+    up: [
+      "INSERT INTO `barang` (`kode_barang`, `nama`, `letak`) VALUES " +
+        "('100923','AUTHENTIC 3D PRO CHAMELEON','Gudang Ayres')," +
+        "('BB100270','AUTHENTIC WOVEN','Gudang Ayres')," +
+        "('100873','CENTERFOLD WOVEN RETAIL','Gudang Ayres')," +
+        "('100884','ELASTIC PANTS','Gudang Ayres')," +
+        "('BB100707','KERAH RAJUT JACQUARD 3 PLY','Gudang Ayres')," +
+        "('BB100703','LENGAN RAJUT JACQUARD 4 PLY','Gudang Ayres')," +
+        "('BB100708','LIS LENGAN JACQUARD MAROON','Gudang Ayres')," +
+        "('BB100622','LOGO AUTHENTIC NUSANTARA CHAMELEON','Gudang Ayres')," +
+        "('BB100623','LOGO AUTHENTIC NUSANTARA WOVEN','Gudang Ayres')," +
+        "('BB350','LOGO AYRES 3D WARNA HITAM BARU','Gudang Ayres')," +
+        "('BB351','LOGO AYRES 3D WARNA PUTIH BARU','Gudang Ayres')," +
+        "('BB100624','LOGO AYRES TIMBUL','Gudang Ayres')," +
+        "('BB100625','LOGO RUBBER PSS','Gudang Ayres')," +
+        "('BB100627','LOGO TIMNAS 3D','Gudang Ayres')," +
+        "('100872','OUTER WOVEN RETAIL','Gudang Ayres')," +
+        "('BB100628','RUBBER AUTHENTIC PSS','Gudang Ayres')," +
+        "('BB100683','RUBBER GARUDA','Gudang Ayres')," +
+        "('100864','RUBBER LOGO','Gudang Ayres')," +
+        "('BB100629','RUBBER TIMBUL AUTHENTIC 3D PRO','Gudang Ayres')," +
+        "('100871','SATIN AYRES RETAIL','Gudang Ayres')," +
+        "('100870','SATIN SIZE RETAIL','Gudang Ayres')," +
+        "('BB100621','SCORELAB PSS','Gudang Ayres')," +
+        "('100853','SLIP AYRES PRO','Gudang Ayres')," +
+        "('100836','TAFETA WASHTAG','Gudang Ayres')," +
+        "('100863','TALI CELANA','Gudang Ayres')," +
+        "('100860','TALI KERAH JERSEY','Gudang Ayres')," +
+        "('100915','TATAMI LOKAL','Gudang Ayres')," +
+        "('BB353','TULISAN AYRES 3D WARNA HITAM BARU','Gudang Ayres')," +
+        "('BB352','TULISAN AYRES 3D WARNA PUTIH BARU','Gudang Ayres')," +
+        "('BB100889','WEBBING','Gudang Ayres')," +
+        // Kain-kain
+        "('BB59','AIRWALK','Gudang Ayres')," +
+        "('BB100269','AIRWALK HITAM','Gudang Ayres')," +
+        "('100925','AIRWALK MAROON','Gudang Ayres')," +
+        "('100842','ALPHINA PUTIH','Gudang Ayres')," +
+        "('100944','ASMAT PUTIH','Gudang Ayres')," +
+        "('BB100590','BABY TERY','Gudang Ayres')," +
+        "('100943','BATIK PUTIH','Gudang Ayres')," +
+        "('BB64','BENZEMA PUTIH','Gudang Ayres')," +
+        "('244','BORKAS HITAM','Gudang Ayres')," +
+        "('100945','BORNEO PUTIH','Gudang Ayres')," +
+        "('BB164','BRAZIL ABU MUDA','Gudang Ayres')," +
+        "('BB308','BRAZIL ABU TUA','Gudang Ayres')," +
+        "('BB253','BRAZIL BENHUR','Gudang Ayres')," +
+        "('100829','BRAZIL BIRU ITALY','Gudang Ayres')," +
+        "('BB100769','BRAZIL BIRU LANGIT','Gudang Ayres')," +
+        "('100764','BRAZIL COKLAT','Gudang Ayres')," +
+        "('BB100763','BRAZIL CREAM','Gudang Ayres')," +
+        "('BB279','BRAZIL FANTA','Gudang Ayres')," +
+        "('BB176','BRAZIL HIJAU ARMY','Gudang Ayres')," +
+        "('BB84','BRAZIL HIJAU BOTOL','Gudang Ayres')," +
+        "('BB86','BRAZIL HIJAU FUJI','Gudang Ayres')," +
+        "('BB100694','BRAZIL HIJAU STABILO','Gudang Ayres')," +
+        "('BB329','BRAZIL KENARI','Gudang Ayres')," +
+        "('100828','BRAZIL KUBUS 2','Gudang Ayres')," +
+        "('BB149','BRAZIL MAROON (MERAH HATI)','Gudang Ayres')," +
+        "('BB68','BRAZIL MERAH CABE','Gudang Ayres')," +
+        "('100932','BRAZIL NATION','Gudang Ayres')," +
+        "('BB71','BRAZIL NAVY','Gudang Ayres')," +
+        "('BB69','BRAZIL ORANGE','Gudang Ayres')," +
+        "('BB342','BRAZIL PINK BABY','Gudang Ayres')," +
+        "('BB50','BRAZIL PUTIH','Gudang Ayres')," +
+        "('BB142','BRAZIL TOSCA 1','Gudang Ayres')," +
+        "('BB144','BRAZIL TOSCA TUA','Gudang Ayres')," +
+        "('BB150','BRAZIL TURKIS','Gudang Ayres')," +
+        "('BB85','BRAZIL UNGU','Gudang Ayres')," +
+        "('BB264','BRAZIL UNGU NEW','Gudang Ayres')," +
+        "('BB310','BRAZIL UNGU TUA','Gudang Ayres')," +
+        "('100815','BRAZIL VIOLET','Gudang Ayres')," +
+        "('BB55','BRICK PUTIH','Gudang Ayres')," +
+        "('BB56','BRIKET PUTIH','Gudang Ayres')," +
+        "('BB66','BUGGATI PUTIH','Gudang Ayres')," +
+        "('100948','CENTURY ABU MUDA','Gudang Ayres')," +
+        "('100947','CENTURY ABU TUA','Gudang Ayres')," +
+        "('100946','CENTURY HITAM','Gudang Ayres')," +
+        "('BB60','CORDOBA PUTIH','Gudang Ayres')," +
+        "('100076','COTTON COMBED 24S HITAM','Gudang Ayres')," +
+        "('100867','CRINKLE','Gudang Ayres')," +
+        "('BB100781','D23 STABILO','Gudang Ayres')," +
+        "('100748','D23/ELJA','Gudang Ayres')," +
+        "('100868','DESPO','Gudang Ayres')," +
+        "('BB287','DROPNEEDLE ABU TUA','Gudang Ayres')," +
+        "('BB288','DROPNEEDLE BENHUR','Gudang Ayres')," +
+        "('BB286','DROPNEEDLE HITAM','Gudang Ayres')," +
+        "('BB289','DROPNEEDLE NAVY','Gudang Ayres')," +
+        "('BB65','DROPNEEDLE PUTIH','Gudang Ayres')," +
+        "('BB100221','DRYFIT CHEVRON PUTIH','Gudang Ayres')," +
+        "('BB87','EMBOSS MIX','Gudang Ayres')," +
+        "('BB62','EMBOSS STRAW','Gudang Ayres')," +
+        "('BB57','EMBOSS TOPO PUTIH','Gudang Ayres')," +
+        "('100988','ENGLAND PUTIH','Gudang Ayres')," +
+        "('100949','HOLLAND PUTIH','Gudang Ayres')," +
+        "('BB100281','JACQUARD ARMY PUTRA ANGGREK','Gudang Ayres')," +
+        "('BB100677','JACQUARD DYNAMIC','Gudang Ayres')," +
+        "('100876','JACQUARD ETNIK PUTIH','Gudang Ayres')," +
+        "('100877','JACQUARD SPIDER PUTIH','Gudang Ayres')," +
+        "('100878','JACQUARD UNO PUTIH','Gudang Ayres')," +
+        "('BB63','JALA ERBIN','Gudang Ayres')," +
+        "('100887','JALA ERBIN KUNING KENARI','Gudang Ayres')," +
+        "('100885','JALA ERBIN MERAH CABE','Gudang Ayres')," +
+        "('100886','JALA ERBIN TURKISH','Gudang Ayres')," +
+        "('BB100684','KAIN TLP HITAM','Gudang Ayres')," +
+        "('BB100685','KAIN TLP PUTIH','Gudang Ayres')," +
+        "('BB100648','LIGHTNING PUTIH','Gudang Ayres')," +
+        "('BB100588','LOTTO DONGKER','Gudang Ayres')," +
+        "('BB96','LOTTO HITAM','Gudang Ayres')," +
+        "('100977','LOTTO KUNING KENAR','Gudang Ayres')," +
+        "('100846','LOTTO MERAH CABE','Gudang Ayres')," +
+        "('BB95','LOTTO PUTIH','Gudang Ayres')," +
+        "('100939','MICROTEX','Gudang Ayres')," +
+        "('100848','MILANO BENHUR','Gudang Ayres')," +
+        "('BB82','MILANO BIRU','Gudang Ayres')," +
+        "('100809','MILANO BIRU LANGIT','Gudang Ayres')," +
+        "('100914','MILANO FINISH PACIFIC','Gudang Ayres')," +
+        "('BB81','MILANO HIJAU BOTOL','Gudang Ayres')," +
+        "('100847','MILANO HIJAU FUJI','Gudang Ayres')," +
+        "('BB77','MILANO HITAM','Gudang Ayres')," +
+        "('BB79','MILANO KUNING','Gudang Ayres')," +
+        "('BB78','MILANO MAROON','Gudang Ayres')," +
+        "('100931','MILANO NATION','Gudang Ayres')," +
+        "('BB334','MILANO NAVY','Gudang Ayres')," +
+        "('BB83','MILANO ORANGE','Gudang Ayres')," +
+        "('BB52','MILANO PUTIH','Gudang Ayres')," +
+        "('100855','MILANO TOSCA BABY','Gudang Ayres')," +
+        "('100849','MILANO TURQOISE','Gudang Ayres')," +
+        "('BB54','MU PUTIH','Gudang Ayres')," +
+        "('BB100784','PIQUE','Gudang Ayres')," +
+        "('BB100586','PUMA PUTIH EVOTEX','Gudang Ayres')," +
+        "('BB100687','RIB BARU','Gudang Ayres')," +
+        "('100875','RIB COTTON COMBED','Gudang Ayres')," +
+        "('BB100548','RIB HYGET PUTRA ANGGREK','Gudang Ayres')," +
+        "('BB100674','SCUBA','Gudang Ayres')," +
+        "('100851','SCUBA NAVY','Gudang Ayres')," +
+        "('BB182','SERENA BIRU','Gudang Ayres')," +
+        "('BB94','SEVILA/ WAFEL MINI MINI','Gudang Ayres')," +
+        "('100958','SK630','Gudang Ayres')," +
+        "('BB100673','SPANDEX VINTAGE','Gudang Ayres')," +
+        "('BB93','TOPO BIRU','Gudang Ayres')," +
+        "('BB92','TOPO HITAM','Gudang Ayres')," +
+        "('BB91','TOPO MERAH','Gudang Ayres')," +
+        "('BB340','TOPOGRAFH PUTIH JAGUARD','Gudang Ayres')," +
+        "('100680','TRICOT SQUARE','Gudang Ayres')," +
+        "('100926','VELVET','Gudang Ayres')," +
+        "('BB100681','VICTORY PUTIH','Gudang Ayres')," +
+        "('BB100667','WAFEL ABU TUA','Gudang Ayres')," +
+        "('BB204','WAFEL TOSCA','Gudang Ayres')",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
