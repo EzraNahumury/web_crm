@@ -1,10 +1,11 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { dbGet } from '@/lib/api-db';
+import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 import { Pagination, paginate } from '@/lib/pagination';
 import { buildWo4FormRows, detectWo4FormNos, type GudangRow } from '@/lib/wo4-form';
+import { useToast } from '@/lib/toast';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -18,22 +19,26 @@ function fmtDate(d: string | Date | null | undefined) {
 }
 
 export default function ForecastingBahanPage() {
+  const toast = useToast();
   const [woList, setWoList] = useState<Row[]>([]);
+  const [forecasts, setForecasts] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  // Modal WO4 — buka read-only preview form permintaan gudang untuk 1 WO.
   const [modalWo, setModalWo] = useState<Row | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<Row | null>(null);
 
   async function fetchData() {
     setLoading(true);
     try {
-      const [wos, orders, items, barangCs] = await Promise.all([
+      const [wos, orders, items, barangCs, fc] = await Promise.all([
         dbGet('work_orders'),
         dbGet('orders'),
         dbGet('order_items'),
         dbGet('barang_cs').catch(() => []),
+        dbGet('wo_forecast').catch(() => []),
       ]);
       const aksesorisSet = buildAksesorisSet(barangCs as Row[]);
       const orderMap: Record<string, Row> = {};
@@ -60,28 +65,73 @@ export default function ForecastingBahanPage() {
             qty: oi ? oi.qty : (Number(w.jumlah) || 0),
             deadline: ord?.estimasi_deadline || w.deadline,
             tanggal_order: ord?.tanggal_order || w.created_at,
+            no_order: ord?.no_order || '',
           };
         })
         .filter(w => isVisibleTanggalOrder(w.tanggal_order));
       merged.sort((a, b) => String(b.tanggal_order || '').localeCompare(String(a.tanggal_order || '')));
       setWoList(merged);
-    } catch { setWoList([]); }
+      setForecasts(fc as Row[]);
+    } catch { setWoList([]); setForecasts([]); }
     setLoading(false);
   }
 
   useEffect(() => { fetchData(); }, []);
 
+  // Set of WO IDs yang sudah punya forecast row → dipakai untuk filter list.
+  const forecastedIds = useMemo(() => new Set(forecasts.map(f => Number(f.work_order_id))), [forecasts]);
+
+  // List forecasting = WO yang ADA di wo_forecast.
+  const forecastedWos = useMemo(
+    () => woList.filter(w => forecastedIds.has(Number(w.id))),
+    [woList, forecastedIds],
+  );
+
+  // Picker options = WO yang BELUM ada di wo_forecast.
+  const pickerCandidates = useMemo(
+    () => woList.filter(w => !forecastedIds.has(Number(w.id))),
+    [woList, forecastedIds],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return woList;
-    return woList.filter(w =>
+    if (!q) return forecastedWos;
+    return forecastedWos.filter(w =>
       String(w.no_wo || '').toLowerCase().includes(q)
       || String(w.customer_nama || '').toLowerCase().includes(q)
       || String(w.paket || '').toLowerCase().includes(q)
     );
-  }, [woList, search]);
+  }, [forecastedWos, search]);
 
   const paged = paginate(filtered, page, pageSize);
+
+  async function handleCreateForecast(woId: number) {
+    try {
+      await dbCreate('wo_forecast', { work_order_id: woId });
+      toast.success('Forecasting Dibuat', 'WO ditambahkan ke daftar forecasting.');
+      setPickerOpen(false);
+      await fetchData();
+    } catch (e) {
+      toast.error('Gagal', String(e));
+    }
+  }
+
+  async function handleDeleteForecast(fc: Row) {
+    try {
+      // Delete detail rows first (avoid orphans), then header.
+      const details = await dbGet<Row>('wo_forecast_bahan', undefined, { work_order_id: fc.id });
+      for (const d of details) {
+        try { await dbDelete('wo_forecast_bahan', d.id); } catch {}
+      }
+      const header = forecasts.find(f => Number(f.work_order_id) === Number(fc.id));
+      if (header) await dbDelete('wo_forecast', header.id);
+      toast.success('Dihapus', 'Forecasting dihapus dari daftar.');
+      setDeleteConfirm(null);
+      await fetchData();
+    } catch (e) {
+      toast.error('Gagal', String(e));
+    }
+  }
 
   const today = new Date(); today.setHours(0,0,0,0);
 
@@ -100,17 +150,22 @@ export default function ForecastingBahanPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Forecasting Bahan</h1>
               <p className="text-[13px] text-slate-300 mt-0.5">
-                Daftar work order aktif · Klik <span className="text-white font-medium">👁</span> untuk lihat Form Permintaan Gudang (WO 4)
+                Perkiraan kebutuhan bahan per WO (tidak mengurangi stok). Klik <span className="text-white font-medium">👁</span> untuk isi/edit.
               </p>
             </div>
           </div>
-          <div className="w-full lg:w-80">
-            <div className="relative">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <div className="relative w-full sm:w-72">
               <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
               <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
                 placeholder="Cari WO, customer, paket..."
                 className="w-full bg-white/[0.03] border border-white/10 text-white text-sm rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-blue-500/40" />
             </div>
+            <button onClick={() => setPickerOpen(true)}
+              className="text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 px-4 py-2.5 rounded-lg transition-colors shadow-lg shadow-blue-500/20 flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              Buat Forecasting
+            </button>
           </div>
         </div>
       </div>
@@ -134,11 +189,11 @@ export default function ForecastingBahanPage() {
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500/15 to-transparent border border-blue-500/20 grid place-items-center">
                       <svg className="w-6 h-6 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>
-                    <p className="text-sm text-slate-300 font-medium">Belum ada work order</p>
-                    <p className="text-xs text-slate-500 max-w-xs">Data customer akan muncul di sini setelah Work Order dibuat dari menu Work Orders.</p>
+                    <p className="text-sm text-slate-300 font-medium">Belum ada forecasting</p>
+                    <p className="text-xs text-slate-500 max-w-xs">Klik <strong className="text-white">Buat Forecasting</strong> untuk mulai membuat perkiraan bahan per WO.</p>
                   </div>
                 </td></tr>
               ) : (
@@ -191,15 +246,24 @@ export default function ForecastingBahanPage() {
                         </span>
                       </td>
                       <td className="px-5 py-4">
-                        <div className="flex items-center justify-end">
+                        <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => setModalWo(wo)}
-                            title="Lihat Form Permintaan Gudang (WO 4)"
+                            title="Isi / edit forecasting"
                             className="text-sky-300 hover:text-sky-200 p-1.5 rounded-lg hover:bg-sky-500/10 border border-transparent hover:border-sky-500/25 transition-colors"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
                               <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(wo)}
+                            title="Hapus dari daftar forecasting"
+                            className="text-rose-400 hover:text-rose-300 p-1.5 rounded-lg hover:bg-rose-500/10 border border-transparent hover:border-rose-500/25 transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                             </svg>
                           </button>
                         </div>
@@ -225,22 +289,161 @@ export default function ForecastingBahanPage() {
         )}
       </div>
 
-      {modalWo && <Wo4PreviewModal wo={modalWo} onClose={() => setModalWo(null)} />}
+      {pickerOpen && (
+        <PickerModal
+          candidates={pickerCandidates}
+          onClose={() => setPickerOpen(false)}
+          onPick={handleCreateForecast}
+        />
+      )}
+      {modalWo && (
+        <Wo4ForecastModal
+          wo={modalWo}
+          onClose={() => setModalWo(null)}
+          onSaved={fetchData}
+        />
+      )}
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="Hapus Forecasting?"
+          message={`Hapus forecasting untuk ${deleteConfirm.no_wo} — ${deleteConfirm.customer_nama}? Data forecast bahan (bahan/warna/kuantitas yang sudah diisi) juga akan hilang.`}
+          onConfirm={() => handleDeleteForecast(deleteConfirm)}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
     </div>
   );
 }
 
 /* ────────────────────────────────────────────────────────────────
-   Wo4PreviewModal — read-only preview Form Permintaan Gudang
-   untuk 1 WO. Fetch on-demand supaya tidak bloat list utama.
-   Pakai buildWo4FormRows shared helper supaya persis sama dengan
-   tab WO4 di halaman detail work-order.
+   PickerModal — pilih WO yang belum ada forecasting-nya.
+   Layout mirror "Buat Work Order dari Order" (image #640).
    ──────────────────────────────────────────────────────────────── */
-function Wo4PreviewModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
+function PickerModal({ candidates, onClose, onPick }: {
+  candidates: Row[];
+  onClose: () => void;
+  onPick: (woId: number) => void;
+}) {
+  const [q, setQ] = useState('');
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return candidates;
+    return candidates.filter(w =>
+      String(w.no_wo || '').toLowerCase().includes(s)
+      || String(w.customer_nama || '').toLowerCase().includes(s)
+      || String(w.no_order || '').toLowerCase().includes(s)
+    );
+  }, [candidates, q]);
+
+  useEffect(() => {
+    if (filtered.length > 0 && !filtered.some(w => Number(w.id) === selectedId)) {
+      setSelectedId(Number(filtered[0].id));
+    }
+  }, [filtered, selectedId]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  async function submit() {
+    if (!selectedId) return;
+    setSaving(true);
+    try { await onPick(selectedId); } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[#111827] border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between p-6 pb-3">
+          <div>
+            <h3 className="text-lg font-bold text-white">Buat Forecasting Bahan</h3>
+            <p className="text-xs text-slate-400 mt-1">Pilih Work Order yang mau dibuatkan forecasting-nya.</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/[0.05]" title="Tutup (Esc)">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="px-6 space-y-3">
+          <div>
+            <p className="text-xs font-semibold text-slate-300 mb-1.5">Cari WO</p>
+            <div className="relative">
+              <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+              <input value={q} onChange={e => setQ(e.target.value)}
+                placeholder="Ketik no WO, nama customer, atau no order..."
+                className="w-full bg-white/[0.03] border border-white/10 text-white text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500/40" />
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-300 mb-1.5">Pilih WO</p>
+            {filtered.length === 0 ? (
+              <div className="border border-white/10 rounded-lg py-10 text-center bg-white/[0.02]">
+                <p className="text-sm text-slate-400">
+                  {candidates.length === 0
+                    ? 'Semua WO sudah ada forecasting-nya.'
+                    : 'Tidak ada WO yang cocok dengan pencarian.'}
+                </p>
+              </div>
+            ) : (
+              <select
+                size={Math.min(10, Math.max(4, filtered.length))}
+                value={selectedId ?? ''}
+                onChange={e => setSelectedId(Number(e.target.value))}
+                className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500/40"
+                style={{ minHeight: 160 }}
+              >
+                {filtered.map(w => (
+                  <option key={w.id} value={Number(w.id)} className="py-1">
+                    {w.no_wo} — {w.customer_nama}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 px-6 py-4 mt-4 border-t border-white/10 bg-white/[0.02]">
+          <p className="text-[11px] text-slate-500">
+            {selectedId ? 'Klik "Buat Forecasting" untuk lanjut.' : 'Pilih WO dulu.'}
+          </p>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="text-sm font-medium text-slate-300 border border-white/10 bg-white/[0.03] px-4 py-2 rounded-lg hover:bg-white/[0.06] transition-colors">
+              Batal
+            </button>
+            <button
+              onClick={submit}
+              disabled={!selectedId || saving}
+              className="text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors shadow-lg shadow-blue-500/20"
+            >
+              {saving ? 'Membuat...' : 'Buat Forecasting'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────
+   Wo4ForecastModal — modal editable untuk isi forecasting bahan.
+   Pakai template WO4 (KAIN/ACCESSORIS/SIZE) untuk baris. Data
+   disimpan di wo_forecast_bahan (TERPISAH dari wo_permintaan_gudang).
+   Warning kalau kuantitas > stok bahan.
+   ──────────────────────────────────────────────────────────────── */
+function Wo4ForecastModal({ wo, onClose, onSaved }: {
+  wo: Row;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
-  const [formsData, setFormsData] = useState<Record<number, GudangRow[]>>({});
-  const [formNos, setFormNos] = useState<number[]>([]);
-  const [activeForm, setActiveForm] = useState<number>(1);
+  const [saving, setSaving] = useState(false);
+  const [rows, setRows] = useState<GudangRow[]>([]);
+  const [barangList, setBarangList] = useState<Row[]>([]);
+  const [stokMap, setStokMap] = useState<Record<string, { qty: number; satuan: string }>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -248,32 +451,65 @@ function Wo4PreviewModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
       setLoading(true);
       try {
         const woId = Number(wo.id);
-        const [gudang, specRows, specBahanAll, ukuranTim, barang] = await Promise.all([
-          dbGet<Row>('wo_permintaan_gudang', undefined, { work_order_id: woId }),
-          dbGet<Row>('wo_spesifikasi', undefined, { work_order_id: woId }),
+        const [forecast, gudang, specRows, specBahanAll, ukuranTim, barang, stok] = await Promise.all([
+          dbGet<Row>('wo_forecast_bahan', undefined, { work_order_id: woId }).catch(() => []),
+          dbGet<Row>('wo_permintaan_gudang', undefined, { work_order_id: woId }).catch(() => []),
+          dbGet<Row>('wo_spesifikasi', undefined, { work_order_id: woId }).catch(() => []),
           dbGet<Row>('wo_spesifikasi_bahan').catch(() => []),
           dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: woId }).catch(() => []),
           dbGet<Row>('barang').catch(() => []),
+          dbGet<Row>('stok').catch(() => []),
         ]);
         if (cancelled) return;
-        const specIds = new Set(specRows.map(s => Number(s.id)));
-        const specBahanForWo = specBahanAll.filter(b => specIds.has(Number(b.spesifikasi_id)));
-        const masterBarangSet = new Set(barang.map(b => String(b.nama || '').toUpperCase().trim()));
-        const nos = detectWo4FormNos(gudang as Row[]);
-        const next: Record<number, GudangRow[]> = {};
-        for (const fn of nos) {
-          next[fn] = buildWo4FormRows({
+        setBarangList(barang);
+        // Build stok lookup: nama barang (upper) → qty & satuan.
+        const sm: Record<string, { qty: number; satuan: string }> = {};
+        for (const s of stok) {
+          const nama = String(s.barang_nama || '').toUpperCase().trim();
+          if (!nama) continue;
+          sm[nama] = { qty: Number(s.qty) || 0, satuan: String(s.satuan || '') };
+        }
+        setStokMap(sm);
+
+        // Kalau sudah ada forecast rows di DB, load itu.
+        if (forecast.length > 0) {
+          const loaded: GudangRow[] = forecast
+            .slice()
+            .sort((a, b) => Number(a.urutan) - Number(b.urutan))
+            .map(r => ({
+              id: Number(r.id),
+              urutan: Number(r.urutan),
+              kategori: String(r.kategori || 'BAHAN_UTAMA'),
+              bagian: String(r.bagian || ''),
+              bahan: String(r.bahan || ''),
+              warna: String(r.warna || ''),
+              kuantitas: Number(r.kuantitas) || 0,
+              isFixed: true,
+            }));
+          // Restore section headers untuk visual (KAIN/ACCESSORIS/SIZE).
+          setRows(injectSectionHeaders(loaded));
+        } else {
+          // Belum ada forecast → seed dari template WO4 (mirror wo_permintaan_gudang
+          // atau derive dari WO1 kalau kosong). Semua kuantitas 0 (perlu diisi).
+          const specIds = new Set(specRows.map(s => Number(s.id)));
+          const specBahanForWo = specBahanAll.filter(b => specIds.has(Number(b.spesifikasi_id)));
+          const masterBarangSet = new Set(barang.map(b => String(b.nama || '').toUpperCase().trim()));
+          const formNos = detectWo4FormNos(gudang as Row[]);
+          const template = buildWo4FormRows({
             sourceRows: gudang as Row[],
-            formNo: fn, woId,
-            specs: specRows, specBahan: specBahanForWo, ukuranTim,
+            formNo: formNos[0] || 1,
+            woId,
+            specs: specRows,
+            specBahan: specBahanForWo,
+            ukuranTim,
             masterBarangSet,
           });
+          // Reset kuantitas ke 0 (forecast baru = belum diisi).
+          const seeded = template.map(r => r.sectionHeader ? r : { ...r, kuantitas: 0, id: null });
+          setRows(seeded);
         }
-        setFormsData(next);
-        setFormNos(nos);
-        setActiveForm(nos[0] || 1);
       } catch {
-        if (!cancelled) { setFormsData({}); setFormNos([1]); }
+        if (!cancelled) setRows([]);
       }
       if (!cancelled) setLoading(false);
     })();
@@ -286,14 +522,76 @@ function Wo4PreviewModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const rows = formsData[activeForm] || [];
+  const bahanOptions = useMemo(
+    () => barangList.map(b => String(b.nama || '')).filter(Boolean).sort(),
+    [barangList],
+  );
+
+  function setField(idx: number, field: 'bahan' | 'warna' | 'kuantitas', val: string | number) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+  }
+
+  // Warnings: bagian yang kuantitas > stok. Aggregated per bahan (case beberapa
+  // baris pakai bahan sama, sum kuantitas dan bandingkan stok tunggal).
+  const warnings = useMemo(() => {
+    const needed: Record<string, number> = {};
+    for (const r of rows) {
+      if (r.sectionHeader) continue;
+      const b = r.bahan.trim().toUpperCase();
+      if (!b) continue;
+      needed[b] = (needed[b] || 0) + (Number(r.kuantitas) || 0);
+    }
+    const warns: { bahan: string; needed: number; stok: number; satuan: string }[] = [];
+    for (const b in needed) {
+      const stok = stokMap[b];
+      if (!stok && needed[b] > 0) {
+        warns.push({ bahan: b, needed: needed[b], stok: 0, satuan: '-' });
+      } else if (stok && needed[b] > stok.qty) {
+        warns.push({ bahan: b, needed: needed[b], stok: stok.qty, satuan: stok.satuan });
+      }
+    }
+    return warns;
+  }, [rows, stokMap]);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const woId = Number(wo.id);
+      // Delete semua existing forecast rows untuk WO ini, lalu re-insert.
+      const existing = await dbGet<Row>('wo_forecast_bahan', undefined, { work_order_id: woId }).catch(() => []);
+      for (const e of existing) {
+        try { await dbDelete('wo_forecast_bahan', e.id); } catch {}
+      }
+      let ordinal = 0;
+      for (const r of rows) {
+        if (r.sectionHeader) continue;
+        ordinal++;
+        await dbCreate('wo_forecast_bahan', {
+          work_order_id: woId,
+          form_no: 1,
+          urutan: ordinal,
+          kategori: r.kategori || 'BAHAN_UTAMA',
+          bagian: r.bagian || '',
+          bahan: r.bahan || null,
+          warna: r.warna || null,
+          kuantitas: Number(r.kuantitas) || 0,
+        });
+      }
+      toast.success('Tersimpan', 'Forecasting bahan berhasil disimpan.');
+      onSaved();
+      onClose();
+    } catch (e) {
+      toast.error('Gagal', String(e));
+    }
+    setSaving(false);
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div className="min-w-0">
-            <h3 className="text-lg font-bold text-white truncate">Form Permintaan Gudang (WO 4)</h3>
+            <h3 className="text-lg font-bold text-white truncate">Forecasting Bahan (WO 4)</h3>
             <p className="text-xs text-slate-500 mt-0.5 truncate">
               <span className="text-blue-400 font-medium">{String(wo.no_wo || '')}</span>
               {' · '}
@@ -305,21 +603,23 @@ function Wo4PreviewModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
           </button>
         </div>
 
-        {/* Multi-form tabs — hidden kalau cuma 1 form */}
-        {formNos.length > 1 && (
-          <div className="px-6 py-2 border-b border-white/10 flex items-center gap-2 flex-wrap">
-            {formNos.map(fn => (
-              <button key={fn}
-                onClick={() => setActiveForm(fn)}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                  activeForm === fn
-                    ? 'text-white bg-blue-500/20 border-blue-500/40'
-                    : 'text-slate-400 bg-white/[0.03] border-white/10 hover:bg-white/[0.06]'
-                }`}
-              >
-                Form #{fn}
-              </button>
-            ))}
+        {warnings.length > 0 && (
+          <div className="px-6 py-3 border-b border-white/10 bg-amber-500/[0.06]">
+            <div className="flex items-start gap-2.5">
+              <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-amber-200 mb-1">Stok tidak cukup untuk {warnings.length} bahan</p>
+                <ul className="text-[11px] text-amber-100/80 space-y-0.5">
+                  {warnings.slice(0, 5).map(w => (
+                    <li key={w.bahan}>
+                      <span className="font-semibold text-white">{w.bahan}</span> — perlu {w.needed}, stok {w.stok} {w.satuan}
+                    </li>
+                  ))}
+                  {warnings.length > 5 && <li>… dan {warnings.length - 5} lainnya</li>}
+                </ul>
+                <p className="text-[10px] text-amber-200/60 mt-1 italic">Forecasting tetap bisa disimpan — stok asli tidak dikurangi.</p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -330,7 +630,7 @@ function Wo4PreviewModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
             </div>
           ) : rows.length === 0 ? (
             <div className="rounded-xl border border-dashed border-white/10 py-14 text-center">
-              <p className="text-sm text-slate-400">Belum ada data Form Permintaan Gudang untuk WO ini.</p>
+              <p className="text-sm text-slate-400">Template tidak bisa di-load.</p>
             </div>
           ) : (
             <div className="rounded-xl border border-white/[0.08] bg-[#111827] overflow-x-auto">
@@ -338,10 +638,11 @@ function Wo4PreviewModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
                 <thead>
                   <tr className="text-slate-200 font-bold text-center" style={{ background: '#f59e0b' }}>
                     <th className="border border-white/10 px-2 py-2 w-10" style={{ color: '#0f172a' }}>NO</th>
-                    <th className="border border-white/10 px-2 py-2 min-w-[180px]" style={{ color: '#0f172a' }}>ITEM</th>
+                    <th className="border border-white/10 px-2 py-2 min-w-[160px]" style={{ color: '#0f172a' }}>ITEM</th>
                     <th className="border border-white/10 px-2 py-2 min-w-[200px]" style={{ color: '#0f172a' }}>BAHAN</th>
-                    <th className="border border-white/10 px-2 py-2 min-w-[120px]" style={{ color: '#0f172a' }}>WARNA</th>
-                    <th className="border border-white/10 px-2 py-2 w-24" style={{ color: '#0f172a' }}>KUANTITAS</th>
+                    <th className="border border-white/10 px-2 py-2 min-w-[100px]" style={{ color: '#0f172a' }}>WARNA</th>
+                    <th className="border border-white/10 px-2 py-2 w-28" style={{ color: '#0f172a' }}>KUANTITAS</th>
+                    <th className="border border-white/10 px-2 py-2 w-32" style={{ color: '#0f172a' }}>STOK</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -351,34 +652,155 @@ function Wo4PreviewModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
                       if (r.sectionHeader) {
                         return (
                           <tr key={i}>
-                            <td colSpan={5} className="border border-white/10 px-3 py-2 text-center font-extrabold text-[13px] tracking-wider" style={{ background: '#fde68a', color: '#0f172a' }}>
+                            <td colSpan={6} className="border border-white/10 px-3 py-2 text-center font-extrabold text-[13px] tracking-wider" style={{ background: '#fde68a', color: '#0f172a' }}>
                               {r.sectionHeader}
                             </td>
                           </tr>
                         );
                       }
                       no++;
+                      const stok = r.bahan ? stokMap[r.bahan.toUpperCase().trim()] : undefined;
+                      const stokQty = stok?.qty ?? 0;
+                      const satuan = stok?.satuan || '-';
+                      const isDefisit = r.bahan && Number(r.kuantitas) > stokQty;
                       return (
-                        <tr key={i} className={`border-b border-white/[0.04] ${!r.isFixed ? 'bg-blue-500/[0.03]' : ''}`}>
-                          <td className="border border-white/10 text-center text-slate-500 px-2 py-1.5">{no}</td>
+                        <tr key={i} className="border-b border-white/[0.04]">
+                          <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{no}</td>
                           <td className="border border-white/10 px-2 py-1.5 text-slate-200 font-semibold">{r.bagian}</td>
-                          <td className="border border-white/10 px-2 py-1.5 text-slate-300">{r.bahan || <span className="text-slate-600">—</span>}</td>
-                          <td className="border border-white/10 px-2 py-1.5 text-slate-300">{r.warna || <span className="text-slate-600">—</span>}</td>
-                          <td className="border border-white/10 px-2 py-1.5 text-right tabular-nums text-slate-200 font-semibold">{r.kuantitas || 0}</td>
+                          <td className="border border-white/10 p-1">
+                            <input
+                              list="bahan-options-forecast"
+                              value={r.bahan}
+                              onChange={e => setField(i, 'bahan', e.target.value)}
+                              className="w-full bg-transparent text-white text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded"
+                              placeholder="Pilih / ketik bahan..."
+                            />
+                          </td>
+                          <td className="border border-white/10 p-1">
+                            <input
+                              value={r.warna}
+                              onChange={e => setField(i, 'warna', e.target.value)}
+                              className="w-full bg-transparent text-white text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded"
+                              placeholder="Warna..."
+                            />
+                          </td>
+                          <td className="border border-white/10 p-1">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={r.kuantitas || ''}
+                              onChange={e => {
+                                const v = e.target.value.replace(/[^\d.]/g, '');
+                                setField(i, 'kuantitas', v === '' ? 0 : Number(v));
+                              }}
+                              className={`w-full bg-transparent text-right tabular-nums text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded ${isDefisit ? 'text-amber-300 font-semibold' : 'text-white'}`}
+                              placeholder="0"
+                            />
+                          </td>
+                          <td className="border border-white/10 px-2 py-1.5 text-right text-xs">
+                            {r.bahan && stok ? (
+                              <span className={isDefisit ? 'text-amber-300 font-semibold' : 'text-slate-400'}>
+                                {stokQty} <span className="text-slate-600 text-[10px]">{satuan}</span>
+                              </span>
+                            ) : r.bahan ? (
+                              <span className="text-rose-400 text-[10px]">Belum ada di stok</span>
+                            ) : (
+                              <span className="text-slate-600">—</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     });
                   })()}
                 </tbody>
               </table>
+              <datalist id="bahan-options-forecast">
+                {bahanOptions.map(nama => <option key={nama} value={nama} />)}
+              </datalist>
             </div>
           )}
         </div>
 
         <div className="px-6 py-3 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-[11px] text-slate-500">Preview read-only. Edit form di menu <span className="text-slate-300 font-medium">Work Orders → tab WO 4</span>.</p>
-          <button onClick={onClose} className="text-xs font-semibold text-slate-300 border border-white/10 bg-white/[0.03] px-4 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors">
-            Tutup
+          <p className="text-[11px] text-slate-500">
+            Forecasting = perkiraan kebutuhan. <span className="text-slate-400 font-medium">Tidak mengurangi stok asli.</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="text-xs font-semibold text-slate-300 border border-white/10 bg-white/[0.03] px-4 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors">
+              Tutup
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || loading}
+              className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20"
+            >
+              {saving ? 'Menyimpan...' : 'Simpan'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Restore section headers untuk visual di forecast rows yang diload dari DB.
+   Insert 'KAIN' sebelum baris pertama BAHAN_UTAMA, 'ACCESSORIS' sebelum
+   baris pertama AUTENTIC..DTF SIZE, 'SIZE' sebelum baris pertama XS..XXL. */
+function injectSectionHeaders(rows: GudangRow[]): GudangRow[] {
+  const ACCESSORIS_SET = new Set(['AUTENTIC', 'WEBBING', 'WASHTAG', 'ELASTIC PANTS', 'DTF SPONSOR', 'POLIFLEX', 'DTF SIZE']);
+  const SIZE_SET = new Set(['XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL']);
+  const out: GudangRow[] = [];
+  let seenKain = false, seenAcc = false, seenSize = false;
+  const mk = (label: string): GudangRow => ({
+    id: null, urutan: 0, kategori: 'SECTION', bagian: '', bahan: '',
+    warna: '', kuantitas: 0, sectionHeader: label,
+  });
+  for (const r of rows) {
+    const bg = r.bagian.toUpperCase();
+    if (ACCESSORIS_SET.has(bg)) {
+      if (!seenAcc) { out.push(mk('ACCESSORIS')); seenAcc = true; }
+    } else if (SIZE_SET.has(bg)) {
+      if (!seenSize) { out.push(mk('SIZE')); seenSize = true; }
+    } else {
+      if (!seenKain) { out.push(mk('KAIN')); seenKain = true; }
+    }
+    out.push(r);
+  }
+  return out;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   ConfirmDialog — dialog konfirmasi untuk delete.
+   ──────────────────────────────────────────────────────────────── */
+function ConfirmDialog({ title, message, onConfirm, onCancel }: {
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onCancel]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onCancel}>
+      <div className="bg-[#111827] border border-white/10 rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-rose-500/15 border border-rose-500/25 grid place-items-center shrink-0">
+            <svg className="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white">{title}</h3>
+            <p className="text-sm text-slate-400 mt-1">{message}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={onCancel} className="text-sm font-medium text-slate-300 border border-white/10 bg-white/[0.03] px-4 py-2 rounded-lg hover:bg-white/[0.06] transition-colors">
+            Batal
+          </button>
+          <button onClick={onConfirm} className="text-sm font-semibold text-white bg-rose-600 hover:bg-rose-500 px-4 py-2 rounded-lg transition-colors shadow-lg shadow-rose-500/20">
+            Ya, Hapus
           </button>
         </div>
       </div>
