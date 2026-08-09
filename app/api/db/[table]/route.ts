@@ -51,6 +51,8 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   stok_adjustment:   { columns: 'sa.*, b.nama AS barang_nama, b.satuan, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['sa.id', 'sa.barang_id'] },
   wo_forecast:       { columns: '*', filterCols: ['id', 'work_order_id'] },
   wo_forecast_bahan: { columns: '*', filterCols: ['id', 'work_order_id'] },
+  wo_pengeluaran:    { columns: '*', filterCols: ['id', 'work_order_id'] },
+  wo_pengeluaran_bahan: { columns: '*', filterCols: ['id', 'work_order_id'] },
 };
 
 // JOIN clauses for tables with relations

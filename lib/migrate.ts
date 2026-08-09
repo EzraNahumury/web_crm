@@ -1178,6 +1178,44 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Real Pengeluaran Bahan — actual pengeluaran bahan dari gudang per WO.
+    // Beda dengan wo_forecast (perkiraan), wo_pengeluaran ini SUDAH deduct
+    // stok. Setiap save bikin stok_adjustment row 'Keluar' untuk audit trail.
+    //
+    // wo_pengeluaran: 1 row per WO (header), UNIQUE work_order_id supaya
+    //   satu WO cuma bisa punya 1 record pengeluaran final (bukan idempotent
+    //   log — kalau edit, replace saja).
+    // wo_pengeluaran_bahan: detail baris (bagian/bahan/warna/kuantitas).
+    //   Struktur sama dengan wo_forecast_bahan supaya form template konsisten.
+    name: '068_wo_pengeluaran_bahan',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `wo_pengeluaran` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`work_order_id` INT UNSIGNED NOT NULL," +
+        "`notes` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "UNIQUE KEY `uniq_pengeluaran_wo` (`work_order_id`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "CREATE TABLE IF NOT EXISTS `wo_pengeluaran_bahan` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`work_order_id` INT UNSIGNED NOT NULL," +
+        "`form_no` INT NOT NULL DEFAULT 1," +
+        "`urutan` INT NOT NULL DEFAULT 0," +
+        "`kategori` VARCHAR(50) NULL," +
+        "`bagian` VARCHAR(100) NULL," +
+        "`bahan` VARCHAR(255) NULL," +
+        "`warna` VARCHAR(100) NULL," +
+        "`kuantitas` DECIMAL(12,2) NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_pengeluaran_bahan_wo` (`work_order_id`, `form_no`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
