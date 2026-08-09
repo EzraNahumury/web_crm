@@ -53,6 +53,8 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   wo_forecast_bahan: { columns: '*', filterCols: ['id', 'work_order_id'] },
   wo_pengeluaran:    { columns: '*', filterCols: ['id', 'work_order_id'] },
   wo_pengeluaran_bahan: { columns: '*', filterCols: ['id', 'work_order_id'] },
+  pembelian_bahan:   { columns: '*', filterCols: ['id', 'status'] },
+  pembelian_bahan_item: { columns: '*', filterCols: ['id', 'pembelian_id'] },
 };
 
 // JOIN clauses for tables with relations
@@ -73,6 +75,7 @@ function getOrderBy(table: string): string {
     case 'stok_adjustment': return 'ORDER BY sa.created_at DESC';
     case 'orders': return 'ORDER BY id DESC';
     case 'work_orders': return 'ORDER BY id DESC';
+    case 'pembelian_bahan': return 'ORDER BY created_at DESC';
     default: return 'ORDER BY id ASC';
   }
 }

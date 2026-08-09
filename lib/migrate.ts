@@ -1216,6 +1216,55 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Pembelian Bahan — form permintaan barang dari tim Gudang yang
+    // di-approve oleh Finance. Alur:
+    //   1. Gudang isi form (nama pemohon, divisi, jabatan, alasan) +
+    //      list barang (nama/qty/harga/jumlah). Submit → status='SUBMITTED'.
+    //   2. Muncul di menu Finance → Pembelian Barang Gudang untuk review.
+    //   3. Finance approve/reject. Kalau approve, status='APPROVED' + timestamp.
+    //      Kalau reject, status='REJECTED' + finance_notes alasan.
+    //   4. Gudang bisa lihat status di history.
+    // Tidak nge-deduct atau add stok — cuma workflow approval finance.
+    // Stok masuk baru di-input operator setelah barang fisik datang
+    // (via menu Stok manual atau nanti auto-flow).
+    name: '069_pembelian_bahan',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `pembelian_bahan` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`no_formulir` VARCHAR(50) NULL," +
+        "`tanggal` DATE NULL," +
+        "`pemohon` VARCHAR(150) NULL," +
+        "`divisi` VARCHAR(100) NULL," +
+        "`jabatan` VARCHAR(100) NULL," +
+        "`alasan` TEXT NULL," +
+        "`total` BIGINT NOT NULL DEFAULT 0," +
+        "`status` VARCHAR(30) NOT NULL DEFAULT 'SUBMITTED'," +
+        "`finance_notes` TEXT NULL," +
+        "`finance_at` TIMESTAMP NULL," +
+        "`finance_by` VARCHAR(150) NULL," +
+        "`created_by` VARCHAR(150) NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_pb_status` (`status`)," +
+        "KEY `idx_pb_created` (`created_at`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "CREATE TABLE IF NOT EXISTS `pembelian_bahan_item` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`pembelian_id` INT UNSIGNED NOT NULL," +
+        "`urutan` INT NOT NULL DEFAULT 0," +
+        "`nama_barang` VARCHAR(255) NULL," +
+        "`jumlah_item` DECIMAL(12,2) NOT NULL DEFAULT 0," +
+        "`satuan` VARCHAR(50) NULL," +
+        "`harga` BIGINT NOT NULL DEFAULT 0," +
+        "`total` BIGINT NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_pbi_pembelian` (`pembelian_id`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
