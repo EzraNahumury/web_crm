@@ -1274,6 +1274,12 @@ const MIGRATIONS: Migration[] = [
     // jadi seed ini mulai dari kondisi kosong.
     name: '070_seed_barang_master_accurate',
     up: [
+      // base schema barang.tipe_barang_id NOT NULL tanpa default → fail
+      // untuk INSERT tanpa kolom itu. Ubah jadi NULLable dulu supaya seed
+      // + form Data Barang (yang kirim tipe_barang_id=null saat jenis
+      // belum dipilih) sama-sama jalan. Idempotent — MODIFY safe kalau
+      // sudah NULL sebelumnya.
+      "ALTER TABLE `barang` MODIFY COLUMN `tipe_barang_id` INT UNSIGNED NULL",
       "INSERT INTO `barang` (`kode_barang`, `nama`, `letak`) VALUES " +
         "('100923','AUTHENTIC 3D PRO CHAMELEON','Gudang Ayres')," +
         "('BB100270','AUTHENTIC WOVEN','Gudang Ayres')," +
