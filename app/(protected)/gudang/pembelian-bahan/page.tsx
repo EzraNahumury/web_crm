@@ -431,11 +431,19 @@ function FormulirModal({ editingId, onClose, onSaved }: {
       pdf.text(alasanLines, 14, lastY + 6);
 
       // Signatures
-      const sigY = Math.min(lastY + 6 + alasanLines.length * 5 + 20, pdf.internal.pageSize.getHeight() - 30);
-      pdf.text('Pemohon,', 30, sigY);
+      // Signature block:
+      //   Kiri = MENGETAHUI (Staf Gudang / Pemohon)
+      //   Kanan = MENYETUJUI (Manager Produksi)
+      const sigY = Math.min(lastY + 6 + alasanLines.length * 5 + 20, pdf.internal.pageSize.getHeight() - 40);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Mengetahui,', 30, sigY);
       pdf.text('Menyetujui,', 140, sigY);
+      pdf.setFont('helvetica', 'normal');
       pdf.text(pemohon || '(________________)', 30, sigY + 25);
       pdf.text('(________________)', 140, sigY + 25);
+      pdf.setFontSize(9);
+      pdf.text('Staf Gudang', 30, sigY + 30);
+      pdf.text('Manager Produksi', 140, sigY + 30);
 
       pdf.save(`FormulirPembelian_${noFormulir || 'draft'}.pdf`);
       toast.success('PDF Berhasil', 'Formulir di-download.');
