@@ -25,9 +25,7 @@ function fmtDate(d: string | Date | null | undefined) {
 
 const STATUS_MAP: Record<string, { label: string; cls: string }> = {
   DRAFT:     { label: 'Draft',      cls: 'text-slate-300 bg-slate-500/10 border-slate-500/25' },
-  SUBMITTED: { label: 'Dikirim',    cls: 'text-blue-300 bg-blue-500/10 border-blue-500/25' },
-  APPROVED:  { label: 'Disetujui',  cls: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25' },
-  REJECTED:  { label: 'Ditolak',    cls: 'text-rose-300 bg-rose-500/10 border-rose-500/25' },
+  SUBMITTED: { label: 'Terkirim',   cls: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25' },
 };
 
 export default function PembelianBahanPage() {
@@ -176,17 +174,15 @@ export default function PembelianBahanPage() {
                               </svg>
                             </button>
                           )}
-                          {(String(row.status).toUpperCase() === 'DRAFT' || String(row.status).toUpperCase() === 'REJECTED') && (
-                            <button
-                              onClick={() => setDeleteConfirm(row)}
-                              title="Hapus"
-                              className="text-rose-400 hover:text-rose-300 p-1.5 rounded-lg hover:bg-rose-500/10 border border-transparent hover:border-rose-500/25 transition-colors"
-                            >
+                          <button
+                            onClick={() => setDeleteConfirm(row)}
+                            title="Hapus"
+                            className="text-rose-400 hover:text-rose-300 p-1.5 rounded-lg hover:bg-rose-500/10 border border-transparent hover:border-rose-500/25 transition-colors"
+                          >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                              </svg>
-                            </button>
-                          )}
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                            </svg>
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -707,16 +703,6 @@ function FormulirDetail({ id, onClose }: { id: number; onClose: () => void }) {
                 <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Alasan Pemesanan</p>
                 <p className="text-sm text-slate-300 whitespace-pre-wrap mt-1">{header?.alasan || '-'}</p>
               </div>
-              {(String(header?.status).toUpperCase() === 'APPROVED' || String(header?.status).toUpperCase() === 'REJECTED') && (
-                <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Catatan Finance</p>
-                  <p className="text-sm text-slate-200 whitespace-pre-wrap">{header?.finance_notes || <span className="text-slate-500">(Tidak ada catatan)</span>}</p>
-                  <p className="text-[10px] text-slate-500 mt-2">
-                    {header?.finance_by ? `Oleh ${header.finance_by} — ` : ''}
-                    {header?.finance_at ? fmtDate(header.finance_at) : ''}
-                  </p>
-                </div>
-              )}
             </>
           )}
         </div>
