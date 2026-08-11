@@ -1429,6 +1429,18 @@ const MIGRATIONS: Migration[] = [
         "('BB204','WAFEL TOSCA','Gudang Ayres')",
     ],
   },
+  {
+    // Bug: satuan barang tidak tersimpan (pilih 'kg' → balik 'pcs'). Kolom
+    // barang.satuan aslinya ENUM('PCS','KILOGRAM','METER','ROLL','LUSIN'),
+    // sedangkan form kirim nilai lowercase ('kg','roll','liter','meter',
+    // 'pcs') yang di luar enum → MySQL non-strict meng-coerce ke '' →
+    // tampil default 'pcs'. Ubah ke VARCHAR supaya nilai apa pun tersimpan
+    // apa adanya. Nilai lama (PCS dll) tetap valid (ENUM→VARCHAR lossless).
+    name: '071_barang_satuan_varchar',
+    up: [
+      "ALTER TABLE `barang` MODIFY COLUMN `satuan` VARCHAR(30) NULL DEFAULT 'pcs'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

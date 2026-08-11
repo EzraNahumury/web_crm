@@ -35,6 +35,7 @@ export default function StokPage() {
   const [masukOpen, setMasukOpen] = useState(false);
   const [keluarOpen, setKeluarOpen] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [adjSearch, setAdjSearch] = useState('');
 
   const [aktualPage, setAktualPage] = useState(1);
   const [adjPage, setAdjPage] = useState(1);
@@ -95,7 +96,20 @@ export default function StokPage() {
   ), [stokDisplay, search]);
 
   const aktualPaged = paginate(filtered, aktualPage, aktualPageSize);
-  const adjPaged = paginate(adjustments, adjPage, adjPageSize);
+
+  // Riwayat Adjustment — filter by nama bahan, keterangan, tipe, atau no WO.
+  const filteredAdjustments = useMemo(() => {
+    const q = adjSearch.trim().toLowerCase();
+    if (!q) return adjustments;
+    return adjustments.filter((a: Row) => {
+      const wo = a.work_order_id ? woList.find((w: Row) => String(w.id) === String(a.work_order_id)) : null;
+      return String(a.barang_nama || '').toLowerCase().includes(q)
+        || String(a.keterangan || '').toLowerCase().includes(q)
+        || String(a.tipe || '').toLowerCase().includes(q)
+        || String(wo?.no_wo || '').toLowerCase().includes(q);
+    });
+  }, [adjustments, adjSearch, woList]);
+  const adjPaged = paginate(filteredAdjustments, adjPage, adjPageSize);
 
   // ─── Overview stats ───
   const totalMasuk = useMemo(
@@ -557,6 +571,16 @@ export default function StokPage() {
             </button>
           </div>
 
+          {/* Search riwayat */}
+          <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3">
+            <div className="relative">
+              <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              <input value={adjSearch} onChange={e => { setAdjSearch(e.target.value); setAdjPage(1); }}
+                placeholder="Cari nama bahan, keterangan, tipe, atau No WO..."
+                className="w-full bg-transparent text-white placeholder-slate-500 pl-10 pr-4 py-2 text-sm focus:outline-none" />
+            </div>
+          </div>
+
           <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px]">
@@ -573,8 +597,8 @@ export default function StokPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {adjustments.length === 0 ? (
-                    <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-slate-500">Belum ada riwayat adjustment</td></tr>
+                  {adjPaged.slice.length === 0 ? (
+                    <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-slate-500">{adjSearch ? 'Tidak ada riwayat yang cocok' : 'Belum ada riwayat adjustment'}</td></tr>
                   ) : adjPaged.slice.map((a: Row) => {
                     const selisih = a.selisih || 0;
                     const satuan = a.satuan || 'pcs';
@@ -903,6 +927,9 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
                 <label className="block text-xs font-medium text-slate-300 mb-1">Satuan *</label>
                 <select value={form.satuan} onChange={e => setForm(f => ({ ...f, satuan: e.target.value }))}
                   className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer">
+                  {/* Tampilkan nilai lama (mis. 'PCS'/'KILOGRAM' dari enum lama)
+                      kalau tidak ada di daftar, supaya tidak hilang saat edit. */}
+                  {form.satuan && !SATUAN_OPTIONS.includes(form.satuan) && <option value={form.satuan}>{form.satuan}</option>}
                   {SATUAN_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
