@@ -17,8 +17,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'tipe-barang', label: 'Tipe Barang' },
   { key: 'ukuran', label: 'Ukuran' },
   { key: 'pecah-pola', label: 'Pecah Pola' },
-  { key: 'jabatan', label: 'Jabatan' },
-  { key: 'karyawan', label: 'Karyawan' },
   { key: 'promo', label: 'Promo' },
   { key: 'leads', label: 'Leads' },
 ];
