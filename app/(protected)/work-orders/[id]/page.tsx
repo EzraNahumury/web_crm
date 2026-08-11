@@ -4399,6 +4399,107 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
     } catch (e) { toast.error('Gagal Download PDF', String(e)); }
   }
 
+  // Export Excel WO2 — styled xlsx: judul, header hijau (grouped merge
+  // LENGAN → KANAN/KIRI dst), border, freeze header, zebra rows.
+  async function handleExportExcel() {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ExcelJS = (await import('exceljs')).default as any;
+      const customer = String(wo.customer_nama || '');
+      const woName = String(wo.no_wo || 'export');
+
+      // Leaf columns (urutan) + struktur grup untuk merge header.
+      const hasGrp = kolom.some((k: Wo2Col) => k.children && k.children.length > 0);
+      const leaf: { id: string; label: string }[] = [];
+      for (const k of kolom) {
+        if (k.children && k.children.length > 0) for (const c of k.children) leaf.push({ id: c.id, label: c.label });
+        else leaf.push({ id: k.id, label: k.label });
+      }
+      const totalCols = 1 + leaf.length; // NO + leaves
+
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Detail Ukuran Tim', { views: [{ state: 'frozen', ySplit: hasGrp ? 4 : 3 }] });
+
+      const border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+      const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF065F46' } };
+      const subFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF047857' } };
+      const headFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Arial' };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mergeSafe = (r1: number, c1: number, r2: number, c2: number) => { if (r1 !== r2 || c1 !== c2) ws.mergeCells(r1, c1, r2, c2); };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const styleHead = (cell: any, val: string, fill = headerFill) => {
+        cell.value = val; cell.font = headFont; cell.fill = fill; cell.border = border;
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      };
+
+      // Title + subtitle
+      mergeSafe(1, 1, 1, totalCols);
+      const t = ws.getCell(1, 1);
+      t.value = `DETAIL UKURAN TIM — ${customer.toUpperCase()}`;
+      t.font = { bold: true, size: 14, name: 'Arial' };
+      t.alignment = { horizontal: 'center', vertical: 'middle' };
+      mergeSafe(2, 1, 2, totalCols);
+      const s = ws.getCell(2, 1);
+      s.value = `No WO: ${woName}`;
+      s.font = { size: 10, italic: true, color: { argb: 'FF555555' }, name: 'Arial' };
+      s.alignment = { horizontal: 'center' };
+
+      // Header rows
+      const topRow = 3;
+      const botRow = hasGrp ? 4 : 3;
+      mergeSafe(topRow, 1, botRow, 1);
+      styleHead(ws.getCell(topRow, 1), 'NO');
+      let ci = 2;
+      for (const k of kolom) {
+        if (k.children && k.children.length > 0) {
+          mergeSafe(topRow, ci, topRow, ci + k.children.length - 1);
+          styleHead(ws.getCell(topRow, ci), k.label);
+          let cc = ci;
+          for (const c of k.children) { styleHead(ws.getCell(botRow, cc), c.label, subFill); cc++; }
+          ci += k.children.length;
+        } else {
+          mergeSafe(topRow, ci, botRow, ci);
+          styleHead(ws.getCell(topRow, ci), k.label);
+          ci++;
+        }
+      }
+      ws.getRow(topRow).height = 22;
+      if (hasGrp) ws.getRow(botRow).height = 20;
+
+      // Data rows (ikut urutan yang tampil / tersort)
+      const dataStart = botRow + 1;
+      displayRows.forEach((r, idx) => {
+        const row = ws.getRow(dataStart + idx);
+        row.getCell(1).value = idx + 1;
+        leaf.forEach((lf, j) => { row.getCell(2 + j).value = r.data[lf.id] || ''; });
+        for (let c = 1; c <= totalCols; c++) {
+          const cell = row.getCell(c);
+          cell.border = border;
+          const leafId = c === 1 ? '__no' : leaf[c - 2]?.id || '';
+          cell.alignment = { horizontal: leafId === 'nama' ? 'left' : 'center', vertical: 'middle' };
+          cell.font = { size: 10, name: 'Arial' };
+          if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+        }
+      });
+
+      // Column widths
+      ws.getColumn(1).width = 5;
+      leaf.forEach((lf, j) => {
+        ws.getColumn(2 + j).width = lf.id === 'nama' ? 22 : lf.id === 'np' ? 8 : lf.id.startsWith('ket') ? 14 : 11;
+      });
+
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `WO2-DetailUkuranTim-${woName}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Excel Berhasil', `WO2-DetailUkuranTim-${woName}.xlsx`);
+    } catch (e) { toast.error('Gagal Export Excel', String(e)); }
+  }
+
   if (loading) return <div className="h-64 bg-white/[0.03] rounded-xl animate-pulse" />;
 
   const cellCls = 'w-full bg-transparent focus:bg-white/[0.03] focus:outline-none px-2 py-1.5 text-xs text-white placeholder-slate-600';
@@ -4414,6 +4515,7 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         <div className="flex items-center gap-2">
           <button onClick={() => setAddHeaderOpen(true)} className="text-xs font-medium text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Header</button>
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
+          <button onClick={handleExportExcel} className="text-xs font-medium text-green-300 border border-green-500/30 bg-green-500/10 hover:bg-green-500/20 px-3 py-1.5 rounded-lg transition-colors">Export Excel</button>
           <button onClick={handleDownloadPDF} className="text-xs font-medium text-slate-400 border border-white/10 px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.04] transition-colors">Download PDF</button>
           <button onClick={saveAll} disabled={saving} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-500/20">
             {saving ? 'Menyimpan...' : 'Simpan Semua'}
