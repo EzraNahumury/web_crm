@@ -984,6 +984,7 @@ interface AdjustmentModalProps {
 
 function AdjustmentModal({ mode, onClose, onSaved, barangList, stokList, toast }: AdjustmentModalProps) {
   const [barangId, setBarangId] = useState('');
+  const [barangSearch, setBarangSearch] = useState('');
   const [qty, setQty] = useState('');
   const [keterangan, setKeterangan] = useState('');
   const [noDokumen, setNoDokumen] = useState('');
@@ -1066,15 +1067,46 @@ function AdjustmentModal({ mode, onClose, onSaved, barangList, stokList, toast }
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-white mb-1.5">Pilih Barang <span className="text-red-400">*</span></label>
-            <select value={barangId} onChange={e => setBarangId(e.target.value)}
-              className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500/40 appearance-none cursor-pointer">
-              <option value="">Pilih barang...</option>
-              {barangList.map(b => (
-                <option key={b.id} value={b.id}>
-                  {String(b.kode_barang || '') || `ID-${b.id}`} · {b.nama} {b.tipe_nama ? `(${b.tipe_nama})` : ''}
-                </option>
-              ))}
-            </select>
+            {/* Searchable picker — ketik kode/nama untuk filter, klik untuk pilih. */}
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              <input
+                type="text"
+                value={barangSearch}
+                onChange={e => setBarangSearch(e.target.value)}
+                placeholder="Cari kode atau nama barang..."
+                autoComplete="off"
+                className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-blue-500/40"
+              />
+            </div>
+            {(() => {
+              const q = barangSearch.trim().toLowerCase();
+              const list = q
+                ? barangList.filter(b =>
+                    String(b.kode_barang || '').toLowerCase().includes(q) ||
+                    String(b.nama || '').toLowerCase().includes(q))
+                : barangList;
+              return (
+                <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-white/10 bg-[#0d1117]">
+                  {list.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-slate-500 text-center">Tidak ada barang cocok</div>
+                  ) : list.map(b => {
+                    const active = String(b.id) === barangId;
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => setBarangId(String(b.id))}
+                        className={`w-full text-left px-3 py-2 text-sm border-b border-white/[0.04] last:border-0 transition-colors ${active ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/[0.05]'}`}
+                      >
+                        <span className="font-mono text-xs opacity-70">{String(b.kode_barang || '') || `ID-${b.id}`}</span>
+                        {' · '}{b.nama}{b.tipe_nama ? ` (${b.tipe_nama})` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           <div className={`grid grid-cols-3 gap-3 rounded-xl border p-4 ${accentCls.border} ${accentCls.bg}`}>
