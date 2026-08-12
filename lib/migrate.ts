@@ -1441,6 +1441,37 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `barang` MODIFY COLUMN `satuan` VARCHAR(30) NULL DEFAULT 'pcs'",
     ],
   },
+  {
+    // Seed barang baru: kertas sublim, ASA DTF ink, tinta ASA sublim
+    // (daftar dari operator gudang). Guarded per-row dengan NOT EXISTS
+    // pada kode_barang supaya idempotent — kalau kode sudah ada (mis.
+    // sudah di-input manual lewat form Data Barang), row itu di-skip.
+    // letak default 'Gudang Ayres'; satuan/harga/tipe pakai default kolom.
+    name: '072_seed_barang_sublim_tinta',
+    up: [
+      ...([
+        ['100789', 'KERTAS ASA SUBLIMATION 125'],
+        ['100963', 'KERTAS ASA SUBLIMATION 180 X 300, 65 GSM'],
+        ['101001', 'KERTAS ASA SUBLIMATION 180 X 300, 85 GSM'],
+        ['BB100788', 'KERTAS ASA SUBLIMATION 92'],
+        ['115', 'KERTAS STICKY'],
+        ['100957', 'ASA DTF SUBLIMATION INK BLACK'],
+        ['100954', 'ASA DTF SUBLIMATION INK CYAN'],
+        ['100955', 'ASA DTF SUBLIMATION INK MAGENTA'],
+        ['100942', 'ASA DTF SUBLIMATION INK WHITE'],
+        ['100956', 'ASA DTF SUBLIMATION INK YELLOW'],
+        ['BB100774', 'TINTA ASA SUBLIMATION BLACK'],
+        ['BB100771', 'TINTA ASA SUBLIMATION CYAN'],
+        ['BB100772', 'TINTA ASA SUBLIMATION MAGENTA'],
+        ['BB100773', 'TINTA ASA SUBLIMATION YELLOW'],
+        ['BB100678', 'TINTA SUBLIM WARNA WARNI BARU'],
+      ] as [string, string][]).map(([kode, nama]) =>
+        "INSERT INTO `barang` (`kode_barang`, `nama`, `letak`) " +
+        `SELECT '${kode}', '${nama.replace(/'/g, "''")}', 'Gudang Ayres' ` +
+        `WHERE NOT EXISTS (SELECT 1 FROM \`barang\` WHERE \`kode_barang\` = '${kode}')`
+      ),
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
