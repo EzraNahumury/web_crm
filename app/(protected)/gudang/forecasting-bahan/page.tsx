@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { buildAksesorisSet } from '@/lib/qty-aksesoris';
@@ -688,12 +689,10 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
                             />
                           </td>
                           <td className="border border-white/10 p-1">
-                            <input
-                              list="bahan-options-forecast"
+                            <BahanCombobox
                               value={r.bahan}
-                              onChange={e => setField(i, 'bahan', e.target.value)}
-                              className="w-full bg-transparent text-white text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded"
-                              placeholder="Pilih / ketik bahan..."
+                              options={bahanOptions}
+                              onChange={v => setField(i, 'bahan', v)}
                             />
                           </td>
                           <td className="border border-white/10 p-1">
@@ -742,9 +741,6 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
                   })()}
                 </tbody>
               </table>
-              <datalist id="bahan-options-forecast">
-                {bahanOptions.map(nama => <option key={nama} value={nama} />)}
-              </datalist>
             </div>
           )}
         </div>
@@ -838,5 +834,71 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }: {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────
+   BahanCombobox — pengganti native <datalist> yang UI-nya mentah.
+   Input bisa diketik (filter) + dropdown terstyle, dirender via portal
+   (position: fixed di bawah input) supaya tidak ke-clip oleh scroll
+   container tabel/modal.
+   ──────────────────────────────────────────────────────────────── */
+function BahanCombobox({ value, options, onChange }: {
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
+
+  const q = value.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    const list = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+    return list.slice(0, 60);
+  }, [q, options]);
+
+  function reposition() {
+    const r = inputRef.current?.getBoundingClientRect();
+    if (r) {
+      // Kalau ruang bawah sempit, buka ke atas.
+      const spaceBelow = window.innerHeight - r.bottom;
+      const openUp = spaceBelow < 220 && r.top > spaceBelow;
+      setRect({ left: r.left, top: openUp ? r.top - Math.min(256, filtered.length * 32) - 4 : r.bottom + 2, width: r.width });
+    }
+  }
+  function openList() { reposition(); setOpen(true); }
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={e => { onChange(e.target.value); if (!open) openList(); else reposition(); }}
+        onFocus={openList}
+        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        placeholder="Pilih / ketik bahan..."
+        autoComplete="off"
+        className="w-full bg-transparent text-white text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded"
+      />
+      {open && rect && filtered.length > 0 && createPortal(
+        <div
+          style={{ position: 'fixed', left: rect.left, top: rect.top, width: Math.max(rect.width, 240), zIndex: 80 }}
+          className="max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-[#0d1117] shadow-2xl shadow-black/60"
+        >
+          {filtered.map(o => (
+            <button
+              key={o}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); onChange(o); setOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-xs border-b border-white/[0.04] last:border-0 transition-colors ${o.toLowerCase() === q ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/[0.06]'}`}
+            >
+              {o}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
