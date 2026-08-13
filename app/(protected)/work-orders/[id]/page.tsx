@@ -1351,6 +1351,10 @@ export default function WorkOrderDetailPage() {
   const woData = {
     noWo: wo.no_wo,
     customer: wo.customer_nama,
+    // Alias snake_case — tab WO2/WO3 (dan export-nya) baca wo.no_wo /
+    // wo.customer_nama. Tanpa ini, judul PDF jadi "export" / "-".
+    no_wo: wo.no_wo,
+    customer_nama: wo.customer_nama,
     status: st.label,
     noOrder: order?.no_order || '-',
     tglOrder: fmtD(order?.tanggal_order || wo.created_at),
