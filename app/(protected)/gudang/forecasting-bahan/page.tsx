@@ -527,8 +527,20 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
     [barangList],
   );
 
-  function setField(idx: number, field: 'bahan' | 'warna' | 'kuantitas', val: string | number) {
+  function setField(idx: number, field: 'bagian' | 'bahan' | 'warna' | 'kuantitas', val: string | number) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+  }
+
+  // Tambah baris kosong di akhir — team gudang bisa isi item/bahan/warna/qty sendiri.
+  function addRow() {
+    setRows(prev => [...prev, {
+      id: null, urutan: 0, kategori: 'BAHAN_UTAMA',
+      bagian: '', bahan: '', warna: '', kuantitas: 0, isFixed: false,
+    }]);
+  }
+  // Hapus baris (persist saat Simpan — handleSave delete-all lalu re-insert dari rows).
+  function removeRow(idx: number) {
+    setRows(prev => prev.filter((_, i) => i !== idx));
   }
 
   // Warnings: bagian yang kuantitas > stok. Aggregated per bahan (case beberapa
@@ -643,6 +655,7 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
                     <th className="border border-white/10 px-2 py-2 min-w-[100px]" style={{ color: '#0f172a' }}>WARNA</th>
                     <th className="border border-white/10 px-2 py-2 w-28" style={{ color: '#0f172a' }}>KUANTITAS</th>
                     <th className="border border-white/10 px-2 py-2 w-32" style={{ color: '#0f172a' }}>STOK</th>
+                    <th className="border border-white/10 px-2 py-2 w-12" style={{ color: '#0f172a' }}>AKSI</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -652,7 +665,7 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
                       if (r.sectionHeader) {
                         return (
                           <tr key={i}>
-                            <td colSpan={6} className="border border-white/10 px-3 py-2 text-center font-extrabold text-[13px] tracking-wider" style={{ background: '#fde68a', color: '#0f172a' }}>
+                            <td colSpan={7} className="border border-white/10 px-3 py-2 text-center font-extrabold text-[13px] tracking-wider" style={{ background: '#fde68a', color: '#0f172a' }}>
                               {r.sectionHeader}
                             </td>
                           </tr>
@@ -666,7 +679,14 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
                       return (
                         <tr key={i} className="border-b border-white/[0.04]">
                           <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{no}</td>
-                          <td className="border border-white/10 px-2 py-1.5 text-slate-200 font-semibold">{r.bagian}</td>
+                          <td className="border border-white/10 p-1">
+                            <input
+                              value={r.bagian}
+                              onChange={e => setField(i, 'bagian', e.target.value)}
+                              className="w-full bg-transparent text-slate-200 font-semibold text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded"
+                              placeholder="Item..."
+                            />
+                          </td>
                           <td className="border border-white/10 p-1">
                             <input
                               list="bahan-options-forecast"
@@ -708,6 +728,14 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
                               <span className="text-slate-600">—</span>
                             )}
                           </td>
+                          <td className="border border-white/10 text-center px-1 py-1">
+                            <button onClick={() => removeRow(i)} title="Hapus baris"
+                              className="text-rose-500 hover:text-rose-300 p-1 rounded hover:bg-rose-500/10">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          </td>
                         </tr>
                       );
                     });
@@ -726,6 +754,11 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
             Forecasting = perkiraan kebutuhan. <span className="text-slate-400 font-medium">Tidak mengurangi stok asli.</span>
           </p>
           <div className="flex items-center gap-2">
+            <button onClick={addRow} disabled={loading}
+              className="text-xs font-semibold text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-50 px-4 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              Tambah Baris
+            </button>
             <button onClick={onClose} className="text-xs font-semibold text-slate-300 border border-white/10 bg-white/[0.03] px-4 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors">
               Tutup
             </button>
