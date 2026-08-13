@@ -1797,79 +1797,9 @@ export default function WorkOrderDetailPage() {
         }
       }
 
-      // === WO 4: Form Permintaan Gudang === (autoTable — crisp).
-      // Format konsisten dengan tab WO 4 di halaman detail: section
-      // header (KAIN / ACCESSORIS / SIZE + LAIN-LAIN) dengan bg kuning,
-      // KAIN UTAMA + KAIN VARIASI N di-derive dari WO1 spec, accessories
-      // auto-fill kuantitas dari totalJumlah, sizes dari count WO2.
-      // Pakai buildWo4FormRows shared helper supaya UI + Download All
-      // selalu sync.
-      //
-      // Kalau WO punya beberapa form_no (multi-form), semua di-render:
-      // masing-masing 1 page terpisah dengan header "Form #N".
-      {
-        const freshMasterBarang = (await dbGet('barang').catch(() => [])) as Row[];
-        const freshUkuranTim = (await dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: wo.id }).catch(() => [])) as Row[];
-        const masterSet = new Set(freshMasterBarang.map(b => String(b.nama || '').toUpperCase().trim()));
-
-        const formNosGudang = detectWo4FormNos(freshGudang as Row[]);
-        for (const fn of formNosGudang) {
-          if (!firstPage) pdf.addPage();
-          firstPage = false;
-          pdf.setFontSize(14);
-          const titleSuffix = formNosGudang.length > 1 ? ` — Form #${fn}` : '';
-          pdf.text(`FORM PERMINTAAN GUDANG - ${customer.toUpperCase()}${titleSuffix}`, 14, 18);
-          pdf.setFontSize(10);
-          pdf.text(`No WO: ${woName}`, 14, 26);
-
-          const formRows = buildWo4FormRows({
-            sourceRows: freshGudang as Row[],
-            formNo: fn,
-            woId: Number(wo.id),
-            specs: freshSpecs as Row[],
-            specBahan: freshSpecBahan as Row[],
-            ukuranTim: freshUkuranTim,
-            masterBarangSet: masterSet,
-          });
-
-          // Build body dengan section headers (colSpan 5 bg kuning).
-          let numCtr = 0;
-          type CellDef = string | { content: string; colSpan: number; styles: { fillColor: [number, number, number]; textColor: [number, number, number]; halign: 'center'; fontStyle: 'bold'; fontSize: number } };
-          const body: CellDef[][] = formRows.map((r): CellDef[] => {
-            if (r.sectionHeader) {
-              return [{
-                content: r.sectionHeader,
-                colSpan: 5,
-                styles: { fillColor: [253, 224, 71], textColor: [15, 23, 42], halign: 'center', fontStyle: 'bold', fontSize: 10 },
-              }];
-            }
-            numCtr++;
-            return [
-              String(numCtr),
-              String(r.bagian || ''),
-              String(r.bahan || ''),
-              String(r.warna || ''),
-              String(r.kuantitas || 0),
-            ];
-          });
-
-          autoTable(pdf, {
-            startY: 32,
-            head: [['NO', 'ITEM', 'BAHAN', 'WARNA', 'KUANTITAS']],
-            didParseCell: uniDidParseCell,
-            didDrawCell: uniDidDrawCell,
-            body,
-            styles: { fontSize: 9, cellPadding: 2, lineWidth: 0.3, lineColor: [0, 0, 0] },
-            headStyles: { fillColor: [245, 158, 11], textColor: [15, 23, 42], halign: 'center', lineWidth: 0.3, lineColor: [0, 0, 0] },
-            bodyStyles: { halign: 'left' },
-            columnStyles: {
-              0: { cellWidth: 15, halign: 'center' },
-              3: { cellWidth: 30 },
-              4: { cellWidth: 25, halign: 'right' },
-            },
-          });
-        }
-      }
+      // WO 4 (Form Permintaan Gudang) SENGAJA tidak ikut Download All —
+      // sesuai request user, gabungan PDF hanya WO 1-3. WO 4 tetap bisa
+      // di-download sendiri lewat tombol Download PDF di tab WO 4.
 
       if (firstPage) {
         toast.error('Data Kosong', 'Tidak ada data WO untuk di-download.');
@@ -1919,7 +1849,7 @@ export default function WorkOrderDetailPage() {
             <button
               onClick={handleDownloadAllPDF}
               disabled={downloadingAll}
-              title="Download satu PDF gabungan WO 1 - WO 4"
+              title="Download satu PDF gabungan WO 1 - WO 3"
               className="flex items-center gap-1.5 text-xs text-blue-400 border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 rounded-full hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
