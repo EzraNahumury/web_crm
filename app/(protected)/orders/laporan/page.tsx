@@ -80,15 +80,11 @@ export default function CsOrderLaporanPage() {
         margin, 27,
       );
 
-      // ── Pie chart: top 8 paket by qty + "Lainnya" ──
+      // ── Pie chart: SEMUA paket (tanpa "Lainnya") ──
       const totalQty = totals.qty || paket.reduce((s, p) => s + p.qty, 0) || 1;
-      const TOP = 8;
-      const topRows = paket.slice(0, TOP);
-      const restQty = paket.slice(TOP).reduce((s, p) => s + p.qty, 0);
-      const slices: { label: string; qty: number; hex: string }[] = topRows.map((p, i) => ({
+      const slices: { label: string; qty: number; hex: string }[] = paket.map((p, i) => ({
         label: p.paket, qty: p.qty, hex: BAR_COLORS[i % BAR_COLORS.length],
       }));
-      if (restQty > 0) slices.push({ label: `Lainnya (${paket.length - TOP} paket)`, qty: restQty, hex: '#94a3b8' });
 
       const hexToRgb = (h: string): [number, number, number] => {
         const m = h.replace('#', '');
