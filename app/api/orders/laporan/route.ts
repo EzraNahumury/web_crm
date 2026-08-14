@@ -41,11 +41,15 @@ export async function GET(req: NextRequest) {
        JOIN orders o ON o.id = oi.order_id
        LEFT JOIN barang_cs bc ON LOWER(TRIM(bc.nama)) = LOWER(TRIM(oi.paket_nama))`;
 
+    // Jumlah customer dihitung distinct berdasarkan NAMA customer (bukan
+    // customer_id) — sebagian order (customer baru) bisa punya customer_id
+    // NULL sehingga COUNT(DISTINCT customer_id) undercount. Nama juga yang
+    // ditampilkan di breakdown per-paket, jadi lebih konsisten.
     const paket = await query<{ paket: string; qty: number; cust: number; orders: number }>(
       `SELECT
          oi.paket_nama AS paket,
          COALESCE(SUM(oi.qty), 0) AS qty,
-         COUNT(DISTINCT o.customer_id) AS cust,
+         COUNT(DISTINCT TRIM(o.customer_nama)) AS cust,
          COUNT(DISTINCT o.id) AS orders
        ${fromJoin}
        WHERE ${whereSql}
@@ -59,10 +63,24 @@ export async function GET(req: NextRequest) {
     const totalsRow = await query<{ qty: number; cust: number; orders: number }>(
       `SELECT
          COALESCE(SUM(oi.qty), 0) AS qty,
-         COUNT(DISTINCT o.customer_id) AS cust,
+         COUNT(DISTINCT TRIM(o.customer_nama)) AS cust,
          COUNT(DISTINCT o.id) AS orders
        ${fromJoin}
        WHERE ${whereSql}`,
+      params,
+    );
+
+    // Breakdown per (paket, customer) → dipakai tabel rincian per paket
+    // di halaman (nama customer + qty), lengkap dengan total per paket.
+    const breakdown = await query<{ paket: string; customer: string; qty: number }>(
+      `SELECT
+         oi.paket_nama AS paket,
+         TRIM(o.customer_nama) AS customer,
+         COALESCE(SUM(oi.qty), 0) AS qty
+       ${fromJoin}
+       WHERE ${whereSql}
+       GROUP BY oi.paket_nama, TRIM(o.customer_nama)
+       ORDER BY oi.paket_nama, qty DESC`,
       params,
     );
 
@@ -76,6 +94,11 @@ export async function GET(req: NextRequest) {
           qty: Number(p.qty) || 0,
           cust: Number(p.cust) || 0,
           orders: Number(p.orders) || 0,
+        })),
+        breakdown: breakdown.map(b => ({
+          paket: b.paket,
+          customer: b.customer || '(Tanpa Nama)',
+          qty: Number(b.qty) || 0,
         })),
         totals: {
           qty: Number(t.qty) || 0,

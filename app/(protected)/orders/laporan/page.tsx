@@ -6,6 +6,7 @@ import {
 import DateRangePicker, { today, formatPeriod } from '../../laporan/date-range-picker';
 
 type PaketRow = { paket: string; qty: number; cust: number; orders: number };
+type BreakdownRow = { paket: string; customer: string; qty: number };
 type Totals = { qty: number; cust: number; orders: number; paket_count: number };
 
 // Awal bulan berjalan (default rentang laporan).
@@ -20,6 +21,7 @@ export default function CsOrderLaporanPage() {
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(today());
   const [paket, setPaket] = useState<PaketRow[]>([]);
+  const [breakdown, setBreakdown] = useState<BreakdownRow[]>([]);
   const [totals, setTotals] = useState<Totals>({ qty: 0, cust: 0, orders: 0, paket_count: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -37,6 +39,7 @@ export default function CsOrderLaporanPage() {
       const json = await res.json();
       if (json.success) {
         setPaket(json.data.paket || []);
+        setBreakdown(json.data.breakdown || []);
         setTotals(json.data.totals || { qty: 0, cust: 0, orders: 0, paket_count: 0 });
       } else {
         setError(json.error || 'Gagal memuat laporan');
@@ -49,14 +52,15 @@ export default function CsOrderLaporanPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Download PDF: rasterize the chart (html2canvas) + tabel per-paket (autoTable).
+  // Download PDF: pie chart (proporsi qty per paket) + tabel persentase +
+  // tabel rincian semua paket. Pie digambar manual via canvas (bukan capture
+  // chart layar) supaya rapi & terbaca di kertas putih.
   async function handleDownloadPDF() {
     if (paket.length === 0 || downloading) return;
     setDownloading(true);
     try {
       const { default: jsPDF } = await import('jspdf');
       const autoTable = (await import('jspdf-autotable')).default;
-      const html2canvas = (await import('html2canvas')).default;
 
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageW = pdf.internal.pageSize.getWidth();
@@ -76,23 +80,75 @@ export default function CsOrderLaporanPage() {
         margin, 27,
       );
 
+      // ── Pie chart: top 8 paket by qty + "Lainnya" ──
+      const totalQty = totals.qty || paket.reduce((s, p) => s + p.qty, 0) || 1;
+      const TOP = 8;
+      const topRows = paket.slice(0, TOP);
+      const restQty = paket.slice(TOP).reduce((s, p) => s + p.qty, 0);
+      const slices: { label: string; qty: number; hex: string }[] = topRows.map((p, i) => ({
+        label: p.paket, qty: p.qty, hex: BAR_COLORS[i % BAR_COLORS.length],
+      }));
+      if (restQty > 0) slices.push({ label: `Lainnya (${paket.length - TOP} paket)`, qty: restQty, hex: '#94a3b8' });
+
+      const hexToRgb = (h: string): [number, number, number] => {
+        const m = h.replace('#', '');
+        return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)];
+      };
+
       let y = 32;
-      if (chartRef.current) {
-        const canvas = await html2canvas(chartRef.current, { backgroundColor: '#0f1626', scale: 2 });
-        const img = canvas.toDataURL('image/png');
-        const availW = pageW - margin * 2;
-        let imgW = availW;
-        let imgH = imgW * (canvas.height / canvas.width);
-        const maxH = pageH - y - margin;
-        if (imgH > maxH) { imgH = maxH; imgW = imgH * (canvas.width / canvas.height); }
-        pdf.addImage(img, 'PNG', margin + (availW - imgW) / 2, y, imgW, imgH);
-        y += imgH + 6;
+      const size = 600;
+      const cnv = document.createElement('canvas');
+      cnv.width = size; cnv.height = size;
+      const ctx = cnv.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, size, size);
+        const cx = size / 2, cy = size / 2, r = size * 0.42;
+        const sum = slices.reduce((s, x) => s + x.qty, 0) || 1;
+        let start = -Math.PI / 2;
+        for (const s of slices) {
+          const ang = (s.qty / sum) * Math.PI * 2;
+          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, start, start + ang); ctx.closePath();
+          ctx.fillStyle = s.hex; ctx.fill();
+          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.stroke();
+          start += ang;
+        }
+        const pieMM = 78;
+        pdf.addImage(cnv.toDataURL('image/png'), 'PNG', (pageW - pieMM) / 2, y, pieMM, pieMM);
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.setTextColor(20, 20, 20);
+        pdf.text('Proporsi Jumlah Pemesanan (Qty) per Paket', pageW / 2, y + pieMM + 6, { align: 'center' });
+        y += pieMM + 12;
       }
 
-      if (y > pageH - 40) { pdf.addPage(); y = margin; }
-
+      // ── Tabel pembagian persentase (slice pie) ──
       autoTable(pdf, {
         startY: y,
+        head: [['', 'Paket', 'Qty', 'Persentase']],
+        body: slices.map(s => ['', s.label, String(s.qty), `${((s.qty / totalQty) * 100).toFixed(1)}%`]),
+        foot: [['', 'TOTAL', String(totalQty), '100%']],
+        styles: { fontSize: 8, cellPadding: 2, lineColor: [210, 210, 210], lineWidth: 0.2 },
+        headStyles: { fillColor: [79, 70, 229], textColor: 255, halign: 'center', fontStyle: 'bold' },
+        footStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 8 }, 2: { halign: 'right', cellWidth: 26 }, 3: { halign: 'right', cellWidth: 30 } },
+        margin: { left: margin, right: margin },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        didDrawCell: (data: any) => {
+          if (data.section === 'body' && data.column.index === 0) {
+            const s = slices[data.row.index];
+            if (s) {
+              const [rr, gg, bb] = hexToRgb(s.hex);
+              pdf.setFillColor(rr, gg, bb);
+              pdf.rect(data.cell.x + data.cell.width / 2 - 2, data.cell.y + data.cell.height / 2 - 2, 4, 4, 'F');
+            }
+          }
+        },
+      });
+
+      // ── Tabel rincian semua paket (customer + qty) ──
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let afterY = (pdf as any).lastAutoTable?.finalY || y;
+      if (afterY > pageH - 40) { pdf.addPage(); afterY = margin; } else { afterY += 8; }
+      autoTable(pdf, {
+        startY: afterY,
         head: [['No', 'Paket', 'Jumlah Customer', 'Qty (Pemesanan)']],
         body: paket.map((p, i) => [String(i + 1), p.paket, String(p.cust), String(p.qty)]),
         foot: [['', 'TOTAL', String(totals.cust), String(totals.qty)]],
@@ -100,11 +156,7 @@ export default function CsOrderLaporanPage() {
         headStyles: { fillColor: [79, 70, 229], textColor: 255, halign: 'center', fontStyle: 'bold' },
         footStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [245, 247, 250] },
-        columnStyles: {
-          0: { cellWidth: 12, halign: 'center' },
-          2: { halign: 'right', cellWidth: 34 },
-          3: { halign: 'right', cellWidth: 34 },
-        },
+        columnStyles: { 0: { cellWidth: 12, halign: 'center' }, 2: { halign: 'right', cellWidth: 34 }, 3: { halign: 'right', cellWidth: 34 } },
         margin: { left: margin, right: margin },
       });
 
@@ -117,6 +169,24 @@ export default function CsOrderLaporanPage() {
 
   const chartData = useMemo(() => paket.slice(0, 30), [paket]);
   const chartHeight = Math.max(240, chartData.length * 34 + 40);
+
+  // Rincian customer per paket — 1 tabel per paket (nama customer + qty),
+  // urut mengikuti paket (qty desc).
+  const breakdownByPaket = useMemo(() => {
+    const map = new Map<string, BreakdownRow[]>();
+    for (const b of breakdown) {
+      if (!map.has(b.paket)) map.set(b.paket, []);
+      map.get(b.paket)!.push(b);
+    }
+    return paket
+      .map(p => ({
+        paket: p.paket,
+        qty: p.qty,
+        cust: p.cust,
+        rows: (map.get(p.paket) || []).slice().sort((a, b) => b.qty - a.qty),
+      }))
+      .filter(x => x.rows.length > 0);
+  }, [breakdown, paket]);
 
   const cards = [
     { label: 'Jenis Paket', value: totals.paket_count, suffix: 'paket', color: 'text-indigo-300', ring: 'from-indigo-500/20 to-indigo-500/5 border-indigo-500/20' },
@@ -254,6 +324,46 @@ export default function CsOrderLaporanPage() {
           </table>
         </div>
       </div>
+
+      {/* Rincian customer per paket — 1 tabel per paket */}
+      {!loading && breakdownByPaket.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-bold text-white px-1">Rincian Customer per Paket</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {breakdownByPaket.map(bp => (
+              <div key={bp.paket} className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden self-start">
+                <div className="px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.02] flex items-center justify-between gap-2">
+                  <span className="text-[13px] font-semibold text-white truncate" title={bp.paket}>{bp.paket}</span>
+                  <span className="text-[10px] text-slate-500 shrink-0">{bp.cust.toLocaleString('id-ID')} cust · {bp.qty.toLocaleString('id-ID')} pcs</span>
+                </div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] text-slate-500 uppercase tracking-wider border-b border-white/[0.05]">
+                      <th className="text-left px-4 py-2 w-8">#</th>
+                      <th className="text-left px-4 py-2">Customer</th>
+                      <th className="text-right px-4 py-2 w-20">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bp.rows.map((r, i) => (
+                      <tr key={r.customer + i} className="border-b border-white/[0.03]">
+                        <td className="px-4 py-1.5 text-slate-500 tabular-nums">{i + 1}</td>
+                        <td className="px-4 py-1.5 text-slate-200">{r.customer}</td>
+                        <td className="px-4 py-1.5 text-right text-sky-300 font-medium tabular-nums">{r.qty.toLocaleString('id-ID')}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-white/[0.02] font-bold">
+                      <td className="px-4 py-1.5" />
+                      <td className="px-4 py-1.5 text-slate-300 uppercase text-[11px]">Total</td>
+                      <td className="px-4 py-1.5 text-right text-sky-300 tabular-nums">{bp.qty.toLocaleString('id-ID')}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
