@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
@@ -23,6 +23,8 @@ export default function CsOrderLaporanPage() {
   const [totals, setTotals] = useState<Totals>({ qty: 0, cust: 0, orders: 0, paket_count: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const chartRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,6 +48,72 @@ export default function CsOrderLaporanPage() {
   }, [from, to]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Download PDF: rasterize the chart (html2canvas) + tabel per-paket (autoTable).
+  async function handleDownloadPDF() {
+    if (paket.length === 0 || downloading) return;
+    setDownloading(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const autoTable = (await import('jspdf-autotable')).default;
+      const html2canvas = (await import('html2canvas')).default;
+
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 12;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(15);
+      pdf.text('Laporan CS Order', margin, 15);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(10);
+      pdf.setTextColor(90, 90, 90);
+      pdf.text(`Periode: ${formatPeriod(from, to)}`, margin, 21);
+      pdf.setTextColor(20, 20, 20);
+      pdf.text(
+        `Jenis Paket: ${totals.paket_count}    Jumlah Pemesanan: ${totals.qty.toLocaleString('id-ID')} pcs    Jumlah Customer: ${totals.cust.toLocaleString('id-ID')}`,
+        margin, 27,
+      );
+
+      let y = 32;
+      if (chartRef.current) {
+        const canvas = await html2canvas(chartRef.current, { backgroundColor: '#0f1626', scale: 2 });
+        const img = canvas.toDataURL('image/png');
+        const availW = pageW - margin * 2;
+        let imgW = availW;
+        let imgH = imgW * (canvas.height / canvas.width);
+        const maxH = pageH - y - margin;
+        if (imgH > maxH) { imgH = maxH; imgW = imgH * (canvas.width / canvas.height); }
+        pdf.addImage(img, 'PNG', margin + (availW - imgW) / 2, y, imgW, imgH);
+        y += imgH + 6;
+      }
+
+      if (y > pageH - 40) { pdf.addPage(); y = margin; }
+
+      autoTable(pdf, {
+        startY: y,
+        head: [['No', 'Paket', 'Jumlah Customer', 'Qty (Pemesanan)']],
+        body: paket.map((p, i) => [String(i + 1), p.paket, String(p.cust), String(p.qty)]),
+        foot: [['', 'TOTAL', String(totals.cust), String(totals.qty)]],
+        styles: { fontSize: 8, cellPadding: 2, lineColor: [210, 210, 210], lineWidth: 0.2 },
+        headStyles: { fillColor: [79, 70, 229], textColor: 255, halign: 'center', fontStyle: 'bold' },
+        footStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+        columnStyles: {
+          0: { cellWidth: 12, halign: 'center' },
+          2: { halign: 'right', cellWidth: 34 },
+          3: { halign: 'right', cellWidth: 34 },
+        },
+        margin: { left: margin, right: margin },
+      });
+
+      pdf.save(`Laporan-CS-Order-${from}_sd_${to}.pdf`);
+    } catch (e) {
+      console.error('Download laporan PDF failed', e);
+    }
+    setDownloading(false);
+  }
 
   const chartData = useMemo(() => paket.slice(0, 30), [paket]);
   const chartHeight = Math.max(240, chartData.length * 34 + 40);
@@ -75,7 +143,17 @@ export default function CsOrderLaporanPage() {
               </p>
             </div>
           </div>
-          <DateRangePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
+          <div className="flex items-center gap-3 flex-wrap">
+            <DateRangePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
+            <button
+              onClick={handleDownloadPDF}
+              disabled={downloading || loading || paket.length === 0}
+              className="flex items-center gap-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors shadow-lg shadow-indigo-600/20"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              {downloading ? 'Menyiapkan...' : 'Download PDF'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -107,16 +185,17 @@ export default function CsOrderLaporanPage() {
         ) : chartData.length === 0 ? (
           <div className="h-48 grid place-items-center text-sm text-slate-500">Tidak ada data pada periode ini.</div>
         ) : (
-          <div style={{ height: chartHeight }}>
+          <div ref={chartRef} className="bg-[#0f1626] rounded-lg p-2" style={{ height: chartHeight }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-                <XAxis type="number" stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} />
-                <YAxis type="category" dataKey="paket" stroke="#64748b" width={150} tick={{ fontSize: 11, fill: '#cbd5e1' }} tickLine={{ stroke: '#334155' }} interval={0} />
+              <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 48, left: 8, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+                <XAxis type="number" stroke="#94a3b8" tick={{ fontSize: 11, fill: '#cbd5e1' }} tickLine={{ stroke: '#475569' }} />
+                <YAxis type="category" dataKey="paket" stroke="#94a3b8" width={200} tick={{ fontSize: 11, fill: '#f1f5f9' }} tickLine={{ stroke: '#475569' }} interval={0} />
                 <Tooltip
-                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                  contentStyle={{ background: '#0d1117', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
-                  labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
+                  cursor={{ fill: 'rgba(255,255,255,0.06)' }}
+                  contentStyle={{ background: '#0b1220', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: '#ffffff', fontWeight: 700 }}
+                  itemStyle={{ color: '#e2e8f0', fontWeight: 500 }}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={((value: any, _name: any, item: any) => {
                     const row = item?.payload as PaketRow;
