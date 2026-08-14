@@ -92,6 +92,7 @@ const ADMIN_NAV: SideNavItem[] = [
     children: [
       { href: '/orders', label: 'Rincian Order' },
       { href: '/orders/bukti-pembayaran', label: 'Bukti Pembayaran' },
+      { href: '/orders/laporan', label: 'Laporan' },
     ],
   },
   {
@@ -189,7 +190,7 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // Legacy alias: user yg role/menuAccess-nya masih pakai 'Approval Finance'
   // (nama lama sebelum rename ke 'Finance') tetap dapat akses ke menu.
   'Approval Finance': ['/approval-finance', '/finance/pembelian-gudang', '/finance/laporan'],
-  'CS Order': ['/orders', '/orders/bukti-pembayaran'],
+  'CS Order': ['/orders', '/orders/bukti-pembayaran', '/orders/laporan'],
   'Work Orders': ['/work-orders'],
   'Produksi': ['/produksi', '/produksi/history'],
   'Monitoring Produksi': ['/monitoring-produksi', '/monitoring-produksi/history'],
