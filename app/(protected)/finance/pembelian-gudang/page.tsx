@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { dbGet } from '@/lib/api-db';
+import { dbGet, dbUpdate } from '@/lib/api-db';
 import { Pagination, paginate } from '@/lib/pagination';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -180,6 +180,19 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
 
   const total = useMemo(() => items.reduce((s, it) => s + (Number(it.total) || 0), 0), [items]);
 
+  // Finance centang barang yang sudah dibeli. Optimistic update + persist;
+  // rollback kalau gagal. Tim Gudang membaca flag ini sebagai Notes
+  // (Terbeli / Belum terbeli).
+  async function toggleTerbeli(it: Row) {
+    const next = Number(it.terbeli) ? 0 : 1;
+    setItems(prev => prev.map(x => (x.id === it.id ? { ...x, terbeli: next } : x)));
+    try {
+      await dbUpdate('pembelian_bahan_item', Number(it.id), { terbeli: next });
+    } catch {
+      setItems(prev => prev.map(x => (x.id === it.id ? { ...x, terbeli: it.terbeli } : x)));
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
@@ -221,6 +234,7 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
                         <th className="text-center px-2 py-2 w-24">Qty</th>
                         <th className="text-right px-3 py-2 w-32">Harga</th>
                         <th className="text-right px-3 py-2 w-32">Jumlah</th>
+                        <th className="text-center px-2 py-2 w-24">Terbeli</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -231,11 +245,21 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
                           <td className="text-center px-2 py-2 tabular-nums">{it.jumlah_item} {it.satuan}</td>
                           <td className="text-right px-3 py-2 tabular-nums text-slate-300">Rp {fmtRp(Number(it.harga) || 0)}</td>
                           <td className="text-right px-3 py-2 tabular-nums text-slate-200 font-semibold">Rp {fmtRp(Number(it.total) || 0)}</td>
+                          <td className="text-center px-2 py-2">
+                            <input
+                              type="checkbox"
+                              checked={!!Number(it.terbeli)}
+                              onChange={() => toggleTerbeli(it)}
+                              title={Number(it.terbeli) ? 'Sudah dibeli — klik untuk batalkan' : 'Centang jika sudah dibeli'}
+                              className="w-4 h-4 accent-emerald-500 cursor-pointer"
+                            />
+                          </td>
                         </tr>
                       ))}
                       <tr>
                         <td colSpan={4} className="text-right px-3 py-2 text-slate-400 font-bold uppercase">Total</td>
                         <td className="text-right px-3 py-2 tabular-nums font-bold text-emerald-300">Rp {fmtRp(total)}</td>
+                        <td />
                       </tr>
                     </tbody>
                   </table>

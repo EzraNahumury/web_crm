@@ -679,21 +679,31 @@ function FormulirDetail({ id, onClose }: { id: number; onClose: () => void }) {
                         <th className="text-center px-2 py-2 w-24">Qty</th>
                         <th className="text-right px-3 py-2 w-32">Harga</th>
                         <th className="text-right px-3 py-2 w-32">Jumlah</th>
+                        <th className="text-center px-2 py-2 w-28">Notes</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((it, i) => (
+                      {items.map((it, i) => {
+                        const terbeli = !!Number(it.terbeli);
+                        return (
                         <tr key={it.id} className="border-b border-white/[0.04]">
                           <td className="text-center px-2 py-2 text-slate-500">{i + 1}</td>
                           <td className="px-3 py-2 text-white font-medium">{it.nama_barang}</td>
                           <td className="text-center px-2 py-2 tabular-nums">{it.jumlah_item} {it.satuan}</td>
                           <td className="text-right px-3 py-2 tabular-nums text-slate-300">Rp {fmtRp(Number(it.harga) || 0)}</td>
                           <td className="text-right px-3 py-2 tabular-nums text-slate-200 font-semibold">Rp {fmtRp(Number(it.total) || 0)}</td>
+                          <td className="text-center px-2 py-2">
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${terbeli ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25' : 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
+                              {terbeli ? 'Terbeli' : 'Belum terbeli'}
+                            </span>
+                          </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                       <tr>
                         <td colSpan={4} className="text-right px-3 py-2 text-slate-400 font-bold uppercase">Total</td>
                         <td className="text-right px-3 py-2 tabular-nums font-bold text-emerald-300">Rp {fmtRp(total)}</td>
+                        <td />
                       </tr>
                     </tbody>
                   </table>

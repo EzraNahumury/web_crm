@@ -1472,6 +1472,16 @@ const MIGRATIONS: Migration[] = [
       ),
     ],
   },
+  {
+    // Per-item "sudah dibeli" untuk formulir pembelian gudang. Finance
+    // centang tiap barang yang sudah dibeli di Detail Formulir Pembelian.
+    // Di sisi Gudang, kolom Notes menampilkan "Terbeli" (terbeli=1) atau
+    // "Belum terbeli" (0). Default 0 = belum terbeli.
+    name: '073_pembelian_bahan_item_terbeli',
+    up: [
+      "ALTER TABLE `pembelian_bahan_item` ADD COLUMN `terbeli` TINYINT(1) NOT NULL DEFAULT 0",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
