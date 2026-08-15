@@ -109,6 +109,12 @@ export default function BuktiPembayaranPage() {
   useEffect(() => {
     if (!pickedOrderId) { setRows([]); return; }
     const oid = Number(pickedOrderId);
+    // Sumber kebenaran DP Produksi = orders.dp_produksi (di-set saat Rincian
+    // Order). Kalau 0 → order tidak punya DP Produksi, JANGAN paksa upload
+    // bukti (cukup notes) — walaupun ada row dp_produksi lama yang tertinggal
+    // di order_payments (pembayaran-modal sengaja tidak hapus row lama).
+    const ordScalar = orders.find(o => Number(o.id) === oid);
+    if ((Number(ordScalar?.dp_produksi) || 0) <= 0) { setRows([]); return; }
     const orderPays = payments
       .filter(p => Number(p.order_id) === oid);
 
@@ -144,7 +150,7 @@ export default function BuktiPembayaranPage() {
         };
       })
     );
-  }, [pickedOrderId, payments]);
+  }, [pickedOrderId, payments, orders]);
 
   function updateRow(paymentId: number, patch: Partial<DpUpload>) {
     setRows(rs => rs.map(r => r.paymentId === paymentId ? { ...r, ...patch } : r));
@@ -442,11 +448,11 @@ export default function BuktiPembayaranPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-amber-200">Order Tanpa DP</p>
+              <p className="text-sm font-semibold text-amber-200">Order Tanpa DP Produksi</p>
               <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
-                Order ini tidak pakai DP Desain dan tidak pakai DP Produksi.
-                Isi keterangan di bawah untuk menjelaskan konteksnya (mis. pembayaran full cash, customer VIP, dll)
-                supaya Finance bisa langsung approve invoice.
+                Order ini tidak ada nominal DP Produksi, jadi tidak perlu upload bukti transfer.
+                Cukup isi keterangan di bawah untuk menjelaskan konteksnya (mis. langsung naik produksi,
+                pembayaran full cash, customer VIP, dll) supaya Finance bisa langsung approve invoice.
               </p>
             </div>
           </div>
