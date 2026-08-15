@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       [row.role_id]
     );
     const menuAccess = row.is_super_admin
-      ? ['Dashboard', 'CS Selling', 'Antrian Design', 'Finance', 'CS Order', 'Orders', 'Work Orders', 'Produksi', 'Monitoring Produksi', 'Approval Gudang', 'CRM Deadline Lock', 'CRM Finishing', 'Line Jahit', 'Laporan', 'Gudang', 'Settings', 'Master Data', 'Analisa']
+      ? ['Dashboard', 'CS Selling', 'Antrian Design', 'Finance', 'CS Order', 'Orders', 'Work Orders', 'Produksi', 'Monitoring Produksi', 'Approval Gudang', 'CRM Deadline Lock', 'CRM Finishing', 'Line Jahit', 'Laporan', 'Gudang', 'Settings', 'Master Data', 'Analisa', 'Reseller']
       : menus.map(m => m.menu_name);
 
     // Fetch stage access for this role

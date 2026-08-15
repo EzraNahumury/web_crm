@@ -1482,6 +1482,18 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `pembelian_bahan_item` ADD COLUMN `terbeli` TINYINT(1) NOT NULL DEFAULT 0",
     ],
   },
+  {
+    // Menu Reseller baru (All Customer + Data Reseller + Grafik Reseller
+    // dipindah keluar dari Analisa). Auto-grant 'Reseller' ke setiap role
+    // yang sudah punya 'Analisa' supaya akses menu tidak hilang. Super
+    // admin bypass via is_super_admin flag di route auth.
+    name: '074_grant_reseller_menu',
+    up: [
+      "INSERT IGNORE INTO `role_menu_access` (`role_id`, `menu_name`) " +
+        "SELECT DISTINCT `role_id`, 'Reseller' FROM `role_menu_access` " +
+        "WHERE `menu_name` = 'Analisa'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
