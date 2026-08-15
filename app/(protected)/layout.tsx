@@ -211,7 +211,10 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'Stok': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan'],
   'Settings': ['/setting'],
   'Master Data': ['/master'],
-  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/analisa-cs'],
+  // Reseller hrefs juga dipetakan di bawah 'Analisa' supaya menu Reseller
+  // tetap tampil untuk akun yang cookie session-nya belum punya key
+  // 'Reseller' (sebelum login ulang) — asalkan punya akses 'Analisa'.
+  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/analisa-cs', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/grafik-reseller'],
   'Reseller': ['/analisa/all-customer', '/analisa/data-reseller', '/analisa/grafik-reseller'],
 };
 
