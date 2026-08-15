@@ -178,6 +178,7 @@ const ADMIN_NAV: SideNavItem[] = [
     children: [
       { href: '/analisa/all-customer', label: 'All Customer' },
       { href: '/analisa/data-reseller', label: 'Data Reseller' },
+      { href: '/analisa/reseller-order', label: 'Order per Reseller' },
       { href: '/analisa/grafik-reseller', label: 'Grafik Reseller' },
     ],
   },
@@ -214,8 +215,8 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // Reseller hrefs juga dipetakan di bawah 'Analisa' supaya menu Reseller
   // tetap tampil untuk akun yang cookie session-nya belum punya key
   // 'Reseller' (sebelum login ulang) — asalkan punya akses 'Analisa'.
-  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/analisa-cs', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/grafik-reseller'],
-  'Reseller': ['/analisa/all-customer', '/analisa/data-reseller', '/analisa/grafik-reseller'],
+  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/analisa-cs', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
+  'Reseller': ['/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
 };
 
 function AdminLayout({ user, logout, children }: {
