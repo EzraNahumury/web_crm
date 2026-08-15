@@ -155,7 +155,7 @@ export default function AnalisaCsPage() {
         <KpiCard
           label="Belum DP Produksi"
           value={totals.belum_dp_produksi.toLocaleString('id-ID')}
-          sub={`${totals.drop_off_pct}% · ${totals.stuck_dp_design} stuck di DP Design`}
+          sub={`${totals.stuck_dp_design} sudah DP Design + ${(totals.belum_dp_produksi - totals.stuck_dp_design).toLocaleString('id-ID')} belum bayar`}
           accent="amber"
           highlight
         />
@@ -168,7 +168,7 @@ export default function AnalisaCsPage() {
             <div>
               <p className="text-sm font-semibold text-white">Konversi Order → DP Produksi</p>
               <p className="text-[11px] text-slate-500">
-                Dari total {totals.total_orders} order · {totals.stuck_dp_design} stuck di DP Design
+                {totals.belum_dp_produksi} belum DP Produksi dari {totals.total_orders} order — {totals.stuck_dp_design} sudah DP Design (bisa dikejar) + {(totals.belum_dp_produksi - totals.stuck_dp_design).toLocaleString('id-ID')} belum bayar DP Design
               </p>
             </div>
           </div>
@@ -228,7 +228,11 @@ export default function AnalisaCsPage() {
               hint="Sisa nominal dari customer yang stuck di DP Design (belum lanjut ke DP Produksi)"
               danger
             />
-            <RowStat label="Jumlah Order Pending" value={pending.length.toLocaleString('id-ID')} />
+            <RowStat
+              label="Pending — sudah DP Design, belum DP Produksi"
+              value={pending.length.toLocaleString('id-ID')}
+              hint="Subset dari Belum DP Produksi: order yang sudah bayar DP Design tapi belum lanjut ke DP Produksi — ini yang perlu di-follow-up CS."
+            />
           </div>
           <p className="text-[11px] text-slate-500 leading-relaxed pt-2 border-t border-white/[0.06]">
             <strong className="text-slate-300">Potensi Kekurangan</strong> = omset yang bisa hilang kalau customer pending drop-off. Follow up CS supaya progress lanjut ke DP Produksi.
