@@ -7,6 +7,14 @@ import { apiGetDashboardForce, apiGetOrdersForce } from '@/lib/api';
 import { DashboardStats, Order } from '@/lib/types';
 import { formatDate } from '@/lib/utils';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
+import DateRangePicker, { formatPeriod } from '../laporan/date-range-picker';
+
+const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+function monthStartISO(y: number, m: number) { return `${y}-${String(m + 1).padStart(2, '0')}-01`; }
+function monthEndISO(y: number, m: number) {
+  const last = new Date(y, m + 1, 0).getDate();
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+}
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -15,6 +23,9 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Periode dashboard — default bulan berjalan. from/to kosong = semua periode.
+  const [from, setFrom] = useState(() => monthStartISO(new Date().getFullYear(), new Date().getMonth()));
+  const [to, setTo] = useState(() => monthEndISO(new Date().getFullYear(), new Date().getMonth()));
 
   useEffect(() => {
     if (user && user.role !== 'admin') {
@@ -41,15 +52,33 @@ export default function DashboardPage() {
   // Filter cutoff — konsisten dengan CS Order / Produksi / WO / Monitoring.
   // Data legacy pre-2026-07-13 tetap ada di DB tapi tidak dihitung ke KPI.
   const visibleOrders = orders.filter(o => isVisibleTanggalOrder(o.rawTanggalOrder));
-  const overdueOrders = visibleOrders.filter(o => o.riskLevel === 'OVERDUE' || o.riskLevel === 'HIGH');
-  const recentOrders = visibleOrders.slice(0, 5);
+  // Filter PERIODE (by tanggal_order). from/to kosong = semua periode.
+  const periodOrders = visibleOrders.filter(o => {
+    if (!from && !to) return true;
+    const d = String(o.rawTanggalOrder || '').slice(0, 10);
+    if (!d) return false;
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+  const overdueOrders = periodOrders.filter(o => o.riskLevel === 'OVERDUE' || o.riskLevel === 'HIGH');
+  const recentOrders = periodOrders.slice(0, 5);
 
-  const pendingCount = stats ? stats.openOrders : 0;
-  const activeCount = stats ? stats.totalOrders - stats.doneOrders : 0;
-  const overdueCount = stats?.overdueCount ?? 0;
-  const doneCount = stats?.doneOrders ?? 0;
-  const totalOrders = stats?.totalOrders ?? 0;
+  // KPI dihitung dari periodOrders (bukan stats global) supaya ikut periode.
+  const totalOrders = periodOrders.length;
+  const pendingCount = periodOrders.filter(o => o.status === 'OPEN').length;
+  const doneCount = periodOrders.filter(o => o.status === 'DONE').length;
+  const activeCount = totalOrders - doneCount;
+  const overdueCount = periodOrders.filter(o => o.riskLevel === 'OVERDUE').length;
+  const totalRevenue = periodOrders.reduce((s, o) => s + (o.sallaryProduct || 0), 0);
   const completionRate = totalOrders > 0 ? Math.round((doneCount / totalOrders) * 100) : 0;
+  const periodLabel = (from && to) ? formatPeriod(from, to) : 'Semua Periode';
+  const selYear = from ? Number(from.slice(0, 4)) : new Date().getFullYear();
+  const selMonth = from ? Number(from.slice(5, 7)) - 1 : new Date().getMonth();
+  const years = Array.from(new Set(visibleOrders.map(o => String(o.rawTanggalOrder || '').slice(0, 4)).filter(Boolean))).sort();
+  if (!years.includes(String(selYear))) years.push(String(selYear));
+  years.sort();
+  const setMonthYear = (y: number, m: number) => { setFrom(monthStartISO(y, m)); setTo(monthEndISO(y, m)); };
   const now = new Date();
   const greeting = now.getHours() < 11 ? 'Selamat pagi' : now.getHours() < 15 ? 'Selamat siang' : now.getHours() < 18 ? 'Selamat sore' : 'Selamat malam';
   const displayName = user?.nama || user?.username || 'Admin';
@@ -91,7 +120,7 @@ export default function DashboardPage() {
               {greeting}, {displayName} 👋
             </h1>
             <p className="text-sm text-slate-300 mt-1.5 max-w-xl">
-              Ringkasan bisnis Anda hari ini. Ada <strong className="text-white">{pendingCount}</strong> order pending
+              Ringkasan periode <strong className="text-white">{periodLabel}</strong>. Ada <strong className="text-white">{pendingCount}</strong> order pending
               dan <strong className={overdueCount > 0 ? 'text-red-400' : 'text-white'}>{overdueCount}</strong> WO terlambat.
             </p>
           </div>
@@ -110,11 +139,32 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Periode selector — tgl (range) + pilihan bulan & tahun. Semua KPI
+          di bawah ikut periode ini. "Semua" = tanpa filter tanggal. */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3 flex flex-wrap items-center gap-3">
+        <span className="text-xs text-slate-500 uppercase tracking-wider">Periode</span>
+        <select value={selMonth} onChange={e => setMonthYear(selYear, Number(e.target.value))}
+          className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500/40 cursor-pointer">
+          {MONTHS_ID.map((m, i) => <option key={m} value={i}>{m}</option>)}
+        </select>
+        <select value={selYear} onChange={e => setMonthYear(Number(e.target.value), selMonth)}
+          className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500/40 cursor-pointer">
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <div className="h-6 w-px bg-white/10 hidden sm:block" />
+        <DateRangePicker from={from || monthStartISO(selYear, selMonth)} to={to || monthEndISO(selYear, selMonth)} onFromChange={setFrom} onToChange={setTo} />
+        <button onClick={() => { setFrom(''); setTo(''); }}
+          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${(!from && !to) ? 'bg-blue-600 border-blue-500 text-white' : 'border-white/10 text-slate-400 hover:text-white hover:bg-white/[0.04]'}`}>
+          Semua
+        </button>
+        <span className="text-[11px] text-slate-500 ml-auto">{periodLabel}</span>
+      </div>
+
       {/* Stat cards — glass panel dengan gradient aksen per card.
           Dua row: satu Revenue lebar penuh, sisanya 4 kolom. */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <RevenueCard
-          value={`Rp ${(stats?.totalRevenue ?? 0).toLocaleString('id-ID')}`}
+          value={`Rp ${totalRevenue.toLocaleString('id-ID')}`}
           orders={totalOrders}
           done={doneCount}
           completionRate={completionRate}
