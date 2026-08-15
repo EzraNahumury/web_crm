@@ -16,6 +16,10 @@ export async function GET(req: NextRequest) {
     if (to)   { dateClause.push('o.tanggal_order <= ?'); dateParams.push(to); }
     const dateWhere = dateClause.length ? ` AND ${dateClause.join(' AND ')}` : '';
 
+    // Hanya paket UTAMA (yang dihitung qty) — barang aksesoris dari master
+    // Barang CS (hitung_qty = 0) dikecualikan. COALESCE default 1 supaya
+    // paket yang belum ada di master tetap tampil (konsisten dengan
+    // lib/qty-aksesoris.buildAksesorisSet).
     const paket = await query<{ paket: string; total_qty: number; order_count: number }>(
       `SELECT
          oi.paket_nama AS paket,
@@ -23,22 +27,28 @@ export async function GET(req: NextRequest) {
          COUNT(DISTINCT oi.order_id) AS order_count
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
-       WHERE oi.paket_nama IS NOT NULL AND TRIM(oi.paket_nama) <> ''${dateWhere}
+       LEFT JOIN barang_cs bc ON LOWER(TRIM(bc.nama)) = LOWER(TRIM(oi.paket_nama))
+       WHERE oi.paket_nama IS NOT NULL AND TRIM(oi.paket_nama) <> ''
+         AND COALESCE(bc.hitung_qty, 1) = 1${dateWhere}
        GROUP BY oi.paket_nama
        ORDER BY total_qty DESC`,
       dateParams
     );
 
+    // Customer per provinsi. Hitung customer DISTINCT by NAMA (customer_id
+    // sering NULL untuk customer baru → undercount). Order tanpa provinsi
+    // di-bucket "(Tanpa Provinsi)" supaya total customer mencerminkan
+    // realita (bukan hanya yang provinsinya terisi).
     const provinsi = await query<{ provinsi: string; total_qty: number; customer_count: number; order_count: number }>(
       `SELECT
-         o.customer_provinsi AS provinsi,
+         COALESCE(NULLIF(TRIM(o.customer_provinsi), ''), '(Tanpa Provinsi)') AS provinsi,
          COALESCE(SUM(oi.qty), 0) AS total_qty,
-         COUNT(DISTINCT o.customer_id) AS customer_count,
+         COUNT(DISTINCT TRIM(o.customer_nama)) AS customer_count,
          COUNT(DISTINCT o.id) AS order_count
        FROM orders o
        JOIN order_items oi ON oi.order_id = o.id
-       WHERE o.customer_provinsi IS NOT NULL AND TRIM(o.customer_provinsi) <> ''${dateWhere}
-       GROUP BY o.customer_provinsi
+       WHERE 1=1${dateWhere}
+       GROUP BY COALESCE(NULLIF(TRIM(o.customer_provinsi), ''), '(Tanpa Provinsi)')
        ORDER BY total_qty DESC`,
       dateParams
     );
