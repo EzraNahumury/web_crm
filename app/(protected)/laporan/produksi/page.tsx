@@ -93,6 +93,11 @@ export default function LaporanProduksiPage() {
   const [search, setSearch] = useState('');
   // Local edits untuk KET/NOTE — auto-save on blur.
   const [editing, setEditing] = useState<Record<number, { ket?: string; note?: string }>>({});
+  // Sort kolom (klik header). null = urutan default (Deadline asc).
+  type SortKey = 'customer' | 'qty' | 'paket' | 'dl' | 'status';
+  const [sortBy, setSortBy] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null);
+  const toggleSort = (key: SortKey) =>
+    setSortBy(cur => (cur?.key === key ? (cur.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' }));
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -261,7 +266,7 @@ export default function LaporanProduksiPage() {
         no_wo: String(wo.no_wo || ''),
         customer: String(wo.customer_nama || ''),
         qty: Number(wo.jumlah || 0),
-        paket: paketMain,
+        paket: paketRaw,
         variant,
         ket: editedKet !== undefined ? editedKet : String(wo.laporan_ket || ''),
         note: editedNote !== undefined ? editedNote : String(wo.laporan_note || ''),
@@ -306,8 +311,22 @@ export default function LaporanProduksiPage() {
       if (b === '_no_dl_') return -1;
       return a.localeCompare(b);
     });
-    return keys.map(k => ({ key: k, label: monthLabel(k), rows: map[k] }));
-  }, [filteredRows]);
+    const cmp = (a: WoRowExpanded, b: WoRowExpanded) => {
+      if (!sortBy) return 0;
+      let av: string | number = '';
+      let bv: string | number = '';
+      switch (sortBy.key) {
+        case 'qty': av = a.qty; bv = b.qty; break;
+        case 'customer': av = a.customer.toLowerCase(); bv = b.customer.toLowerCase(); break;
+        case 'paket': av = a.paket.toLowerCase(); bv = b.paket.toLowerCase(); break;
+        case 'status': av = a.status; bv = b.status; break;
+        case 'dl': av = a.dl || '9999-99-99'; bv = b.dl || '9999-99-99'; break;
+      }
+      const r = av < bv ? -1 : av > bv ? 1 : 0;
+      return sortBy.dir === 'asc' ? r : -r;
+    };
+    return keys.map(k => ({ key: k, label: monthLabel(k), rows: sortBy ? map[k].slice().sort(cmp) : map[k] }));
+  }, [filteredRows, sortBy]);
 
   async function saveKet(woId: number, val: string) {
     // Optimistic: state sudah update via onChange. Persist ke DB.
@@ -393,13 +412,12 @@ export default function LaporanProduksiPage() {
               <thead>
                 <tr className="border-b border-white/[0.06] bg-white/[0.02]">
                   <th className="text-[10px] text-slate-500 font-semibold text-center px-2 py-3 uppercase tracking-wider w-12">NO</th>
-                  <th className="text-[10px] text-slate-500 font-semibold text-left px-3 py-3 uppercase tracking-wider min-w-[240px]">CUST</th>
-                  <th className="text-[10px] text-slate-500 font-semibold text-center px-2 py-3 uppercase tracking-wider w-16">QTY</th>
-                  <th className="text-[10px] text-slate-500 font-semibold text-left px-3 py-3 uppercase tracking-wider min-w-[120px]">PAKET</th>
-                  <th className="text-[10px] text-slate-500 font-semibold text-center px-2 py-3 uppercase tracking-wider w-14"></th>
+                  <SortTh label="CUST" col="customer" align="left" className="px-3 min-w-[240px]" sortBy={sortBy} onSort={toggleSort} />
+                  <SortTh label="QTY" col="qty" align="center" className="px-2 w-16" sortBy={sortBy} onSort={toggleSort} />
+                  <SortTh label="PAKET" col="paket" align="left" className="px-3 min-w-[140px]" sortBy={sortBy} onSort={toggleSort} />
                   <th className="text-[10px] text-slate-500 font-semibold text-left px-3 py-3 uppercase tracking-wider min-w-[100px]">KET</th>
-                  <th className="text-[10px] text-slate-500 font-semibold text-left px-3 py-3 uppercase tracking-wider min-w-[140px]">DL</th>
-                  <th className="text-[10px] text-slate-500 font-semibold text-left px-3 py-3 uppercase tracking-wider min-w-[110px]">STATUS</th>
+                  <SortTh label="DEADLINE" col="dl" align="left" className="px-3 min-w-[140px]" sortBy={sortBy} onSort={toggleSort} />
+                  <SortTh label="STATUS" col="status" align="left" className="px-3 min-w-[110px]" sortBy={sortBy} onSort={toggleSort} />
                   <th className="text-[10px] text-slate-500 font-semibold text-left px-3 py-3 uppercase tracking-wider min-w-[160px]">NOTE</th>
                 </tr>
               </thead>
@@ -419,7 +437,6 @@ export default function LaporanProduksiPage() {
                       </td>
                       <td className="px-2 py-2.5 text-center tabular-nums font-semibold text-white">{r.qty}</td>
                       <td className="px-3 py-2.5 text-slate-200 uppercase text-xs font-semibold tracking-wide">{r.paket || '—'}</td>
-                      <td className="px-2 py-2.5 text-center text-slate-300 uppercase text-xs font-bold">{r.variant || ''}</td>
                       <td className="px-3 py-2.5">
                         <input
                           value={localKet}
@@ -451,5 +468,31 @@ export default function LaporanProduksiPage() {
         </div>
       ))}
     </div>
+  );
+}
+
+type SortColKey = 'customer' | 'qty' | 'paket' | 'dl' | 'status';
+function SortTh({ label, col, align, className = '', sortBy, onSort }: {
+  label: string;
+  col: SortColKey;
+  align: 'left' | 'center';
+  className?: string;
+  sortBy: { key: SortColKey; dir: 'asc' | 'desc' } | null;
+  onSort: (k: SortColKey) => void;
+}) {
+  const active = sortBy?.key === col;
+  return (
+    <th
+      onClick={() => onSort(col)}
+      title="Klik untuk urutkan (naik/turun)"
+      className={`text-[10px] text-slate-500 font-semibold ${align === 'center' ? 'text-center' : 'text-left'} py-3 uppercase tracking-wider cursor-pointer select-none hover:text-slate-300 transition-colors ${className}`}
+    >
+      <span className={`inline-flex items-center gap-1 ${align === 'center' ? 'justify-center' : ''}`}>
+        {label}
+        <span className={`text-[9px] ${active ? 'text-blue-400' : 'text-slate-600'}`}>
+          {active ? (sortBy!.dir === 'asc' ? '▲' : '▼') : '⇅'}
+        </span>
+      </span>
+    </th>
   );
 }
