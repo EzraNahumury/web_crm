@@ -98,6 +98,12 @@ export default function LaporanProduksiPage() {
   const [sortBy, setSortBy] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null);
   const toggleSort = (key: SortKey) =>
     setSortBy(cur => (cur?.key === key ? (cur.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' }));
+  // Bulan yang ditampilkan (1 tabel saja, tidak memanjang). Format YYYY-MM.
+  // Default = bulan berjalan. Kosong = tampilkan semua bulan.
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -299,20 +305,18 @@ export default function LaporanProduksiPage() {
     );
   }, [rowsExpanded, search]);
 
-  // Group by month.
-  const groupedByMonth = useMemo(() => {
-    const map: Record<string, WoRowExpanded[]> = {};
-    for (const r of filteredRows) {
-      if (!map[r.monthKey]) map[r.monthKey] = [];
-      map[r.monthKey].push(r);
-    }
-    const keys = Object.keys(map).sort((a, b) => {
-      if (a === '_no_dl_') return 1;
-      if (b === '_no_dl_') return -1;
-      return a.localeCompare(b);
-    });
+  // Bulan-bulan yang ADA datanya (untuk info + fallback picker).
+  const monthKeys = useMemo(() => {
+    const set = new Set(filteredRows.map(r => r.monthKey).filter(k => k !== '_no_dl_'));
+    return Array.from(set).sort();
+  }, [filteredRows]);
+
+  // Baris yang tampil: filter ke selectedMonth (kalau diset) + sort kolom.
+  // Default (tanpa sortBy) tetap urutan Deadline asc dari rowsExpanded.
+  const visibleRows = useMemo(() => {
+    const base = selectedMonth ? filteredRows.filter(r => r.monthKey === selectedMonth) : filteredRows;
+    if (!sortBy) return base;
     const cmp = (a: WoRowExpanded, b: WoRowExpanded) => {
-      if (!sortBy) return 0;
       let av: string | number = '';
       let bv: string | number = '';
       switch (sortBy.key) {
@@ -325,8 +329,8 @@ export default function LaporanProduksiPage() {
       const r = av < bv ? -1 : av > bv ? 1 : 0;
       return sortBy.dir === 'asc' ? r : -r;
     };
-    return keys.map(k => ({ key: k, label: monthLabel(k), rows: sortBy ? map[k].slice().sort(cmp) : map[k] }));
-  }, [filteredRows, sortBy]);
+    return base.slice().sort(cmp);
+  }, [filteredRows, selectedMonth, sortBy]);
 
   async function saveKet(woId: number, val: string) {
     // Optimistic: state sudah update via onChange. Persist ke DB.
@@ -355,8 +359,10 @@ export default function LaporanProduksiPage() {
     } catch {}
   }
 
-  const totalWo = filteredRows.length;
-  const totalQty = filteredRows.reduce((s, r) => s + r.qty, 0);
+  const totalWo = visibleRows.length;
+  const totalQty = visibleRows.reduce((s, r) => s + r.qty, 0);
+  const monthLabelSel = selectedMonth ? monthLabel(selectedMonth) : 'Semua Bulan';
+  const thisMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
 
   if (loading) return (
     <div className="space-y-4">
@@ -380,12 +386,21 @@ export default function LaporanProduksiPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Laporan Produksi</h1>
               <p className="text-[13px] text-slate-300 mt-0.5">
-                Rekap per WO, dikelompokkan per bulan Deadline Lock · <span className="text-white font-medium">{totalWo} WO · {totalQty} pcs</span>
+                Rekap per WO · <span className="text-white font-medium">{monthLabelSel} · {totalWo} WO · {totalQty} pcs</span>
               </p>
             </div>
           </div>
-          <div className="w-full lg:w-80">
-            <div className="relative">
+          <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row items-stretch gap-2">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs text-slate-500 uppercase tracking-wider hidden sm:inline">Bulan</span>
+              <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+                className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input" />
+              <button onClick={() => setSelectedMonth(thisMonth)}
+                className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors shrink-0">
+                Bulan Ini
+              </button>
+            </div>
+            <div className="relative flex-1 min-w-[200px]">
               <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
               <input value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="Cari customer, WO, paket, status..."
@@ -395,17 +410,18 @@ export default function LaporanProduksiPage() {
         </div>
       </div>
 
-      {groupedByMonth.length === 0 && (
+      {visibleRows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/10 py-16 text-center">
-          <p className="text-sm text-slate-400">Tidak ada data.</p>
+          <p className="text-sm text-slate-400">Tidak ada data untuk {monthLabelSel}.</p>
+          {selectedMonth && monthKeys.length > 0 && (
+            <p className="text-xs text-slate-500 mt-1.5">Bulan yang ada data: {monthKeys.map(monthLabel).join(' · ')}.</p>
+          )}
         </div>
-      )}
-
-      {groupedByMonth.map(group => (
-        <div key={group.key} className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      ) : (
+        <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
           <div className="px-6 py-3 border-b border-white/[0.06] bg-blue-500/[0.06]">
-            <h2 className="text-lg font-bold text-blue-300 tracking-wide">{group.label}</h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">{group.rows.length} WO · {group.rows.reduce((s, r) => s + r.qty, 0)} pcs</p>
+            <h2 className="text-lg font-bold text-blue-300 tracking-wide">{monthLabelSel}</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">Deadline Lock · {visibleRows.length} WO · {totalQty} pcs</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1100px] text-sm">
@@ -422,7 +438,7 @@ export default function LaporanProduksiPage() {
                 </tr>
               </thead>
               <tbody>
-                {group.rows.map((r, i) => {
+                {visibleRows.map((r, i) => {
                   const style = rowStyle(r.status);
                   const localKet = editing[r.id]?.ket ?? r.ket;
                   const localNote = editing[r.id]?.note ?? r.note;
@@ -466,7 +482,7 @@ export default function LaporanProduksiPage() {
             </table>
           </div>
         </div>
-      ))}
+      )}
     </div>
   );
 }
