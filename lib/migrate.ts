@@ -1494,6 +1494,17 @@ const MIGRATIONS: Migration[] = [
         "WHERE `menu_name` = 'Analisa'",
     ],
   },
+  {
+    // Tier paket manual untuk Laporan Deadline CS Order. Kalau nama paket
+    // tidak terdeteksi otomatis sebagai STANDAR/KLASIK/PRO (mis. "JERSEY
+    // HOME 26/27 FULL ADS", "AYRES BASIC JERSEY"), CS pilih tier lewat
+    // dropdown → tersimpan di kolom ini → poin (qty x rate) ikut otomatis.
+    // NULL = belum dipilih (paket & poin dikosongkan).
+    name: '075_orders_deadline_paket_tier',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `deadline_paket_tier` VARCHAR(20) NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
