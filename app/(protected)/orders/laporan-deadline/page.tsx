@@ -107,17 +107,14 @@ export default function LaporanDeadlineCsOrderPage() {
 
       const out: DeadlineRow[] = [];
       for (const o of orders as Row[]) {
-        // Hanya order dari CS Selling yang sudah dibuat Rincian Order-nya
-        // (punya order_items). Data legacy pre-cutoff disembunyikan.
-        if (String(o.created_via || '').toUpperCase() !== 'CS_SELLING') continue;
+        // Data legacy pre-cutoff disembunyikan.
         if (!isVisibleTanggalOrder(o.tanggal_order)) continue;
         const its = itemsByOrder[String(o.id)] || [];
-        if (its.length === 0) continue;
-
         const names = its.map(it => String(it.paket_nama || '')).filter(Boolean);
-        const qty = sumQtyExcludingAksesoris(its, aksesorisSet);
-        const { tier, display, rate } = detectPaket(names);
-        const point = Math.round(qty * rate * 10) / 10;
+        // Deadline Lock = dari tanggal ACC Proofing (Reguler/Express) atau
+        // deadline_lock manual (Prioritas). Yang MASUK laporan ini HANYA order
+        // yang sudah punya Deadline Lock (dl tidak kosong) — bukan syarat
+        // rincian order.
         const dl = computeDeadlineLock({
           pilihanPaket: o.pilihan_paket,
           tanggalAccProofing: o.tanggal_acc_proofing,
@@ -125,6 +122,11 @@ export default function LaporanDeadlineCsOrderPage() {
           holidays,
           isJaket: hasJaket(names),
         });
+        if (!dl) continue;
+
+        const qty = sumQtyExcludingAksesoris(its, aksesorisSet);
+        const { tier, display, rate } = detectPaket(names);
+        const point = Math.round(qty * rate * 10) / 10;
         out.push({
           id: Number(o.id),
           customer: String(o.customer_nama || ''),
@@ -152,15 +154,32 @@ export default function LaporanDeadlineCsOrderPage() {
     return Array.from(set).sort();
   }, [rowsAll]);
 
-  const visibleRows = useMemo(() => {
+  const monthRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     let rows = selectedMonth ? rowsAll.filter(r => r.monthKey === selectedMonth) : rowsAll;
     if (q) rows = rows.filter(r => r.customer.toLowerCase().includes(q) || r.paket.toLowerCase().includes(q) || r.bonus.toLowerCase().includes(q));
-    return rows.slice().sort((a, b) => (a.dl || '9999-99-99').localeCompare(b.dl || '9999-99-99') || a.customer.localeCompare(b.customer));
+    return rows;
   }, [rowsAll, selectedMonth, search]);
 
-  const totalQty = visibleRows.reduce((s, r) => s + r.qty, 0);
-  const totalPoint = Math.round(visibleRows.reduce((s, r) => s + r.point, 0) * 10) / 10;
+  // Dikelompokkan per TANGGAL Deadline Lock (bukan per bulan) — mirror sheet.
+  const dateGroups = useMemo(() => {
+    const map = new Map<string, DeadlineRow[]>();
+    for (const r of monthRows) {
+      if (!map.has(r.dl)) map.set(r.dl, []);
+      map.get(r.dl)!.push(r);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([dl, rows]) => ({
+        dl,
+        rows: rows.slice().sort((a, b) => a.customer.localeCompare(b.customer)),
+        qty: rows.reduce((s, r) => s + r.qty, 0),
+        point: Math.round(rows.reduce((s, r) => s + r.point, 0) * 10) / 10,
+      }));
+  }, [monthRows]);
+
+  const totalQty = monthRows.reduce((s, r) => s + r.qty, 0);
+  const totalPoint = Math.round(monthRows.reduce((s, r) => s + r.point, 0) * 10) / 10;
   const monthLabelSel = selectedMonth ? monthLabel(selectedMonth) : 'Semua Bulan';
   const thisMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
 
@@ -177,7 +196,7 @@ export default function LaporanDeadlineCsOrderPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Laporan Deadline CS Order</h1>
               <p className="text-[13px] text-slate-300 mt-0.5">
-                Deadline dari CS Customer (Deadline Lock) · <span className="text-white font-medium">{monthLabelSel} · {visibleRows.length} order · {totalQty} pcs · {totalPoint} poin</span>
+                Deadline dari CS Customer · dikelompokkan per tanggal Deadline Lock · <span className="text-white font-medium">{monthLabelSel} · {monthRows.length} order · {totalQty} pcs · {totalPoint} poin</span>
               </p>
             </div>
           </div>
@@ -200,7 +219,7 @@ export default function LaporanDeadlineCsOrderPage() {
 
       {loading ? (
         <div className="h-40 grid place-items-center"><div className="w-8 h-8 rounded-full border-2 border-amber-500/20 border-t-amber-400 animate-spin" /></div>
-      ) : visibleRows.length === 0 ? (
+      ) : dateGroups.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/10 py-16 text-center">
           <p className="text-sm text-slate-400">Tidak ada order untuk {monthLabelSel}.</p>
           {selectedMonth && monthKeys.length > 0 && (
@@ -208,52 +227,52 @@ export default function LaporanDeadlineCsOrderPage() {
           )}
         </div>
       ) : (
-        <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-          <div className="px-6 py-3 border-b border-white/[0.06] bg-amber-500/[0.06]">
-            <h2 className="text-lg font-bold text-amber-300 tracking-wide">{monthLabelSel}</h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">Deadline Lock · {visibleRows.length} order · {totalQty} pcs · {totalPoint} poin</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1000px] text-sm">
-              <thead>
-                <tr className="border-b border-white/[0.06] bg-white/[0.02] text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
-                  <th className="text-center px-2 py-3 w-12">NO</th>
-                  <th className="text-left px-3 py-3 min-w-[220px]">CUST</th>
-                  <th className="text-center px-2 py-3 w-16">QTY</th>
-                  <th className="text-left px-3 py-3 min-w-[120px]">PAKET</th>
-                  <th className="text-right px-3 py-3 w-20">POINT</th>
-                  <th className="text-left px-3 py-3 min-w-[140px]">BONUS</th>
-                  <th className="text-left px-3 py-3 min-w-[120px]">KET</th>
-                  <th className="text-left px-3 py-3 min-w-[120px]">DEADLINE</th>
-                  <th className="text-left px-3 py-3 w-32">STTS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRows.map((r, i) => (
-                  <tr key={r.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                    <td className="px-2 py-2.5 text-center text-slate-500 tabular-nums text-xs">{i + 1}</td>
-                    <td className="px-3 py-2.5 font-semibold text-white text-[13px]">{r.customer || '-'}</td>
-                    <td className="px-2 py-2.5 text-center tabular-nums font-semibold text-white">{r.qty}</td>
-                    <td className="px-3 py-2.5 text-slate-200 uppercase text-xs font-semibold tracking-wide">{r.paket || '—'}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-amber-300">{r.point.toLocaleString('id-ID')}</td>
-                    <td className="px-3 py-2.5 text-slate-300 text-xs">{r.bonus || '—'}</td>
-                    <td className="px-3 py-2.5 text-slate-400 text-xs">{r.ket || '—'}</td>
-                    <td className="px-3 py-2.5 text-slate-300 text-xs whitespace-nowrap">{r.dl ? fmtDL(r.dl) : <span className="text-slate-600">—</span>}</td>
-                    <td className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-300">DEADLINE LOCK</td>
+        dateGroups.map(g => (
+          <div key={g.dl} className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+            <div className="px-6 py-3 border-b border-white/[0.06] bg-amber-500/[0.06]">
+              <h2 className="text-lg font-bold text-amber-300 tracking-wide">{fmtDL(g.dl)}</h2>
+              <p className="text-[11px] text-slate-500 mt-0.5">Deadline Lock · {g.rows.length} order · {g.qty} pcs · {g.point.toLocaleString('id-ID')} poin</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead>
+                  <tr className="border-b border-white/[0.06] bg-white/[0.02] text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                    <th className="text-center px-2 py-3 w-12">NO</th>
+                    <th className="text-left px-3 py-3 min-w-[220px]">CUST</th>
+                    <th className="text-center px-2 py-3 w-16">QTY</th>
+                    <th className="text-left px-3 py-3 min-w-[120px]">PAKET</th>
+                    <th className="text-right px-3 py-3 w-20">POINT</th>
+                    <th className="text-left px-3 py-3 min-w-[140px]">BONUS</th>
+                    <th className="text-left px-3 py-3 min-w-[120px]">KET</th>
+                    <th className="text-left px-3 py-3 w-32">STTS</th>
                   </tr>
-                ))}
-                <tr className="bg-white/[0.03] font-bold">
-                  <td className="px-2 py-2.5" />
-                  <td className="px-3 py-2.5 text-slate-300 uppercase text-xs">Total</td>
-                  <td className="px-2 py-2.5 text-center tabular-nums text-white">{totalQty}</td>
-                  <td className="px-3 py-2.5" />
-                  <td className="px-3 py-2.5 text-right tabular-nums text-amber-300">{totalPoint.toLocaleString('id-ID')}</td>
-                  <td colSpan={4} className="px-3 py-2.5" />
-                </tr>
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {g.rows.map((r, i) => (
+                    <tr key={r.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                      <td className="px-2 py-2.5 text-center text-slate-500 tabular-nums text-xs">{i + 1}</td>
+                      <td className="px-3 py-2.5 font-semibold text-white text-[13px]">{r.customer || '-'}</td>
+                      <td className="px-2 py-2.5 text-center tabular-nums font-semibold text-white">{r.qty}</td>
+                      <td className="px-3 py-2.5 text-slate-200 uppercase text-xs font-semibold tracking-wide">{r.paket || '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-bold text-amber-300">{r.point.toLocaleString('id-ID')}</td>
+                      <td className="px-3 py-2.5 text-slate-300 text-xs">{r.bonus || '—'}</td>
+                      <td className="px-3 py-2.5 text-slate-400 text-xs">{r.ket || '—'}</td>
+                      <td className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-300">DEADLINE LOCK</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-white/[0.03] font-bold">
+                    <td className="px-2 py-2.5" />
+                    <td className="px-3 py-2.5 text-slate-300 uppercase text-xs">Total</td>
+                    <td className="px-2 py-2.5 text-center tabular-nums text-white">{g.qty}</td>
+                    <td className="px-3 py-2.5" />
+                    <td className="px-3 py-2.5 text-right tabular-nums text-amber-300">{g.point.toLocaleString('id-ID')}</td>
+                    <td colSpan={3} className="px-3 py-2.5" />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        ))
       )}
     </div>
   );
