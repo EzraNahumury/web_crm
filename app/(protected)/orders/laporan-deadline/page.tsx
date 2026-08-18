@@ -1,0 +1,260 @@
+'use client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { dbGet } from '@/lib/api-db';
+import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
+import { computeDeadlineLock, hasJaket } from '@/lib/business-days';
+import { buildAksesorisSet, sumQtyExcludingAksesoris } from '@/lib/qty-aksesoris';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = Record<string, any>;
+
+const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+// Poin per unit sesuai tier paket (patokan atasan):
+//   Standar = 1, Klasik = 1.4, Pro = 1.7.
+function tierRate(tier: string): number {
+  if (tier === 'PRO') return 1.7;
+  if (tier === 'KLASIK') return 1.4;
+  if (tier === 'STANDAR') return 1;
+  return 1; // default (paket tanpa tier dikenali) diperlakukan seperti Standar
+}
+
+// Deteksi tier + variant + display dari daftar nama paket order.
+function detectPaket(names: string[]): { tier: string; display: string; rate: number } {
+  for (const raw of names) {
+    const s = String(raw || '').toUpperCase();
+    let tier = '';
+    if (/\bPRO\b/.test(s)) tier = 'PRO';
+    else if (/KLASIK|CLASSIC/.test(s)) tier = 'KLASIK';
+    else if (/STANDAR|STANDARD/.test(s)) tier = 'STANDAR';
+    if (tier) {
+      const mv = s.match(/PAKET\s+([A-E])/) || s.match(/\b([A-E])\s*$/);
+      const variant = mv ? mv[1] : '';
+      return { tier, display: variant ? `${tier} ${variant}` : tier, rate: tierRate(tier) };
+    }
+  }
+  const joined = names.filter(Boolean).join(', ');
+  return { tier: '', display: joined || '-', rate: 1 };
+}
+
+function monthKeyOf(iso: string): string {
+  if (!iso) return '_no_dl_';
+  const m = iso.match(/^(\d{4})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}` : '_no_dl_';
+}
+function monthLabel(key: string): string {
+  if (key === '_no_dl_') return 'Belum Ada Deadline';
+  const [y, mo] = key.split('-').map(Number);
+  return `${MONTHS_ID[mo - 1]} ${y}`;
+}
+function fmtDL(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${Number(m[3])} ${MONTHS_ID[Number(m[2]) - 1]} ${m[1]}` : (iso || '—');
+}
+
+type DeadlineRow = {
+  id: number; customer: string; qty: number; paket: string; tier: string;
+  point: number; bonus: string; ket: string; dl: string; monthKey: string;
+};
+
+export default function LaporanDeadlineCsOrderPage() {
+  const [rowsAll, setRowsAll] = useState<DeadlineRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [orders, items, promos, promoMaster, barangCs, libur] = await Promise.all([
+        dbGet('orders').catch(() => []),
+        dbGet('order_items').catch(() => []),
+        dbGet('order_promos').catch(() => []),
+        dbGet('promo').catch(() => []),
+        dbGet('barang_cs').catch(() => []),
+        dbGet('libur_nasional').catch(() => []),
+      ]);
+
+      const aksesorisSet = buildAksesorisSet(barangCs as Row[]);
+
+      // Holidays set untuk business-day.
+      const holidays = new Set<string>();
+      for (const h of libur as Row[]) {
+        const t = h.tanggal;
+        if (!t) continue;
+        const m = String(t instanceof Date ? t.toISOString() : t).match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (m) holidays.add(`${m[1]}-${m[2]}-${m[3]}`);
+      }
+
+      // Items per order.
+      const itemsByOrder: Record<string, Row[]> = {};
+      for (const it of items as Row[]) {
+        const k = String(it.order_id);
+        (itemsByOrder[k] ||= []).push(it);
+      }
+      // Promo names per order.
+      const promoNameById: Record<string, string> = {};
+      for (const p of promoMaster as Row[]) promoNameById[String(p.id)] = String(p.nama || '');
+      const bonusByOrder: Record<string, string[]> = {};
+      for (const op of promos as Row[]) {
+        const k = String(op.order_id);
+        const nama = promoNameById[String(op.promo_id)] || '';
+        if (nama) (bonusByOrder[k] ||= []).push(nama);
+      }
+
+      const out: DeadlineRow[] = [];
+      for (const o of orders as Row[]) {
+        // Hanya order dari CS Selling yang sudah dibuat Rincian Order-nya
+        // (punya order_items). Data legacy pre-cutoff disembunyikan.
+        if (String(o.created_via || '').toUpperCase() !== 'CS_SELLING') continue;
+        if (!isVisibleTanggalOrder(o.tanggal_order)) continue;
+        const its = itemsByOrder[String(o.id)] || [];
+        if (its.length === 0) continue;
+
+        const names = its.map(it => String(it.paket_nama || '')).filter(Boolean);
+        const qty = sumQtyExcludingAksesoris(its, aksesorisSet);
+        const { tier, display, rate } = detectPaket(names);
+        const point = Math.round(qty * rate * 10) / 10;
+        const dl = computeDeadlineLock({
+          pilihanPaket: o.pilihan_paket,
+          tanggalAccProofing: o.tanggal_acc_proofing,
+          deadlineLock: o.deadline_lock,
+          holidays,
+          isJaket: hasJaket(names),
+        });
+        out.push({
+          id: Number(o.id),
+          customer: String(o.customer_nama || ''),
+          qty,
+          paket: display,
+          tier,
+          point,
+          bonus: (bonusByOrder[String(o.id)] || []).join(', '),
+          ket: String(o.keterangan || ''),
+          dl,
+          monthKey: monthKeyOf(dl),
+        });
+      }
+      setRowsAll(out);
+    } catch {
+      setRowsAll([]);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const monthKeys = useMemo(() => {
+    const set = new Set(rowsAll.map(r => r.monthKey).filter(k => k !== '_no_dl_'));
+    return Array.from(set).sort();
+  }, [rowsAll]);
+
+  const visibleRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let rows = selectedMonth ? rowsAll.filter(r => r.monthKey === selectedMonth) : rowsAll;
+    if (q) rows = rows.filter(r => r.customer.toLowerCase().includes(q) || r.paket.toLowerCase().includes(q) || r.bonus.toLowerCase().includes(q));
+    return rows.slice().sort((a, b) => (a.dl || '9999-99-99').localeCompare(b.dl || '9999-99-99') || a.customer.localeCompare(b.customer));
+  }, [rowsAll, selectedMonth, search]);
+
+  const totalQty = visibleRows.reduce((s, r) => s + r.qty, 0);
+  const totalPoint = Math.round(visibleRows.reduce((s, r) => s + r.point, 0) * 10) / 10;
+  const monthLabelSel = selectedMonth ? monthLabel(selectedMonth) : 'Semua Bulan';
+  const thisMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-amber-500/[0.14] via-orange-500/[0.05] to-transparent p-5 sm:p-6">
+        <div aria-hidden className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/25 to-amber-500/5 border border-amber-500/25 grid place-items-center shrink-0">
+              <svg className="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg>
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Laporan Deadline CS Order</h1>
+              <p className="text-[13px] text-slate-300 mt-0.5">
+                Deadline dari CS Customer (Deadline Lock) · <span className="text-white font-medium">{monthLabelSel} · {visibleRows.length} order · {totalQty} pcs · {totalPoint} poin</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch gap-2">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs text-slate-500 uppercase tracking-wider hidden sm:inline">Bulan</span>
+              <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+                className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500/40 date-input" />
+              <button onClick={() => setSelectedMonth(thisMonth)}
+                className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors shrink-0">Bulan Ini</button>
+            </div>
+            <div className="relative flex-1 min-w-[200px]">
+              <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari customer, paket, bonus..."
+                className="w-full bg-white/[0.03] border border-white/10 text-white text-sm rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-amber-500/40" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="h-40 grid place-items-center"><div className="w-8 h-8 rounded-full border-2 border-amber-500/20 border-t-amber-400 animate-spin" /></div>
+      ) : visibleRows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-white/10 py-16 text-center">
+          <p className="text-sm text-slate-400">Tidak ada order untuk {monthLabelSel}.</p>
+          {selectedMonth && monthKeys.length > 0 && (
+            <p className="text-xs text-slate-500 mt-1.5">Bulan yang ada data: {monthKeys.map(monthLabel).join(' · ')}.</p>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+          <div className="px-6 py-3 border-b border-white/[0.06] bg-amber-500/[0.06]">
+            <h2 className="text-lg font-bold text-amber-300 tracking-wide">{monthLabelSel}</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">Deadline Lock · {visibleRows.length} order · {totalQty} pcs · {totalPoint} poin</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1000px] text-sm">
+              <thead>
+                <tr className="border-b border-white/[0.06] bg-white/[0.02] text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                  <th className="text-center px-2 py-3 w-12">NO</th>
+                  <th className="text-left px-3 py-3 min-w-[220px]">CUST</th>
+                  <th className="text-center px-2 py-3 w-16">QTY</th>
+                  <th className="text-left px-3 py-3 min-w-[120px]">PAKET</th>
+                  <th className="text-right px-3 py-3 w-20">POINT</th>
+                  <th className="text-left px-3 py-3 min-w-[140px]">BONUS</th>
+                  <th className="text-left px-3 py-3 min-w-[120px]">KET</th>
+                  <th className="text-left px-3 py-3 min-w-[120px]">DEADLINE</th>
+                  <th className="text-left px-3 py-3 w-32">STTS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.map((r, i) => (
+                  <tr key={r.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                    <td className="px-2 py-2.5 text-center text-slate-500 tabular-nums text-xs">{i + 1}</td>
+                    <td className="px-3 py-2.5 font-semibold text-white text-[13px]">{r.customer || '-'}</td>
+                    <td className="px-2 py-2.5 text-center tabular-nums font-semibold text-white">{r.qty}</td>
+                    <td className="px-3 py-2.5 text-slate-200 uppercase text-xs font-semibold tracking-wide">{r.paket || '—'}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-amber-300">{r.point.toLocaleString('id-ID')}</td>
+                    <td className="px-3 py-2.5 text-slate-300 text-xs">{r.bonus || '—'}</td>
+                    <td className="px-3 py-2.5 text-slate-400 text-xs">{r.ket || '—'}</td>
+                    <td className="px-3 py-2.5 text-slate-300 text-xs whitespace-nowrap">{r.dl ? fmtDL(r.dl) : <span className="text-slate-600">—</span>}</td>
+                    <td className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-300">DEADLINE LOCK</td>
+                  </tr>
+                ))}
+                <tr className="bg-white/[0.03] font-bold">
+                  <td className="px-2 py-2.5" />
+                  <td className="px-3 py-2.5 text-slate-300 uppercase text-xs">Total</td>
+                  <td className="px-2 py-2.5 text-center tabular-nums text-white">{totalQty}</td>
+                  <td className="px-3 py-2.5" />
+                  <td className="px-3 py-2.5 text-right tabular-nums text-amber-300">{totalPoint.toLocaleString('id-ID')}</td>
+                  <td colSpan={4} className="px-3 py-2.5" />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
