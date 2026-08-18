@@ -513,9 +513,15 @@ export default function ApprovalFinancePage() {
       {detail && (() => {
         const p = paymentsByOrder[Number(detail.id)] || [];
         const dpDesain = p.find((x: Row) => String(x.tipe) === 'dp_desain');
-        const dpProduksi = p
-          .filter((x: Row) => String(x.tipe) === 'dp_produksi')
-          .sort((a: Row, b: Row) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+        // Sumber kebenaran DP Produksi = detail.dp_produksi (di-set saat Rincian
+        // Order). Kalau 0 → order tidak punya DP Produksi; abaikan row dp_produksi
+        // lama yang mungkin tertinggal di order_payments (pembayaran-modal sengaja
+        // tidak hapus row lama). Tanpa gate ini, Finance lihat nominal DP Produksi
+        // padahal CS isi 0.
+        const dpProduksi = Number(detail.dp_produksi) > 0
+          ? p.filter((x: Row) => String(x.tipe) === 'dp_produksi')
+             .sort((a: Row, b: Row) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0))
+          : [];
         const dpAmt = Number(dpDesain?.amount || detail.dp_desain || 0);
         const ps = String(detail.pelunasan_status || '').toUpperCase();
         const isPelunasanReview = ps !== '';
@@ -547,9 +553,9 @@ export default function ApprovalFinancePage() {
         // DP Design + DP Produksi ambil dari order_payments (yg baru
         // di-write oleh Rincian Order Save).
         const dpDesainFromPay = p.find((x: Row) => String(x.tipe) === 'dp_desain');
-        const dpProduksiFromPay = p.find((x: Row) => String(x.tipe) === 'dp_produksi');
         const dpDesainAmt = Number(dpDesainFromPay?.amount) || Number(detail.dp_desain) || 0;
-        const dpProduksiAmt = Number(dpProduksiFromPay?.amount) || Number(detail.dp_produksi) || 0;
+        // DP Produksi pakai nilai scalar order (truth), BUKAN row payment lama.
+        const dpProduksiAmt = Number(detail.dp_produksi) || 0;
         const sisaTagihanRow = grandTotal - diskonAmount - dpDesainAmt - dpProduksiAmt;
         return (
           <>
