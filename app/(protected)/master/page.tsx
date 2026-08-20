@@ -3,11 +3,12 @@ import { useState, useEffect, useCallback, ReactNode } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { Pagination, paginate } from '@/lib/pagination';
+import { DEFAULT_NB_TEMPLATE, NB_TEMPLATE_KEY } from '@/lib/nb-template';
 
 /* ═══ Tab config ═══ */
 // Note: 'customer' tab dilepas — customer master sekarang cuma di
 // menu Analisa → All Customer supaya tidak duplikat entry point.
-type TabKey = 'paket'|'barang'|'barang-cs'|'bank'|'gudang'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads';
+type TabKey = 'paket'|'barang'|'barang-cs'|'bank'|'gudang'|'tipe-barang'|'ukuran'|'pecah-pola'|'jabatan'|'karyawan'|'promo'|'leads'|'notes-cs-order';
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'paket', label: 'Paket' },
   { key: 'barang', label: 'Barang' },
@@ -19,6 +20,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'pecah-pola', label: 'Pecah Pola' },
   { key: 'promo', label: 'Promo' },
   { key: 'leads', label: 'Leads' },
+  { key: 'notes-cs-order', label: 'Notes CS Order' },
 ];
 
 // Map tab key to DB table name
@@ -28,6 +30,7 @@ const TABLE_MAP: Record<TabKey, string> = {
   'tipe-barang': 'tipe_barang',
   ukuran: 'ukuran', 'pecah-pola': 'pecah_pola', jabatan: 'jabatan', karyawan: 'karyawan',
   promo: 'promo', leads: 'leads',
+  'notes-cs-order': 'settings',
 };
 
 const JENIS_CS_STYLE: Record<string, string> = {
@@ -185,6 +188,7 @@ export default function MasterPage() {
     karyawan:      { title: 'Master Data Karyawan', subtitle: 'Kelola data karyawan dan unit produksi.', addLabel: 'Tambah Karyawan', searchPlaceholder: 'Cari nama atau posisi...' },
     promo:         { title: 'Master Data Promo', subtitle: 'Kelola data semua promo Anda.', addLabel: 'Tambah Promo', searchPlaceholder: 'Cari promo...' },
     leads:         { title: 'Master Data Leads', subtitle: 'Kelola data CS eksternal yang membawa order.', addLabel: 'Tambah Lead', searchPlaceholder: 'Cari nama atau kota...' },
+    'notes-cs-order': { title: 'Notes CS Order', subtitle: 'Template catatan (NB) yang muncul otomatis di Rincian Order. Ganti di sini, tanpa ubah kode.', addLabel: '', searchPlaceholder: '' },
   };
 
   const cur = info[tab];
@@ -224,12 +228,15 @@ export default function MasterPage() {
             <p className="text-[13px] text-slate-300 mt-0.5">{cur.subtitle}</p>
           </div>
         </div>
-        <AddBtn label={cur.addLabel} onClick={() => { setEditingRow(null); setModal(true); }} />
+        {tab !== 'notes-cs-order' && <AddBtn label={cur.addLabel} onClick={() => { setEditingRow(null); setModal(true); }} />}
       </div>
 
-      <SearchBar value={search} onChange={setSearch} placeholder={cur.searchPlaceholder} />
+      {tab !== 'notes-cs-order' && <SearchBar value={search} onChange={setSearch} placeholder={cur.searchPlaceholder} />}
 
-      {/* Table */}
+      {/* Content: editor untuk Notes CS Order, tabel untuk tab lain */}
+      {tab === 'notes-cs-order' ? (
+        <NotesCsOrderEditor />
+      ) : (
       <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         {loading ? (
           <div className="px-5 py-16 text-center">
@@ -258,6 +265,7 @@ export default function MasterPage() {
             </>
           )}
         </div>
+      )}
 
       {/* ═══ Modals ═══ */}
       <ModalForm tab={tab} open={modal} onClose={() => { setModal(false); setEditingRow(null); }} onSave={handleSave}
@@ -302,6 +310,7 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
     bank: 'Bank', gudang: 'Gudang',
     'tipe-barang': 'Tipe Barang', ukuran: 'Ukuran', 'pecah-pola': 'Pecah Pola',
     jabatan: 'Jabatan', karyawan: 'Karyawan', promo: 'Promo', leads: 'Lead',
+    'notes-cs-order': 'Notes CS Order',
   };
   const modalTitle = isEdit ? `Edit ${labels[tab]}` : `Tambah ${labels[tab]} Baru`;
 
@@ -682,5 +691,71 @@ function TableLeads({ rows, onEdit, onDelete }: { rows: Row[]; onEdit: (r: Row) 
         </tr>
       ))}
     </tbody></table>
+  );
+}
+
+/* ═══ Notes CS Order — editor template NB Rincian Order ═══ */
+function NotesCsOrderEditor() {
+  const toast = useToast();
+  const [value, setValue] = useState('');
+  const [rowId, setRowId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const loadTpl = useCallback(async () => {
+    setLoading(true);
+    try {
+      const st = await dbGet<Record<string, unknown>>('settings').catch(() => []);
+      const row = (st as Record<string, unknown>[]).find(s => String(s.key_name) === NB_TEMPLATE_KEY);
+      if (row) { setRowId(Number(row.id)); setValue(String(row.value ?? '')); }
+      else { setRowId(null); setValue(DEFAULT_NB_TEMPLATE); }
+    } catch { setValue(DEFAULT_NB_TEMPLATE); }
+    setLoading(false);
+  }, []);
+  useEffect(() => { loadTpl(); }, [loadTpl]);
+
+  async function save() {
+    if (!value.trim()) { toast.warning('Kosong', 'Template tidak boleh kosong.'); return; }
+    setSaving(true);
+    try {
+      if (rowId) await dbUpdate('settings', rowId, { value });
+      else { const id = await dbCreate('settings', { key_name: NB_TEMPLATE_KEY, value }); setRowId(Number(id)); }
+      toast.success('Tersimpan', 'Template Notes CS Order disimpan. Otomatis dipakai di Rincian Order berikutnya.');
+    } catch (e) { toast.error('Gagal Menyimpan', String(e)); }
+    setSaving(false);
+  }
+
+  return (
+    <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-5 space-y-4">
+      <div className="flex items-start gap-2.5 rounded-lg bg-blue-500/[0.06] border border-blue-500/20 p-3">
+        <svg className="w-5 h-5 text-blue-300 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
+        <p className="text-xs text-slate-300 leading-relaxed">
+          Teks ini muncul otomatis di kolom <strong>NB / Note</strong> Rincian Order saat CS membuat order baru. Ganti kapan saja di sini &mdash; langsung dipakai tanpa ubah kode. Order yang sudah tersimpan tidak ikut berubah.
+        </p>
+      </div>
+      {loading ? (
+        <div className="h-40 grid place-items-center"><div className="w-7 h-7 rounded-full border-2 border-blue-500/20 border-t-blue-400 animate-spin" /></div>
+      ) : (
+        <>
+          <textarea
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            rows={16}
+            spellCheck={false}
+            className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500/40 resize-y font-mono leading-relaxed"
+          />
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <button onClick={() => setValue(DEFAULT_NB_TEMPLATE)}
+              className="text-xs font-medium text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] px-4 py-2 rounded-lg transition-colors">
+              Reset ke Default
+            </button>
+            <button onClick={save} disabled={saving}
+              className="text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-2 rounded-lg transition-colors shadow-lg shadow-blue-500/20">
+              {saving ? 'Menyimpan...' : 'Simpan Template'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

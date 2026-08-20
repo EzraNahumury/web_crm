@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
+import { DEFAULT_NB_TEMPLATE, NB_TEMPLATE_KEY } from '@/lib/nb-template';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -33,23 +34,9 @@ interface Props {
   readOnly?: boolean;
 }
 
-// NB template default — dipakai saat operator buka invoice baru atau
-// pilih order yang belum punya keterangan. Operator tinggal edit /
-// hapus / tambah supaya tidak perlu ketik dari awal.
-const NB_TEMPLATE = `Note:
-·  Bahan utama:
-·  Bahan variasi PECAH POLA:
-* Bahan LIST lengan pendek : (Bahan/Rib/Rajut)
-   Bahan LIST lengan panjang : (Bahan/Rib/Rajut)
-* Bahan Kerah : (Jika kerah rajut bisa di note)
-   Size : (Reguler/Wanita/Anak)
-
-   Promo Juni:
-* Free Logo 3D Tatami
-* Free 3 Bola
-* Free 3 Jersey Tim
-* Free Ongkir
-* Cashback 5% next order (tidak bisa diubah)`;
+// NB template default sekarang di lib/nb-template.ts (DEFAULT_NB_TEMPLATE),
+// dan bisa di-override dari Master → Notes CS Order (settings.nb_template).
+// Modal fetch settings saat open; kalau kosong pakai default const.
 
 // Convert legacy plain-text NB (dengan \n) ke HTML dengan <br>. Kalau
 // value sudah HTML (mengandung tag), return apa adanya. Dipakai saat
@@ -141,7 +128,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
   // NB — default pakai template supaya operator tinggal edit / hapus /
   // tambah bagian yang perlu, tidak ketik dari awal setiap kali.
-  const [nb, setNb] = useState(NB_TEMPLATE);
+  const [nb, setNb] = useState(DEFAULT_NB_TEMPLATE);
   // Diskon percentage (0-100, default 0).
   const [diskonPct, setDiskonPct] = useState(0);
   // DP Produksi percentage (0-100, default 70).
@@ -159,21 +146,27 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // ada (migration 034 belum landing), array kosong dan input jatuh
   // balik ke free-text supaya modal tetap jalan.
   const [barangCs, setBarangCs] = useState<Row[]>([]);
+  // Template NB — diambil dari settings (Master → Notes CS Order). Fallback
+  // ke DEFAULT_NB_TEMPLATE kalau settings belum diisi.
+  const [nbTemplate, setNbTemplate] = useState(DEFAULT_NB_TEMPLATE);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [o, p, i, l, bcs] = await Promise.all([
+      const [o, p, i, l, bcs, st] = await Promise.all([
         dbGet('orders').catch(() => []),
         dbGet('order_payments').catch(() => []),
         dbGet('order_items').catch(() => []),
         dbGet('leads').catch(() => []),
         dbGet('barang_cs').catch(() => []),
+        dbGet('settings').catch(() => []),
       ]);
       setOrders(o);
       setPayments(p);
       setItems(i);
       setBarangCs(bcs);
       setLeads(l);
+      const tpl = (st as Row[]).find(s => String(s.key_name) === NB_TEMPLATE_KEY);
+      if (tpl && String(tpl.value ?? '').trim()) setNbTemplate(String(tpl.value));
     } catch (e) { console.error(e); }
   }, []);
 
@@ -191,7 +184,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     if (!pickedOrderId) {
       // Clear so a fresh open (no seed) shows an empty invoice.
       setNama(''); setAlamat(''); setLeadId(''); setEkspNama(''); setEkspKg(''); setEkspBiaya(0);
-      setNb(NB_TEMPLATE); setTrackingLink(''); setNoOrder('');
+      setNb(nbTemplate); setTrackingLink(''); setNoOrder('');
       setDpDesainAmount(0); setDpDesainPaymentId(null);
       setDiskonPct(0); setDpProdPct(70);
       setDpProdMode('pct'); setDpProdManual(0);
@@ -208,7 +201,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setEkspNama(String(o.ekspedisi_nama || ''));
     setEkspKg(o.ekspedisi_kg ? String(o.ekspedisi_kg) : '');
     setEkspBiaya(Number(o.ekspedisi_biaya) || 0);
-    setNb(String(o.keterangan || NB_TEMPLATE));
+    setNb(String(o.keterangan || nbTemplate));
     setTrackingLink(String(o.tracking_link || ''));
     setNoOrder(String(o.no_order || ''));
     // Diskon% dari order (kolom baru). Kalau tidak ada, default 0.
