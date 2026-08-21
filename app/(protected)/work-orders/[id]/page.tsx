@@ -2000,8 +2000,11 @@ function SearchableBahanSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [highlight, setHighlight] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const selectedLabel = useMemo(
     () => options.find(o => o.value === value)?.label ?? '',
     [options, value]
@@ -2019,12 +2022,52 @@ function SearchableBahanSelect({
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
-  useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
+  // Saat dibuka: fokus ke input cari + highlight ke opsi terpilih (atau 0)
+  useEffect(() => {
+    if (!open) return;
+    if (inputRef.current) inputRef.current.focus();
+    const idx = filtered.findIndex(o => o.value === value);
+    setHighlight(idx >= 0 ? idx : 0);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Ketik utk filter → reset highlight ke atas
+  useEffect(() => { setHighlight(0); }, [search]);
+  // Auto-scroll opsi ter-highlight biar selalu kelihatan
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    const el = listRef.current.children[highlight] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [highlight, open]);
+
+  const closeAndRefocus = () => { setOpen(false); setSearch(''); btnRef.current?.focus(); };
+  const pick = (v: string) => { onChange(v); closeAndRefocus(); };
+
+  // Keyboard nav di dalam input cari: ↑/↓ pindah highlight, Enter pilih,
+  // Esc/Tab tutup (Tab tetap lanjut ke field berikutnya).
+  const onInputKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlight(h => Math.min(h + 1, filtered.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlight(h => Math.max(h - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const opt = filtered[highlight];
+      if (opt) pick(opt.value);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeAndRefocus();
+    } else if (e.key === 'Tab') {
+      setOpen(false); setSearch('');
+    }
+  };
   return (
     <div ref={wrapRef} className="relative">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen(o => !o)}
+        onKeyDown={e => { if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { e.preventDefault(); setOpen(true); } }}
         className="w-full bg-[#0d1117] border border-white/10 text-white text-left focus:border-blue-500/50 focus:outline-none rounded-lg px-4 py-2.5 text-sm transition-colors cursor-pointer flex items-center justify-between gap-2"
       >
         <span className={selectedLabel ? 'text-white' : 'text-slate-500'}>{selectedLabel || placeholder}</span>
@@ -2040,19 +2083,26 @@ function SearchableBahanSelect({
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
+              onKeyDown={onInputKey}
               placeholder="Cari bahan..."
               className="w-full bg-[#0a0e17] border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
             />
           </div>
-          <div style={{ maxHeight: 240 }} className="overflow-y-auto">
+          <div ref={listRef} style={{ maxHeight: 240 }} className="overflow-y-auto">
             {filtered.length === 0 ? (
               <div className="px-3 py-4 text-center text-xs text-slate-500">Tidak ada hasil</div>
-            ) : filtered.map(o => (
+            ) : filtered.map((o, i) => (
               <button
                 key={o.value}
                 type="button"
-                onClick={() => { onChange(o.value); setOpen(false); setSearch(''); }}
-                className={`w-full text-left px-3 py-2 text-sm transition-colors ${o.value === value ? 'bg-blue-600/20 text-blue-300' : 'text-slate-300 hover:bg-white/[0.04]'}`}
+                tabIndex={-1}
+                onClick={() => pick(o.value)}
+                onMouseEnter={() => setHighlight(i)}
+                className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                  i === highlight ? 'bg-blue-600/30 text-white'
+                    : o.value === value ? 'bg-blue-600/20 text-blue-300'
+                    : 'text-slate-300'
+                }`}
               >
                 {o.label}
               </button>
