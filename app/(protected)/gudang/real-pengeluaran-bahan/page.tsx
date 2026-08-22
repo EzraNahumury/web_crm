@@ -4,6 +4,7 @@ import { dbGet, dbDelete } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 import { Pagination, paginate } from '@/lib/pagination';
+import { DecimalInput } from '@/lib/decimal-input';
 import { useToast } from '@/lib/toast';
 import type { GudangRow } from '@/lib/wo4-form';
 
@@ -695,16 +696,11 @@ function PengeluaranModal({ wo, mode, onClose, onSaved }: {
                           </td>
                           <td className="border border-white/10 p-1">
                             {isView ? (
-                              <span className="block px-2 py-1 text-right tabular-nums text-slate-200 font-semibold">{r.kuantitas || 0}</span>
+                              <span className="block px-2 py-1 text-right tabular-nums text-slate-200 font-semibold">{String(r.kuantitas || 0).replace('.', ',')}</span>
                             ) : (
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={r.kuantitas || ''}
-                                onChange={e => {
-                                  const v = e.target.value.replace(/[^\d.]/g, '');
-                                  setField(i, 'kuantitas', v === '' ? 0 : Number(v));
-                                }}
+                              <DecimalInput
+                                value={Number(r.kuantitas) || 0}
+                                onChange={v => setField(i, 'kuantitas', v)}
                                 className={`w-full bg-transparent text-right tabular-nums text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded ${isDefisit ? 'text-rose-300 font-semibold' : 'text-white'}`}
                                 placeholder="0"
                               />

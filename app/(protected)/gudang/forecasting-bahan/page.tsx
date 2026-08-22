@@ -5,6 +5,7 @@ import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 import { Pagination, paginate } from '@/lib/pagination';
+import { DecimalInput } from '@/lib/decimal-input';
 import { buildWo4FormRows, detectWo4FormNos, WO4_ACCESSORIES, type GudangRow } from '@/lib/wo4-form';
 import { useToast } from '@/lib/toast';
 
@@ -730,14 +731,9 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
                             />
                           </td>
                           <td className="border border-white/10 p-1">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={r.kuantitas || ''}
-                              onChange={e => {
-                                const v = e.target.value.replace(/[^\d.]/g, '');
-                                setField(i, 'kuantitas', v === '' ? 0 : Number(v));
-                              }}
+                            <DecimalInput
+                              value={Number(r.kuantitas) || 0}
+                              onChange={v => setField(i, 'kuantitas', v)}
                               className={`w-full bg-transparent text-right tabular-nums text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded ${isDefisit ? 'text-amber-300 font-semibold' : 'text-white'}`}
                               placeholder="0"
                             />
