@@ -5,11 +5,15 @@ import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 import { Pagination, paginate } from '@/lib/pagination';
-import { buildWo4FormRows, detectWo4FormNos, type GudangRow } from '@/lib/wo4-form';
+import { buildWo4FormRows, detectWo4FormNos, WO4_ACCESSORIES, type GudangRow } from '@/lib/wo4-form';
 import { useToast } from '@/lib/toast';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
+
+// Size rows (XS..XXL, dst) di-drop dari forecasting — tidak dipakai.
+const SIZE_BAGIAN = new Set(['XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL']);
+const isSizeBagian = (bagian: string) => SIZE_BAGIAN.has(String(bagian).toUpperCase().trim());
 
 function fmtDate(d: string | Date | null | undefined) {
   if (!d) return '-';
@@ -505,8 +509,11 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
             ukuranTim,
             masterBarangSet,
           });
-          // Reset kuantitas ke 0 (forecast baru = belum diisi).
-          const seeded = template.map(r => r.sectionHeader ? r : { ...r, kuantitas: 0, id: null });
+          // Reset kuantitas ke 0 (forecast baru = belum diisi). Drop section
+          // SIZE + baris size (XS..XXL) — tidak dipakai di forecasting.
+          const seeded = template
+            .filter(r => r.sectionHeader !== 'SIZE' && !isSizeBagian(r.bagian))
+            .map(r => r.sectionHeader ? r : { ...r, kuantitas: 0, id: null });
           setRows(seeded);
         }
       } catch {
@@ -662,8 +669,10 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
                 <tbody>
                   {(() => {
                     let no = 0;
+                    let currentSection = '';
                     return rows.map((r, i) => {
                       if (r.sectionHeader) {
+                        currentSection = r.sectionHeader;
                         return (
                           <tr key={i}>
                             <td colSpan={7} className="border border-white/10 px-3 py-2 text-center font-extrabold text-[13px] tracking-wider" style={{ background: '#fde68a', color: '#0f172a' }}>
@@ -681,12 +690,22 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
                         <tr key={i} className="border-b border-white/[0.04]">
                           <td className="border border-white/10 text-center text-slate-500 px-2 py-1">{no}</td>
                           <td className="border border-white/10 p-1">
-                            <input
-                              value={r.bagian}
-                              onChange={e => setField(i, 'bagian', e.target.value)}
-                              className="w-full bg-transparent text-slate-200 font-semibold text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded"
-                              placeholder="Item..."
-                            />
+                            {currentSection === 'ACCESSORIS' ? (
+                              <BahanCombobox
+                                value={r.bagian}
+                                options={WO4_ACCESSORIES}
+                                onChange={v => setField(i, 'bagian', v)}
+                                placeholder="Pilih item..."
+                                bold
+                              />
+                            ) : (
+                              <input
+                                value={r.bagian}
+                                onChange={e => setField(i, 'bagian', e.target.value)}
+                                className="w-full bg-transparent text-slate-200 font-semibold text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded"
+                                placeholder="Item..."
+                              />
+                            )}
                           </td>
                           <td className="border border-white/10 p-1">
                             <BahanCombobox
@@ -776,20 +795,19 @@ function Wo4ForecastModal({ wo, onClose, onSaved }: {
    Insert 'KAIN' sebelum baris pertama BAHAN_UTAMA, 'ACCESSORIS' sebelum
    baris pertama AUTENTIC..DTF SIZE, 'SIZE' sebelum baris pertama XS..XXL. */
 function injectSectionHeaders(rows: GudangRow[]): GudangRow[] {
-  const ACCESSORIS_SET = new Set(['AUTENTIC', 'WEBBING', 'WASHTAG', 'ELASTIC PANTS', 'DTF SPONSOR', 'POLIFLEX', 'DTF SIZE']);
-  const SIZE_SET = new Set(['XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL']);
+  const ACCESSORIS_SET = new Set(WO4_ACCESSORIES.map(s => s.toUpperCase()));
   const out: GudangRow[] = [];
-  let seenKain = false, seenAcc = false, seenSize = false;
+  let seenKain = false, seenAcc = false;
   const mk = (label: string): GudangRow => ({
     id: null, urutan: 0, kategori: 'SECTION', bagian: '', bahan: '',
     warna: '', kuantitas: 0, sectionHeader: label,
   });
   for (const r of rows) {
     const bg = r.bagian.toUpperCase();
+    // Skip baris size — section SIZE tidak dipakai di forecasting.
+    if (isSizeBagian(bg)) continue;
     if (ACCESSORIS_SET.has(bg)) {
       if (!seenAcc) { out.push(mk('ACCESSORIS')); seenAcc = true; }
-    } else if (SIZE_SET.has(bg)) {
-      if (!seenSize) { out.push(mk('SIZE')); seenSize = true; }
     } else {
       if (!seenKain) { out.push(mk('KAIN')); seenKain = true; }
     }
@@ -843,10 +861,12 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }: {
    (position: fixed di bawah input) supaya tidak ke-clip oleh scroll
    container tabel/modal.
    ──────────────────────────────────────────────────────────────── */
-function BahanCombobox({ value, options, onChange }: {
+function BahanCombobox({ value, options, onChange, placeholder = 'Pilih / ketik bahan...', bold = false }: {
   value: string;
   options: string[];
   onChange: (v: string) => void;
+  placeholder?: string;
+  bold?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -854,7 +874,10 @@ function BahanCombobox({ value, options, onChange }: {
 
   const q = value.trim().toLowerCase();
   const filtered = useMemo(() => {
-    const list = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+    // Kalau value persis == salah satu opsi (mis. accessory pre-filled),
+    // tampilkan semua opsi biar bisa ganti; filter cuma saat user mengetik.
+    const exact = options.some(o => o.toLowerCase() === q);
+    const list = (q && !exact) ? options.filter(o => o.toLowerCase().includes(q)) : options;
     return list.slice(0, 60);
   }, [q, options]);
 
@@ -877,9 +900,9 @@ function BahanCombobox({ value, options, onChange }: {
         onChange={e => { onChange(e.target.value); if (!open) openList(); else reposition(); }}
         onFocus={openList}
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
-        placeholder="Pilih / ketik bahan..."
+        placeholder={placeholder}
         autoComplete="off"
-        className="w-full bg-transparent text-white text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded"
+        className={`w-full bg-transparent text-xs px-2 py-1 focus:bg-white/[0.05] focus:outline-none rounded ${bold ? 'text-slate-200 font-semibold' : 'text-white'}`}
       />
       {open && rect && filtered.length > 0 && createPortal(
         <div
