@@ -26,7 +26,8 @@ function fmtDate(d: string | Date | null | undefined) {
 
 export default function ForecastingBahanPage() {
   const toast = useToast();
-  const [woList, setWoList] = useState<Row[]>([]);
+  const [woList, setWoList] = useState<Row[]>([]);   // kandidat picker (confirmed + cutoff)
+  const [woAll, setWoAll] = useState<Row[]>([]);     // SEMUA WO (buat daftar record, tanpa cutoff)
   const [forecasts, setForecasts] = useState<Row[]>([]);
   const [pengeluaran, setPengeluaran] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,27 +62,31 @@ export default function ForecastingBahanPage() {
           itemsByOrder[key].qty += Number(it.qty) || 0;
         }
       }
-      const merged = (wos as Row[])
-        .filter(w => Number(w.wo_confirmed) === 1)
-        .map(w => {
-          const ord = orderMap[String(w.order_id)];
-          const oi = itemsByOrder[String(w.order_id)];
-          return {
-            ...w,
-            customer_nama: ord?.customer_nama || w.customer_nama,
-            paket: oi ? oi.paket.join(', ') : w.paket || '-',
-            qty: oi ? oi.qty : (Number(w.jumlah) || 0),
-            deadline: ord?.estimasi_deadline || w.deadline,
-            tanggal_order: ord?.tanggal_order || w.created_at,
-            no_order: ord?.no_order || '',
-          };
-        })
-        .filter(w => isVisibleTanggalOrder(w.tanggal_order));
-      merged.sort((a, b) => String(b.tanggal_order || '').localeCompare(String(a.tanggal_order || '')));
-      setWoList(merged);
+      const mapWo = (w: Row): Row => {
+        const ord = orderMap[String(w.order_id)];
+        const oi = itemsByOrder[String(w.order_id)];
+        return {
+          ...w,
+          customer_nama: ord?.customer_nama || w.customer_nama,
+          paket: oi ? oi.paket.join(', ') : w.paket || '-',
+          qty: oi ? oi.qty : (Number(w.jumlah) || 0),
+          deadline: ord?.estimasi_deadline || w.deadline,
+          tanggal_order: ord?.tanggal_order || w.created_at,
+          no_order: ord?.no_order || '',
+        };
+      };
+      const mappedAll = (wos as Row[]).map(mapWo);
+      // Daftar record (forecast) di-drive dari SEMUA WO — cutoff order &
+      // wo_confirmed TIDAK boleh menyembunyikan record yang sudah jadi.
+      setWoAll(mappedAll);
+      // woList = kandidat picker (bikin baru): tetap saring confirmed + cutoff.
+      const visible = mappedAll
+        .filter(w => Number(w.wo_confirmed) === 1 && isVisibleTanggalOrder(w.tanggal_order));
+      visible.sort((a, b) => String(b.tanggal_order || '').localeCompare(String(a.tanggal_order || '')));
+      setWoList(visible);
       setForecasts(fc as Row[]);
       setPengeluaran(peng as Row[]);
-    } catch { setWoList([]); setForecasts([]); setPengeluaran([]); }
+    } catch { setWoList([]); setWoAll([]); setForecasts([]); setPengeluaran([]); }
     setLoading(false);
   }
 
@@ -92,10 +97,20 @@ export default function ForecastingBahanPage() {
   // WO yang sudah dieksekusi ke Real Pengeluaran Bahan (wo_pengeluaran).
   const pengeluaranIds = useMemo(() => new Set(pengeluaran.map(p => Number(p.work_order_id))), [pengeluaran]);
 
-  // List forecasting = WO yang ADA di wo_forecast.
+  // List forecasting = SEMUA record wo_forecast, di-drive dari record (bukan
+  // dari woList yang kena cutoff). Record yang sudah jadi selalu tampil selama
+  // baris WO-nya masih ada. Orphan (WO terhapus) di-skip.
+  const woById = useMemo(() => {
+    const m = new Map<number, Row>();
+    for (const w of woAll) m.set(Number(w.id), w);
+    return m;
+  }, [woAll]);
   const forecastedWos = useMemo(
-    () => woList.filter(w => forecastedIds.has(Number(w.id))),
-    [woList, forecastedIds],
+    () => forecasts
+      .map(f => woById.get(Number(f.work_order_id)))
+      .filter((w): w is Row => Boolean(w))
+      .sort((a, b) => String(b.tanggal_order || '').localeCompare(String(a.tanggal_order || ''))),
+    [forecasts, woById],
   );
 
   // Picker options = WO yang BELUM ada di wo_forecast DAN belum masuk Real
