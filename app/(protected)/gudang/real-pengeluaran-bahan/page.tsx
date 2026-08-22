@@ -6,7 +6,7 @@ import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 import { Pagination, paginate } from '@/lib/pagination';
 import { DecimalInput } from '@/lib/decimal-input';
 import { useToast } from '@/lib/toast';
-import type { GudangRow } from '@/lib/wo4-form';
+import { WO4_ACCESSORIES, type GudangRow } from '@/lib/wo4-form';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -775,7 +775,7 @@ function PengeluaranModal({ wo, mode, onClose, onSaved }: {
 
 /* Section header injector — mirror logic dari forecast modal. */
 function injectSectionHeaders(rows: GudangRow[]): GudangRow[] {
-  const ACCESSORIS_SET = new Set(['AUTENTIC', 'WEBBING', 'WASHTAG', 'ELASTIC PANTS', 'DTF SPONSOR', 'POLIFLEX', 'DTF SIZE']);
+  const ACCESSORIS_SET = new Set(WO4_ACCESSORIES.map(s => s.toUpperCase()));
   const SIZE_SET = new Set(['XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL']);
   const out: GudangRow[] = [];
   let seenKain = false, seenAcc = false, seenSize = false;

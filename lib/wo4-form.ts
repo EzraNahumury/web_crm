@@ -12,8 +12,8 @@ export const WO4_BODY_PARTS_ORDER = [
   'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS',
 ];
 export const WO4_ACCESSORIES = [
-  'AUTENTIC', 'WEBBING', 'WASHTAG', 'ELASTIC PANTS',
-  'DTF SPONSOR', 'POLIFLEX', 'DTF SIZE',
+  'AUTHENTIC', 'WEBBING', 'WASHTAG', 'ELASTIC PANTS',
+  'TAFETA RUBBER PRO', 'LOGO RUBBER AYRES', 'LOGO TULISAN AYRES', 'PANTS DRAWSTRING',
 ];
 export const WO4_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 // Legacy body-part bagian names (data lama sebelum konsolidasi KAIN UTAMA/VARIASI).
