@@ -27,6 +27,7 @@ export default function ForecastingBahanPage() {
   const toast = useToast();
   const [woList, setWoList] = useState<Row[]>([]);
   const [forecasts, setForecasts] = useState<Row[]>([]);
+  const [pengeluaran, setPengeluaran] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -38,12 +39,13 @@ export default function ForecastingBahanPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      const [wos, orders, items, barangCs, fc] = await Promise.all([
+      const [wos, orders, items, barangCs, fc, peng] = await Promise.all([
         dbGet('work_orders'),
         dbGet('orders'),
         dbGet('order_items'),
         dbGet('barang_cs').catch(() => []),
         dbGet('wo_forecast').catch(() => []),
+        dbGet('wo_pengeluaran').catch(() => []),
       ]);
       const aksesorisSet = buildAksesorisSet(barangCs as Row[]);
       const orderMap: Record<string, Row> = {};
@@ -77,7 +79,8 @@ export default function ForecastingBahanPage() {
       merged.sort((a, b) => String(b.tanggal_order || '').localeCompare(String(a.tanggal_order || '')));
       setWoList(merged);
       setForecasts(fc as Row[]);
-    } catch { setWoList([]); setForecasts([]); }
+      setPengeluaran(peng as Row[]);
+    } catch { setWoList([]); setForecasts([]); setPengeluaran([]); }
     setLoading(false);
   }
 
@@ -85,6 +88,8 @@ export default function ForecastingBahanPage() {
 
   // Set of WO IDs yang sudah punya forecast row → dipakai untuk filter list.
   const forecastedIds = useMemo(() => new Set(forecasts.map(f => Number(f.work_order_id))), [forecasts]);
+  // WO yang sudah dieksekusi ke Real Pengeluaran Bahan (wo_pengeluaran).
+  const pengeluaranIds = useMemo(() => new Set(pengeluaran.map(p => Number(p.work_order_id))), [pengeluaran]);
 
   // List forecasting = WO yang ADA di wo_forecast.
   const forecastedWos = useMemo(
@@ -92,10 +97,12 @@ export default function ForecastingBahanPage() {
     [woList, forecastedIds],
   );
 
-  // Picker options = WO yang BELUM ada di wo_forecast.
+  // Picker options = WO yang BELUM ada di wo_forecast DAN belum masuk Real
+  // Pengeluaran Bahan. Kalau forecast dihapus tapi pengeluaran-nya sudah ada,
+  // WO tidak boleh muncul lagi di picker (bahan sudah dikeluarkan).
   const pickerCandidates = useMemo(
-    () => woList.filter(w => !forecastedIds.has(Number(w.id))),
-    [woList, forecastedIds],
+    () => woList.filter(w => !forecastedIds.has(Number(w.id)) && !pengeluaranIds.has(Number(w.id))),
+    [woList, forecastedIds, pengeluaranIds],
   );
 
   const filtered = useMemo(() => {
