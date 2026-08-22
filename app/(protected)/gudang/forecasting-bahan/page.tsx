@@ -105,12 +105,15 @@ export default function ForecastingBahanPage() {
     for (const w of woAll) m.set(Number(w.id), w);
     return m;
   }, [woAll]);
+  // WO yang sudah dieksekusi ke Real Pengeluaran hilang dari daftar forecasting
+  // (biar tidak double — forecast = rencana, pengeluaran = eksekusi).
   const forecastedWos = useMemo(
     () => forecasts
+      .filter(f => !pengeluaranIds.has(Number(f.work_order_id)))
       .map(f => woById.get(Number(f.work_order_id)))
       .filter((w): w is Row => Boolean(w))
       .sort((a, b) => String(b.tanggal_order || '').localeCompare(String(a.tanggal_order || ''))),
-    [forecasts, woById],
+    [forecasts, pengeluaranIds, woById],
   );
 
   // Picker options = WO yang BELUM ada di wo_forecast DAN belum masuk Real
