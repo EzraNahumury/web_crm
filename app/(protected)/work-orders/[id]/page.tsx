@@ -276,11 +276,28 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
   // Tanpa ini text non-Latin balik jadi kotak/tanda tanya di canvas.
   const FONT = "'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Arial Unicode MS', 'Noto Sans', 'Noto Sans Arabic', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', Tahoma, Arial, sans-serif";
 
+  // Ukuran kotak gambar (fixed) — contain-fit gambar ke dalamnya pakai
+  // dimensi px EKSPLISIT. html2canvas mengabaikan object-fit + salah resolve
+  // max-height:100% → gambar bisa ke-stretch/gepeng. Dengan px eksplisit hasil
+  // fit-rasio, gambar SELALU proporsional & ukurannya konsisten antar-WO.
+  const DESAIN_BOX = { w: 320, h: 210 };
+  const PATTERN_BOX = { w: 560, h: 470 };
+  const fitImg = (src: string, natW: number, natH: number, box: { w: number; h: number }) => {
+    if (natW > 0 && natH > 0) {
+      const scale = Math.min(box.w / natW, box.h / natH);
+      const w = Math.max(1, Math.round(natW * scale));
+      const h = Math.max(1, Math.round(natH * scale));
+      return `<img src="${src}" width="${w}" height="${h}" style="display:block;margin:auto;width:${w}px;height:${h}px"/>`;
+    }
+    // Fallback (dimensi tak diketahui): batasi lebar + tinggi auto, aspek
+    // tetap terjaga di browser (path non-html2canvas).
+    return `<img src="${src}" style="max-width:100%;max-height:${box.h}px;width:auto;height:auto;object-fit:contain;display:block;margin:auto"/>`;
+  };
   const desainImg = spec.dokumen_desain
-    ? `<img src="${spec.dokumen_desain}" style="max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto"/>`
+    ? fitImg(String(spec.dokumen_desain), Number(spec.desain_w) || 0, Number(spec.desain_h) || 0, DESAIN_BOX)
     : `<div style="color:#94a3b8;font-size:11px;text-align:center;padding:80px 0">— gambar desain —</div>`;
   const patternImg = spec.dokumen_pattern
-    ? `<img src="${spec.dokumen_pattern}" style="max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto"/>`
+    ? fitImg(String(spec.dokumen_pattern), Number(spec.pattern_w) || 0, Number(spec.pattern_h) || 0, PATTERN_BOX)
     : `<div style="color:#94a3b8;font-size:11px;text-align:center;padding:150px 0">— gambar pattern —</div>`;
 
   // labelCls / valueCls di sini cuma color/style extra. font-weight:700
@@ -342,8 +359,8 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     <div style="border-right:2px solid #000;display:flex;flex-direction:column">
       <!-- DESAIN MOCK UP header -->
       <div style="background:#065f46;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">DESAIN MOCK UP</div>
-      <!-- Image -->
-      <div style="border-bottom:2px solid #000;background:#fff;min-height:220px;display:flex;align-items:center;justify-content:center;padding:4px">
+      <!-- Image — kotak FIXED height, gambar contain-fit di dalamnya. -->
+      <div style="border-bottom:2px solid #000;background:#fff;height:220px;display:flex;align-items:center;justify-content:center;padding:4px">
         ${desainImg}
       </div>
       <!-- DEADLINE full-width row -->
@@ -366,10 +383,13 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     <div style="border-right:2px solid #000;display:flex;flex-direction:column">
       <!-- PATTERN header -->
       <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">PATTERN</div>
-      <!-- Pattern image -->
-      <div style="border-bottom:2px solid #000;background:#fff;flex:1;min-height:380px;display:flex;align-items:center;justify-content:center;padding:4px">
+      <!-- Pattern image — kotak FIXED height supaya ukuran konsisten
+           antar-WO (tidak ikut membesar/mengecil sesuai tinggi halaman). -->
+      <div style="border-bottom:2px solid #000;background:#fff;height:478px;display:flex;align-items:center;justify-content:center;padding:4px">
         ${patternImg}
       </div>
+      <!-- Spacer: dorong tabel Font & Number ke bawah tanpa mengubah kotak. -->
+      <div style="flex:1"></div>
       <!-- Font & Number | Approval Admin / Data (pakai table layout
            supaya cell border + width sama). -->
       <table style="width:100%;border-collapse:collapse;table-layout:fixed">
@@ -1056,20 +1076,23 @@ function ImportedSpecViewer({ spec }: { spec: Row }) {
  * Hard timeout 8 detik per image supaya kalau image broken/slow,
  * tidak block seluruh render. Fallback ke src asli.
  */
-async function preCompressImage(src: string, maxSide = 800): Promise<string> {
-  if (!src) return src;
-  // Skip kalau bukan base64 gede (< 200KB) atau URL biasa yang kecil.
-  // Base64 data URL length approx 1.37x actual bytes.
-  if (src.startsWith('data:') && src.length < 200_000) return src;
-  return new Promise<string>((resolve) => {
+// Hasil: { data, w, h }. w/h = dimensi NATURAL gambar (rasio asli) — dipakai
+// buat contain-fit di PDF dengan ukuran px eksplisit (html2canvas menghormati
+// px, tapi TIDAK object-fit → tanpa ini gambar bisa ke-stretch/gepeng).
+async function preCompressImage(src: string, maxSide = 800): Promise<{ data: string; w: number; h: number }> {
+  if (!src) return { data: src, w: 0, h: 0 };
+  return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    const done = (v: string) => { clearTimeout(timer); resolve(v); };
-    const timer = setTimeout(() => done(src), 8000);
+    const done = (data: string, w: number, h: number) => { clearTimeout(timer); resolve({ data, w, h }); };
+    const timer = setTimeout(() => done(src, 0, 0), 8000);
     img.onload = () => {
       try {
-        let { naturalWidth: w, naturalHeight: h } = img;
-        if (!w || !h) return done(src);
+        const nw = img.naturalWidth, nh = img.naturalHeight;
+        if (!nw || !nh) return done(src, 0, 0);
+        // Data URL kecil: skip re-encode, tapi tetap kembalikan dimensi natural.
+        if (src.startsWith('data:') && src.length < 200_000) return done(src, nw, nh);
+        let w = nw, h = nh;
         if (w > maxSide || h > maxSide) {
           const ratio = Math.min(maxSide / w, maxSide / h);
           w = Math.max(1, Math.round(w * ratio));
@@ -1079,14 +1102,14 @@ async function preCompressImage(src: string, maxSide = 800): Promise<string> {
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext('2d');
-        if (!ctx) return done(src);
+        if (!ctx) return done(src, nw, nh);
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
-        done(canvas.toDataURL('image/jpeg', 0.78));
-      } catch { done(src); }
+        done(canvas.toDataURL('image/jpeg', 0.78), nw, nh);
+      } catch { done(src, 0, 0); }
     };
-    img.onerror = () => done(src);
+    img.onerror = () => done(src, 0, 0);
     img.src = src;
   });
 }
@@ -1414,13 +1437,10 @@ export default function WorkOrderDetailPage() {
         //
         // Semua image pre-compressed di-cache by original src supaya
         // kalau spec pakai image yang sama, tidak double-compress.
-        const imgCache = new Map<string, string>();
-        const preCompress = async (src: string): Promise<string> => {
-          if (!src) return src;
-          if (imgCache.has(src)) return imgCache.get(src)!;
-          const compressed = await preCompressImage(src, 800);
-          imgCache.set(src, compressed);
-          return compressed;
+        const imgCache = new Map<string, { data: string; w: number; h: number }>();
+        const preCompress = async (src: string): Promise<void> => {
+          if (!src || imgCache.has(src)) return;
+          imgCache.set(src, await preCompressImage(src, 800));
         };
         // Parallel pre-compress semua image (ini fast, tidak main-thread heavy).
         await Promise.all(freshSpecs.flatMap((spec: Row) => [
@@ -1434,10 +1454,14 @@ export default function WorkOrderDetailPage() {
         // dari multiple iframes. Sequential + pre-compressed images =
         // paling cepat + paling aman.
         for (const spec of freshSpecs) {
+          const dz = imgCache.get(String(spec.dokumen_desain || ''));
+          const pz = imgCache.get(String(spec.dokumen_pattern || ''));
           const specWithCompressedImgs = {
             ...spec,
-            dokumen_desain: imgCache.get(String(spec.dokumen_desain || '')) || spec.dokumen_desain,
-            dokumen_pattern: imgCache.get(String(spec.dokumen_pattern || '')) || spec.dokumen_pattern,
+            dokumen_desain: dz?.data || spec.dokumen_desain,
+            dokumen_pattern: pz?.data || spec.dokumen_pattern,
+            desain_w: dz?.w || 0, desain_h: dz?.h || 0,
+            pattern_w: pz?.w || 0, pattern_h: pz?.h || 0,
           };
           const html = buildWoSpecHtml(specWithCompressedImgs, woData, freshSpecBahan);
           try {
@@ -2191,10 +2215,16 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       const { jsPDF } = await import('jspdf');
       // Pre-compress images supaya iframe render cepat (sama pattern
       // dengan Download All).
+      const [dz, pz] = await Promise.all([
+        preCompressImage(String(spec.dokumen_desain || ''), 800),
+        preCompressImage(String(spec.dokumen_pattern || ''), 800),
+      ]);
       const specCompressed = {
         ...spec,
-        dokumen_desain: await preCompressImage(String(spec.dokumen_desain || ''), 800),
-        dokumen_pattern: await preCompressImage(String(spec.dokumen_pattern || ''), 800),
+        dokumen_desain: dz.data,
+        dokumen_pattern: pz.data,
+        desain_w: dz.w, desain_h: dz.h,
+        pattern_w: pz.w, pattern_h: pz.h,
       };
       const { data: imgData, w, h } = await renderHtmlToImage(buildSpecHtml(specCompressed), 1100);
       const pdf = new jsPDF('l', 'mm', 'a4');
