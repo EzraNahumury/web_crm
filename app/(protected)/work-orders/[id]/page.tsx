@@ -281,7 +281,7 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
   // max-height:100% → gambar bisa ke-stretch/gepeng. Dengan px eksplisit hasil
   // fit-rasio, gambar SELALU proporsional & ukurannya konsisten antar-WO.
   const DESAIN_BOX = { w: 320, h: 210 };
-  const PATTERN_BOX = { w: 560, h: 470 };
+  const PATTERN_BOX = { w: 560, h: 700 };
   const fitImg = (src: string, natW: number, natH: number, box: { w: number; h: number }) => {
     if (natW > 0 && natH > 0) {
       const scale = Math.min(box.w / natW, box.h / natH);
@@ -383,9 +383,9 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     <div style="border-right:2px solid #000;display:flex;flex-direction:column">
       <!-- PATTERN header -->
       <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">PATTERN</div>
-      <!-- Pattern image — kotak FIXED height supaya ukuran konsisten
-           antar-WO (tidak ikut membesar/mengecil sesuai tinggi halaman). -->
-      <div style="border-bottom:2px solid #000;background:#fff;height:478px;display:flex;align-items:center;justify-content:center;padding:4px">
+      <!-- Pattern image — kotak FIXED height (tinggi, isi sampai bawah)
+           supaya ukuran konsisten antar-WO & gambar contain-fit di dalamnya. -->
+      <div style="border-bottom:2px solid #000;background:#fff;height:708px;display:flex;align-items:center;justify-content:center;padding:4px">
         ${patternImg}
       </div>
       <!-- Spacer: dorong tabel Font & Number ke bawah tanpa mengubah kotak. -->
@@ -1468,10 +1468,14 @@ export default function WorkOrderDetailPage() {
             const { data: imgData, w, h } = await renderHtmlToImage(html, 1100);
             if (!firstPage) pdf.addPage();
             firstPage = false;
-            const contentW = pageW - margin * 2;
+            // Jaga aspek halaman: kalau lebih tinggi dari area A4, KECILKAN
+            // lebar (bukan cap tinggi saja) supaya seluruh halaman tidak
+            // ke-squish vertikal. Sisa lebar di-center.
+            const maxW = pageW - margin * 2, maxH = pageH - margin * 2;
             const imgRatio = h / w;
-            const contentH = Math.min(contentW * imgRatio, pageH - margin * 2);
-            pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+            let cW = maxW, cH = cW * imgRatio;
+            if (cH > maxH) { cH = maxH; cW = cH / imgRatio; }
+            pdf.addImage(imgData, 'JPEG', margin + (maxW - cW) / 2, margin, cW, cH);
           } catch (err) {
             // Kalau 1 spec fail (timeout / corrupt), lanjut ke spec
             // berikutnya. Jangan hang seluruh Download All.
@@ -2231,10 +2235,13 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       const pageW = 297;
       const pageH = 210;
       const margin = 5;
-      const contentW = pageW - margin * 2;
+      // Jaga aspek halaman: kalau lebih tinggi dari area A4, kecilkan lebar
+      // (bukan cap tinggi saja) supaya halaman tidak ke-squish vertikal.
+      const maxW = pageW - margin * 2, maxH = pageH - margin * 2;
       const imgRatio = h / w;
-      const contentH = Math.min(contentW * imgRatio, pageH - margin * 2);
-      pdf.addImage(imgData, 'JPEG', margin, margin, contentW, contentH);
+      let cW = maxW, cH = cW * imgRatio;
+      if (cH > maxH) { cH = maxH; cW = cH / imgRatio; }
+      pdf.addImage(imgData, 'JPEG', margin + (maxW - cW) / 2, margin, cW, cH);
 
       const fileName = `Spesifikasi-${wo.noWo}.pdf`;
       const blob = pdf.output('blob');
