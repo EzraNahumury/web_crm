@@ -51,6 +51,10 @@ export default function BuktiPembayaranPage() {
   const inputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   // Lightbox untuk lihat bukti full-size. null = tertutup.
   const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
+  // Combobox "Pilih Order" — bisa diketik untuk cari (bukan <select> statis).
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderOpen, setOrderOpen] = useState(false);
+  const orderBoxRef = useRef<HTMLDivElement>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -93,6 +97,37 @@ export default function BuktiPembayaranPage() {
     [orders, pickedOrderId]
   );
 
+  // Filter kandidat sesuai ketikan (no order / nama customer).
+  const filteredCandidates = useMemo(() => {
+    const q = orderSearch.trim().toLowerCase();
+    if (!q) return candidateOrders;
+    return candidateOrders.filter(o =>
+      String(o.no_order || '').toLowerCase().includes(q) ||
+      String(o.customer_nama || '').toLowerCase().includes(q)
+    );
+  }, [candidateOrders, orderSearch]);
+
+  // Tutup dropdown kalau klik di luar.
+  useEffect(() => {
+    if (!orderOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (orderBoxRef.current && !orderBoxRef.current.contains(e.target as Node)) setOrderOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [orderOpen]);
+
+  function pickOrder(o: Row) {
+    setPickedOrderId(String(o.id));
+    setOrderSearch(`${o.no_order} · ${o.customer_nama || '-'}`);
+    setOrderOpen(false);
+  }
+  function clearPickedOrder() {
+    setPickedOrderId('');
+    setOrderSearch('');
+    setOrderOpen(false);
+  }
+
   // Pre-fill keterangan tanpa DP kalau order sudah pernah di-save
   // dengan keterangan (biar CS Order bisa edit/lihat lagi).
   useEffect(() => {
@@ -127,11 +162,24 @@ export default function BuktiPembayaranPage() {
 
     relevant.sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
 
+    // Dedupe: buang baris dp_produksi kembar (urutan sama) — kadang ada row
+    // duplikat tertinggal di order_payments (mis. dibuat 2x). Prioritaskan
+    // row yang SUDAH punya bukti_tf; kalau sama, ambil yang pertama.
+    const byUrutan = new Map<number, Row>();
+    for (const p of relevant) {
+      const key = Number(p.urutan) || 0;
+      const ex = byUrutan.get(key);
+      if (!ex) { byUrutan.set(key, p); continue; }
+      if (!ex.bukti_tf && p.bukti_tf) byUrutan.set(key, p);
+    }
+    const deduped = Array.from(byUrutan.values())
+      .sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+
     // Roman numeral untuk penamaan DP Produksi #II/#III/dst (row I di
     // schedule konseptual adalah DP Desain, sudah dihandle di CS Selling).
     const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
     setRows(
-      relevant.map(p => {
+      deduped.map(p => {
         const idxProduksi = Number(p.urutan) || 0;
         const label = `DP Produksi #${roman[idxProduksi + 1] || String(idxProduksi + 2)}`;
         const isCash = String(p.method || '').toUpperCase() === 'CASH';
@@ -353,6 +401,7 @@ export default function BuktiPembayaranPage() {
       toast.success('Bukti Pembayaran Tersimpan',
         `${pickedOrder.no_order} diteruskan ke Approval Finance untuk review invoice.`);
       setPickedOrderId('');
+      setOrderSearch('');
       await fetchAll();
     } catch (e) {
       toast.error('Gagal Menyimpan', String(e));
@@ -387,19 +436,42 @@ export default function BuktiPembayaranPage() {
           <label className="block text-sm font-medium text-white mb-1.5">
             Pilih Order <span className="text-rose-400">*</span>
           </label>
-          <select
-            value={pickedOrderId}
-            onChange={e => setPickedOrderId(e.target.value)}
-            className={`${inputCls} appearance-none cursor-pointer`}
-            disabled={loading}
-          >
-            <option value="">— Pilih customer / no order —</option>
-            {candidateOrders.map(o => (
-              <option key={o.id} value={o.id}>
-                {o.no_order} · {o.customer_nama || '-'}
-              </option>
-            ))}
-          </select>
+          <div ref={orderBoxRef} className="relative">
+            <input
+              type="text"
+              value={orderSearch}
+              onChange={e => { setOrderSearch(e.target.value); setOrderOpen(true); }}
+              onFocus={() => setOrderOpen(true)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); if (filteredCandidates[0]) pickOrder(filteredCandidates[0]); }
+                else if (e.key === 'Escape') setOrderOpen(false);
+              }}
+              placeholder="Ketik no order / nama customer…"
+              disabled={loading}
+              autoComplete="off"
+              className={`${inputCls} pr-9`}
+            />
+            {pickedOrderId ? (
+              <button type="button" onClick={clearPickedOrder} title="Hapus pilihan"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            ) : (
+              <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            )}
+            {orderOpen && !loading && (
+              <div className="absolute z-30 mt-1 w-full max-h-72 overflow-y-auto bg-[#0d1117] border border-white/10 rounded-lg shadow-xl">
+                {filteredCandidates.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-xs text-slate-500">Tidak ada order cocok</div>
+                ) : filteredCandidates.map(o => (
+                  <button key={o.id} type="button" onClick={() => pickOrder(o)}
+                    className={`w-full text-left px-3 py-2 text-sm transition-colors ${String(o.id) === pickedOrderId ? 'bg-blue-600/20 text-blue-300' : 'text-slate-300 hover:bg-white/[0.04]'}`}>
+                    {o.no_order} · {o.customer_nama || '-'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {!loading && candidateOrders.length === 0 && (
             <p className="text-[11px] text-slate-500 mt-1.5">
               Tidak ada order yang menunggu upload bukti. Order muncul di sini setelah CS Order menyimpan Rincian Order dan sebelum Finance approve invoice.
@@ -474,7 +546,7 @@ export default function BuktiPembayaranPage() {
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button onClick={() => setPickedOrderId('')} disabled={saving}
+            <button onClick={clearPickedOrder} disabled={saving}
               className="text-sm font-medium text-slate-400 hover:text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
               Batal
             </button>
@@ -648,7 +720,7 @@ export default function BuktiPembayaranPage() {
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button onClick={() => setPickedOrderId('')} disabled={saving}
+            <button onClick={clearPickedOrder} disabled={saving}
               className="text-sm font-medium text-slate-400 hover:text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
               Batal
             </button>
