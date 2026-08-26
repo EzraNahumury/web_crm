@@ -77,6 +77,23 @@ export default function BuktiPembayaranPage() {
   //   • Order yang sudah upload bukti tapi ditolak Finance
   //     (finance_status === 'REJECTED') — perlu re-upload dengan bukti
   //     baru. Catatan Finance tampil di form supaya CS tahu alasannya.
+  // Order yang MASIH punya DP Produksi tanpa bukti TF (proof belum lengkap).
+  // Kasus: order sudah di-approve Finance lewat jalur "tanpa DP" / DP diisi
+  // belakangan, jadi bukti_uploaded=1 tapi bukti transfernya belum ada.
+  // Order begini tetap harus bisa dipilih di sini supaya CS bisa lengkapi.
+  const ordersNeedingProof = useMemo(() => {
+    const s = new Set<number>();
+    for (const p of payments) {
+      if (String(p.tipe) !== 'dp_produksi') continue;
+      const amt = Number(p.amount) || (Number(p.tunai) || 0) + (Number(p.trf) || 0);
+      if (amt <= 0) continue;
+      const isCash = String(p.method || '').toUpperCase() === 'CASH';
+      const hasProof = p.bukti_tf && String(p.bukti_tf).trim();
+      if (!isCash && !hasProof) s.add(Number(p.order_id));
+    }
+    return s;
+  }, [payments]);
+
   const candidateOrders = useMemo(() => {
     return orders
       .filter(o => {
@@ -87,10 +104,13 @@ export default function BuktiPembayaranPage() {
         if (via !== 'CS_SELLING') return false;
         if (st === 'SELLING' || st === 'DONE') return false;
         if (fs === 'REJECTED') return true; // ditolak Finance → re-upload
-        return bu !== 1;
+        if (bu !== 1) return true;          // belum upload → wajib tampil
+        // Sudah upload (bu=1) TAPI masih ada DP Produksi tanpa bukti TF →
+        // tetap tampilkan supaya CS bisa melengkapi buktinya.
+        return ordersNeedingProof.has(Number(o.id));
       })
       .sort((a, b) => Number(b.id) - Number(a.id));
-  }, [orders]);
+  }, [orders, ordersNeedingProof]);
 
   const pickedOrder = useMemo(
     () => orders.find(o => String(o.id) === pickedOrderId) || null,
@@ -286,28 +306,33 @@ export default function BuktiPembayaranPage() {
 
       // Flip bukti_uploaded=1 + reset finance_status so Approval Finance
       // gets the order into its Menunggu tab for full-invoice review.
+      // KECUALI order yang sudah APPROVED (kasus melengkapi bukti belakangan):
+      // pertahankan APPROVED supaya tidak dilempar balik ke antrian Finance.
       // Legacy DB without bukti_uploaded column: fall back gracefully.
       const buktiNotesFinal = !hasDp ? keteranganTanpaDp.trim() : null;
+      const wasApproved = String(pickedOrder.finance_status || '').toUpperCase() === 'APPROVED';
+      const financeStatusAfter = wasApproved ? 'APPROVED' : null;
+      const financeNotesAfter = wasApproved ? (pickedOrder.finance_notes ?? null) : null;
       try {
         await dbUpdate('orders', Number(pickedOrder.id), {
           bukti_uploaded: 1,
           bukti_notes: buktiNotesFinal,
-          finance_status: null,
-          finance_notes: null,
+          finance_status: financeStatusAfter,
+          finance_notes: financeNotesAfter,
         });
       } catch (err) {
         console.warn('orders update with bukti_uploaded/bukti_notes failed, retrying:', err);
         try {
           await dbUpdate('orders', Number(pickedOrder.id), {
             bukti_uploaded: 1,
-            finance_status: null,
-            finance_notes: null,
+            finance_status: financeStatusAfter,
+            finance_notes: financeNotesAfter,
           });
         } catch {
           try {
             await dbUpdate('orders', Number(pickedOrder.id), {
-              finance_status: null,
-              finance_notes: null,
+              finance_status: financeStatusAfter,
+              finance_notes: financeNotesAfter,
             });
             toast.warning('Kolom bukti_uploaded / bukti_notes Belum Ada',
               'Jalankan /api/admin/run-migrations lalu ulangi simpan.');
