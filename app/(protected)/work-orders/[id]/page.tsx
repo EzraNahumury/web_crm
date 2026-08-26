@@ -280,8 +280,6 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
   // dimensi px EKSPLISIT. html2canvas mengabaikan object-fit + salah resolve
   // max-height:100% → gambar bisa ke-stretch/gepeng. Dengan px eksplisit hasil
   // fit-rasio, gambar SELALU proporsional & ukurannya konsisten antar-WO.
-  const DESAIN_BOX = { w: 320, h: 210 };
-  const PATTERN_BOX = { w: 560, h: 700 };
   const fitImg = (src: string, natW: number, natH: number, box: { w: number; h: number }) => {
     if (natW > 0 && natH > 0) {
       const scale = Math.min(box.w / natW, box.h / natH);
@@ -293,9 +291,33 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     // tetap terjaga di browser (path non-html2canvas).
     return `<img src="${src}" style="max-width:100%;max-height:${box.h}px;width:auto;height:auto;object-fit:contain;display:block;margin:auto"/>`;
   };
+
+  // ── DESAIN MOCK UP — lebar KOLOM KIRI menyesuaikan gambar (melebar kalau
+  // gambar lebar) tanpa distorsi, seperti template lama. Tinggi desain fixed &
+  // besar; lebar gambar = natural pada tinggi itu; lebar kolom = lebar gambar
+  // (clamp min/max supaya tabel bahan tetap kebaca & pattern tidak habis).
+  const DESAIN_H = 340, DESAIN_COL_MIN = 360, DESAIN_COL_MAX = 600, DESAIN_PAD = 12;
+  const dNatW = Number(spec.desain_w) || 0, dNatH = Number(spec.desain_h) || 0;
+  let desainImgW = 0, desainImgH = 0;
+  if (dNatW > 0 && dNatH > 0) {
+    desainImgH = DESAIN_H;
+    desainImgW = Math.round(dNatW * (DESAIN_H / dNatH));
+    const maxInner = DESAIN_COL_MAX - DESAIN_PAD;
+    if (desainImgW > maxInner) { desainImgW = maxInner; desainImgH = Math.round(dNatH * (maxInner / dNatW)); }
+  }
+  const desainColW = desainImgW > 0
+    ? Math.min(DESAIN_COL_MAX, Math.max(DESAIN_COL_MIN, desainImgW + DESAIN_PAD))
+    : DESAIN_COL_MIN;
+  const desainBoxH = (desainImgH > 0 ? desainImgH : DESAIN_H) + 8;
   const desainImg = spec.dokumen_desain
-    ? fitImg(String(spec.dokumen_desain), Number(spec.desain_w) || 0, Number(spec.desain_h) || 0, DESAIN_BOX)
+    ? (desainImgW > 0
+        ? `<img src="${spec.dokumen_desain}" width="${desainImgW}" height="${desainImgH}" style="display:block;margin:auto;width:${desainImgW}px;height:${desainImgH}px"/>`
+        : `<img src="${spec.dokumen_desain}" style="max-width:100%;max-height:${DESAIN_H}px;width:auto;height:auto;object-fit:contain;display:block;margin:auto"/>`)
     : `<div style="color:#94a3b8;font-size:11px;text-align:center;padding:80px 0">— gambar desain —</div>`;
+  // Lebar kotak pattern = sisa kolom tengah setelah kolom desain melebar
+  // (grid = desainColW | 1fr | 240). Tanpa ini, kalau desain lebar, pattern
+  // bisa overflow kolomnya. ~914 = lebar konten dalam dikurangi border/padding.
+  const PATTERN_BOX = { w: Math.max(250, 914 - desainColW), h: 700 };
   const patternImg = spec.dokumen_pattern
     ? fitImg(String(spec.dokumen_pattern), Number(spec.pattern_w) || 0, Number(spec.pattern_h) || 0, PATTERN_BOX)
     : `<div style="color:#94a3b8;font-size:11px;text-align:center;padding:150px 0">— gambar pattern —</div>`;
@@ -353,14 +375,15 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     </div>
   </div>
 
-  <!-- Main 3-column grid: [340 | 1fr | 240] -->
-  <div style="display:grid;grid-template-columns:340px 1fr 240px">
+  <!-- Main 3-column grid: [desainColW (adaptif) | 1fr | 240] -->
+  <div style="display:grid;grid-template-columns:${desainColW}px 1fr 240px">
     <!-- ─── LEFT COLUMN ─── -->
     <div style="border-right:2px solid #000;display:flex;flex-direction:column">
       <!-- DESAIN MOCK UP header -->
       <div style="background:#065f46;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">DESAIN MOCK UP</div>
-      <!-- Image — kotak FIXED height, gambar contain-fit di dalamnya. -->
-      <div style="border-bottom:2px solid #000;background:#fff;height:220px;display:flex;align-items:center;justify-content:center;padding:4px">
+      <!-- Image — tinggi kotak mengikuti tinggi gambar; lebar kolom sudah
+           menyesuaikan gambar di grid-template. -->
+      <div style="border-bottom:2px solid #000;background:#fff;height:${desainBoxH}px;display:flex;align-items:center;justify-content:center;padding:4px">
         ${desainImg}
       </div>
       <!-- DEADLINE full-width row -->
