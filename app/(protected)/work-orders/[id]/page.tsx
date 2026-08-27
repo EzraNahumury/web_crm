@@ -287,9 +287,9 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       const h = Math.max(1, Math.round(natH * scale));
       return `<img src="${src}" width="${w}" height="${h}" style="display:block;margin:auto;width:${w}px;height:${h}px"/>`;
     }
-    // Fallback (dimensi tak diketahui): batasi lebar + tinggi auto, aspek
-    // tetap terjaga di browser (path non-html2canvas).
-    return `<img src="${src}" style="max-width:100%;max-height:${box.h}px;width:auto;height:auto;object-fit:contain;display:block;margin:auto"/>`;
+    // Fallback (dimensi tak diketahui): batasi SATU sisi saja (tinggi) supaya
+    // html2canvas tidak men-stretch. object-fit/dua-max diabaikan html2canvas.
+    return `<img src="${src}" style="max-height:${box.h}px;width:auto;height:auto;display:block;margin:auto"/>`;
   };
 
   // ── DESAIN MOCK UP — lebar KOLOM KIRI menyesuaikan gambar (melebar kalau
@@ -312,7 +312,7 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
   const desainImg = spec.dokumen_desain
     ? (desainImgW > 0
         ? `<img src="${spec.dokumen_desain}" width="${desainImgW}" height="${desainImgH}" style="display:block;margin:auto;width:${desainImgW}px;height:${desainImgH}px"/>`
-        : `<img src="${spec.dokumen_desain}" style="max-width:100%;max-height:${DESAIN_H}px;width:auto;height:auto;object-fit:contain;display:block;margin:auto"/>`)
+        : `<img src="${spec.dokumen_desain}" style="max-width:100%;height:auto;display:block;margin:auto"/>`)
     : `<div style="color:#94a3b8;font-size:11px;text-align:center;padding:80px 0">— gambar desain —</div>`;
   // Lebar kotak pattern = sisa kolom tengah setelah kolom desain melebar
   // (grid = desainColW | 1fr | 240). Tanpa ini, kalau desain lebar, pattern
@@ -382,8 +382,9 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       <!-- DESAIN MOCK UP header -->
       <div style="background:#065f46;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">DESAIN MOCK UP</div>
       <!-- Image — tinggi kotak mengikuti tinggi gambar; lebar kolom sudah
-           menyesuaikan gambar di grid-template. -->
-      <div style="border-bottom:2px solid #000;background:#fff;height:${desainBoxH}px;display:flex;align-items:center;justify-content:center;padding:4px">
+           menyesuaikan gambar di grid-template. min-height supaya gambar tinggi
+           (fallback) tidak ke-clip. -->
+      <div style="border-bottom:2px solid #000;background:#fff;min-height:${desainBoxH}px;display:flex;align-items:center;justify-content:center;padding:4px">
         ${desainImg}
       </div>
       <!-- DEADLINE full-width row -->
@@ -1106,13 +1107,18 @@ async function preCompressImage(src: string, maxSide = 800): Promise<{ data: str
   if (!src) return { data: src, w: 0, h: 0 };
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // JANGAN set crossOrigin: kalau server tanpa CORS, itu bikin load GAGAL →
+    // dims 0 → fallback gepeng. Tanpa crossOrigin, same-origin tetap bisa
+    // di-compress; cross-origin cuma gagal re-encode (taint) tapi dims tetap
+    // kebaca (di-handle di catch).
     const done = (data: string, w: number, h: number) => { clearTimeout(timer); resolve({ data, w, h }); };
     const timer = setTimeout(() => done(src, 0, 0), 8000);
     img.onload = () => {
+      // Baca dimensi natural DULU (selalu tersedia setelah load, walau nanti
+      // canvas ter-taint) supaya rasio gambar tidak pernah hilang.
+      const nw = img.naturalWidth, nh = img.naturalHeight;
+      if (!nw || !nh) return done(src, 0, 0);
       try {
-        const nw = img.naturalWidth, nh = img.naturalHeight;
-        if (!nw || !nh) return done(src, 0, 0);
         // Data URL kecil: skip re-encode, tapi tetap kembalikan dimensi natural.
         if (src.startsWith('data:') && src.length < 200_000) return done(src, nw, nh);
         let w = nw, h = nh;
@@ -1130,7 +1136,11 @@ async function preCompressImage(src: string, maxSide = 800): Promise<{ data: str
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
         done(canvas.toDataURL('image/jpeg', 0.78), nw, nh);
-      } catch { done(src, 0, 0); }
+      } catch {
+        // Re-encode gagal (mis. canvas ter-taint) — pakai src asli TAPI dims
+        // natural tetap dikembalikan supaya PDF pakai px eksplisit (tidak gepeng).
+        done(src, nw, nh);
+      }
     };
     img.onerror = () => done(src, 0, 0);
     img.src = src;
