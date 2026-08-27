@@ -292,23 +292,25 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     return `<img src="${src}" style="max-height:${box.h}px;width:auto;height:auto;display:block;margin:auto"/>`;
   };
 
-  // ── DESAIN MOCK UP — lebar KOLOM KIRI menyesuaikan gambar (melebar kalau
-  // gambar lebar) tanpa distorsi, seperti template lama. Tinggi desain fixed &
-  // besar; lebar gambar = natural pada tinggi itu; lebar kolom = lebar gambar
-  // (clamp min/max supaya tabel bahan tetap kebaca & pattern tidak habis).
-  const DESAIN_H = 340, DESAIN_COL_MIN = 360, DESAIN_COL_MAX = 600, DESAIN_PAD = 12;
+  // ── DESAIN MOCK UP — contain-fit gambar ke kotak berukuran WAJAR (bounded
+  // di lebar DAN tinggi). JANGAN fix tinggi lalu biarkan lebar bebas: desain
+  // "atasan saja" (2 jersey sebelahan = lebar) akan meledak jadi kolom segede
+  // setengah halaman. Lebar kolom kiri ikut lebar gambar hasil fit, tapi
+  // di-clamp KETAT supaya tidak mendominasi & seragam antar-WO (full-set vs
+  // atasan-saja). Aspek terjaga (px eksplisit) → tidak pernah gepeng.
+  const DESAIN_BOX = { w: 380, h: 340 };
+  const DESAIN_COL_MIN = 360, DESAIN_COL_MAX = 400, DESAIN_PAD = 14;
   const dNatW = Number(spec.desain_w) || 0, dNatH = Number(spec.desain_h) || 0;
   let desainImgW = 0, desainImgH = 0;
   if (dNatW > 0 && dNatH > 0) {
-    desainImgH = DESAIN_H;
-    desainImgW = Math.round(dNatW * (DESAIN_H / dNatH));
-    const maxInner = DESAIN_COL_MAX - DESAIN_PAD;
-    if (desainImgW > maxInner) { desainImgW = maxInner; desainImgH = Math.round(dNatH * (maxInner / dNatW)); }
+    const scale = Math.min(DESAIN_BOX.w / dNatW, DESAIN_BOX.h / dNatH);
+    desainImgW = Math.max(1, Math.round(dNatW * scale));
+    desainImgH = Math.max(1, Math.round(dNatH * scale));
   }
   const desainColW = desainImgW > 0
     ? Math.min(DESAIN_COL_MAX, Math.max(DESAIN_COL_MIN, desainImgW + DESAIN_PAD))
     : DESAIN_COL_MIN;
-  const desainBoxH = (desainImgH > 0 ? desainImgH : DESAIN_H) + 8;
+  const desainBoxH = (desainImgH > 0 ? desainImgH : DESAIN_BOX.h) + 8;
   const desainImg = spec.dokumen_desain
     ? (desainImgW > 0
         ? `<img src="${spec.dokumen_desain}" width="${desainImgW}" height="${desainImgH}" style="display:block;margin:auto;width:${desainImgW}px;height:${desainImgH}px"/>`
