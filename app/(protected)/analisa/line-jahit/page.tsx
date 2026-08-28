@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { dbGet } from '@/lib/api-db';
+import { dbGet, dbDelete } from '@/lib/api-db';
+import { useToast } from '@/lib/toast';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
@@ -99,6 +100,7 @@ export default function AnalisaLineJahitPage() {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeMenu, setActiveMenu] = useState<SubMenu>('line-jahit');
+  const toast = useToast();
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -128,6 +130,25 @@ export default function AnalisaLineJahitPage() {
   }, [month]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Hapus 1 baris kedatangan penjahit (kalau salah input). Konfirmasi dulu,
+  // lalu refetch supaya total gaji ikut ke-update.
+  const handleDeleteAttendance = useCallback(async (id: number) => {
+    const yes = await toast.confirm({
+      title: 'Hapus Kedatangan?',
+      message: 'Baris kedatangan penjahit ini akan dihapus permanen dan total gaji dihitung ulang.',
+      type: 'danger',
+      confirmText: 'Ya, Hapus',
+    });
+    if (!yes) return;
+    try {
+      await dbDelete('penjahit_attendance', id);
+      toast.success('Dihapus', 'Baris kedatangan berhasil dihapus.');
+      await fetchAll();
+    } catch (e) {
+      toast.error('Gagal Menghapus', String(e));
+    }
+  }, [toast, fetchAll]);
 
   const monthLabel = useMemo(() => {
     const [y, m] = month.split('-').map(Number);
@@ -463,7 +484,7 @@ export default function AnalisaLineJahitPage() {
       )}
 
       {activeMenu === 'kedatangan' && (
-        <KedatanganReadOnlyView monthLabel={monthLabel} attendance={attendance} />
+        <KedatanganReadOnlyView monthLabel={monthLabel} attendance={attendance} onDelete={handleDeleteAttendance} />
       )}
 
       {activeMenu === 'grafik' && (
@@ -500,9 +521,10 @@ function FragmentRow({ paket, palette, atasan, celana }: {
   );
 }
 
-function KedatanganReadOnlyView({ monthLabel, attendance }: {
+function KedatanganReadOnlyView({ monthLabel, attendance, onDelete }: {
   monthLabel: string;
   attendance: Attendance[];
+  onDelete: (id: number) => void;
 }) {
   const totalStandar = attendance.reduce((s, r) => s + (Number(r.jumlah_standar) || 0), 0);
   const totalSpecial = attendance.reduce((s, r) => s + (Number(r.jumlah_special) || 0), 0);
@@ -541,12 +563,13 @@ function KedatanganReadOnlyView({ monthLabel, attendance }: {
                   <th className="bg-violet-50 border border-slate-300 px-2 py-1.5 text-center font-semibold">Standar</th>
                   <th className="bg-violet-50 border border-slate-300 px-2 py-1.5 text-center font-semibold">Special</th>
                   <th className="bg-violet-100 border border-slate-300 px-2 py-1.5 text-right font-semibold">Gaji Hari Itu</th>
+                  <th className="bg-violet-100 border border-slate-300 px-2 py-1.5 text-center font-semibold">Delete</th>
                 </tr>
               </thead>
               <tbody>
                 {attendance.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="border border-slate-300 px-3 py-6 text-center text-xs text-slate-500">
+                    <td colSpan={5} className="border border-slate-300 px-3 py-6 text-center text-xs text-slate-500">
                       Belum ada catatan kedatangan bulan ini.
                     </td>
                   </tr>
@@ -561,6 +584,17 @@ function KedatanganReadOnlyView({ monthLabel, attendance }: {
                         <td className="border border-slate-300 px-2 py-1.5 text-center tabular-nums">{nS > 0 ? nS : <span className="text-slate-300">—</span>}</td>
                         <td className="border border-slate-300 px-2 py-1.5 text-center tabular-nums">{nSp > 0 ? nSp : <span className="text-slate-300">—</span>}</td>
                         <td className="border border-slate-300 px-2 py-1.5 text-right tabular-nums font-semibold text-emerald-700">{fmtRupiah(gaji)}</td>
+                        <td className="border border-slate-300 px-2 py-1.5 text-center">
+                          <button
+                            onClick={() => onDelete(r.id)}
+                            title="Hapus baris kedatangan ini"
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-md text-rose-600 hover:text-white hover:bg-rose-500 border border-rose-200 hover:border-rose-500 transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                            </svg>
+                          </button>
+                        </td>
                       </tr>
                     );
                   })
@@ -573,6 +607,7 @@ function KedatanganReadOnlyView({ monthLabel, attendance }: {
                     <td className="border border-slate-400 px-2 py-2 text-center tabular-nums">{totalStandar}</td>
                     <td className="border border-slate-400 px-2 py-2 text-center tabular-nums">{totalSpecial}</td>
                     <td className="border border-slate-400 px-2 py-2 text-right tabular-nums text-emerald-800">{fmtRupiah(grandGaji)}</td>
+                    <td className="border border-slate-400 px-2 py-2"></td>
                   </tr>
                 </tfoot>
               )}
