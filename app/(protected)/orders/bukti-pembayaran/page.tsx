@@ -81,18 +81,28 @@ export default function BuktiPembayaranPage() {
   // Kasus: order sudah di-approve Finance lewat jalur "tanpa DP" / DP diisi
   // belakangan, jadi bukti_uploaded=1 tapi bukti transfernya belum ada.
   // Order begini tetap harus bisa dipilih di sini supaya CS bisa lengkapi.
+  //
+  // PENTING: gate ke SCALAR orders.dp_produksi > 0 (sumber kebenaran DP
+  // Produksi, sama dengan logika build rows). Tanpa gate ini, order "tanpa DP
+  // Produksi" (scalar 0) yang punya baris dp_produksi BASI di order_payments
+  // — mis. sisa dari "DP Desain jadi DP Produksi" — akan salah muncul lagi
+  // walau sudah di-approve Finance.
   const ordersNeedingProof = useMemo(() => {
+    const dpScalar = new Map<number, number>();
+    for (const o of orders) dpScalar.set(Number(o.id), Number(o.dp_produksi) || 0);
     const s = new Set<number>();
     for (const p of payments) {
       if (String(p.tipe) !== 'dp_produksi') continue;
+      const oid = Number(p.order_id);
+      if ((dpScalar.get(oid) || 0) <= 0) continue; // order tanpa DP Produksi → abaikan baris basi
       const amt = Number(p.amount) || (Number(p.tunai) || 0) + (Number(p.trf) || 0);
       if (amt <= 0) continue;
       const isCash = String(p.method || '').toUpperCase() === 'CASH';
       const hasProof = p.bukti_tf && String(p.bukti_tf).trim();
-      if (!isCash && !hasProof) s.add(Number(p.order_id));
+      if (!isCash && !hasProof) s.add(oid);
     }
     return s;
-  }, [payments]);
+  }, [payments, orders]);
 
   const candidateOrders = useMemo(() => {
     return orders
@@ -104,10 +114,14 @@ export default function BuktiPembayaranPage() {
         if (via !== 'CS_SELLING') return false;
         if (st === 'SELLING' || st === 'DONE') return false;
         if (fs === 'REJECTED') return true; // ditolak Finance → re-upload
-        if (bu !== 1) return true;          // belum upload → wajib tampil
-        // Sudah upload (bu=1) TAPI masih ada DP Produksi tanpa bukti TF →
-        // tetap tampilkan supaya CS bisa melengkapi buktinya.
-        return ordersNeedingProof.has(Number(o.id));
+        const needsProof = ordersNeedingProof.has(Number(o.id));
+        // Sudah di-approve Finance → SELESAI. Cuma muncul lagi kalau memang
+        // masih ada DP Produksi (scalar > 0) yang belum ada bukti TF-nya.
+        // Order "tanpa DP Produksi" yang sudah approve TIDAK boleh muncul lagi.
+        if (fs === 'APPROVED') return needsProof;
+        if (bu !== 1) return true;          // belum upload sama sekali → wajib tampil
+        // Sudah upload, nunggu Finance → tampil hanya kalau masih kurang bukti.
+        return needsProof;
       })
       .sort((a, b) => Number(b.id) - Number(a.id));
   }, [orders, ordersNeedingProof]);
