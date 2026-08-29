@@ -4,6 +4,7 @@ import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { Pagination, paginate } from '@/lib/pagination';
 import { DEFAULT_NB_TEMPLATE, NB_TEMPLATE_KEY } from '@/lib/nb-template';
+import { fetchWilayah } from '@/lib/wilayah';
 
 /* ═══ Tab config ═══ */
 // Note: 'customer' tab dilepas — customer master sekarang cuma di
@@ -422,8 +423,7 @@ function ModalForm({ tab, open, onClose, onSave, saving, jabatanList, tipeBarang
 }
 
 /* ═══ Region cascading dropdowns ═══ */
-const REGION_API = 'https://www.emsifa.com/api-wilayah-indonesia/api';
-
+// Sumber wilayah: wilayah.id (38 provinsi, ter-update). Lihat lib/wilayah.ts.
 interface RegionItem { id: string; name: string }
 
 function RegionFields({ form, set }: { form: Row; set: (k: string, v: string) => void }) {
@@ -438,7 +438,7 @@ function RegionFields({ form, set }: { form: Row; set: (k: string, v: string) =>
   const [distId, setDistId] = useState('');
 
   useEffect(() => {
-    fetch(`${REGION_API}/provinces.json`).then(r => r.json()).then(setProvinces).catch(() => {});
+    fetchWilayah('provinces').then(setProvinces);
   }, []);
 
   const handleProvince = (id: string) => {
@@ -449,7 +449,7 @@ function RegionFields({ form, set }: { form: Row; set: (k: string, v: string) =>
     setDistId(''); set('kecamatan', '');
     set('desa_kelurahan', '');
     setCities([]); setDistricts([]); setVillages([]);
-    if (id) fetch(`${REGION_API}/regencies/${id}.json`).then(r => r.json()).then(setCities).catch(() => {});
+    if (id) fetchWilayah('regencies', id).then(setCities);
   };
 
   const handleCity = (id: string) => {
@@ -459,7 +459,7 @@ function RegionFields({ form, set }: { form: Row; set: (k: string, v: string) =>
     setDistId(''); set('kecamatan', '');
     set('desa_kelurahan', '');
     setDistricts([]); setVillages([]);
-    if (id) fetch(`${REGION_API}/districts/${id}.json`).then(r => r.json()).then(setDistricts).catch(() => {});
+    if (id) fetchWilayah('districts', id).then(setDistricts);
   };
 
   const handleDistrict = (id: string) => {
@@ -468,7 +468,7 @@ function RegionFields({ form, set }: { form: Row; set: (k: string, v: string) =>
     set('kecamatan', name);
     set('desa_kelurahan', '');
     setVillages([]);
-    if (id) fetch(`${REGION_API}/villages/${id}.json`).then(r => r.json()).then(setVillages).catch(() => {});
+    if (id) fetchWilayah('villages', id).then(setVillages);
   };
 
   const handleVillage = (id: string) => {

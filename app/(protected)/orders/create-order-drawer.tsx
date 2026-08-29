@@ -5,28 +5,26 @@ import { dbGet, dbCreate, dbUpdate } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
 import { sha256Hex } from '@/lib/hash';
+import { fetchWilayah, type Wilayah, type WilayahLevel } from '@/lib/wilayah';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-// API Wilayah Indonesia
-const WILAYAH_API = 'https://www.emsifa.com/api-wilayah-indonesia/api';
-
-interface Wilayah { id: string; name: string }
-
-function useWilayah(level: string, parentId?: string) {
+// API Wilayah Indonesia — wilayah.id (38 provinsi, ter-update). Lihat lib/wilayah.ts.
+function useWilayah(level: WilayahLevel, parentId?: string) {
   const [data, setData] = useState<Wilayah[]>([]);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
-    if (level === 'provinces') {
+    let cancelled = false;
+    if (level === 'provinces' || parentId) {
       setLoading(true);
-      fetch(`${WILAYAH_API}/provinces.json`).then(r => r.json()).then(setData).catch(() => {}).finally(() => setLoading(false));
-    } else if (parentId) {
-      setLoading(true);
-      fetch(`${WILAYAH_API}/${level}/${parentId}.json`).then(r => r.json()).then(setData).catch(() => {}).finally(() => setLoading(false));
+      fetchWilayah(level, parentId)
+        .then(d => { if (!cancelled) setData(d); })
+        .finally(() => { if (!cancelled) setLoading(false); });
     } else {
       setData([]);
     }
+    return () => { cancelled = true; };
   }, [level, parentId]);
   return { data, loading };
 }

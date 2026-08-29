@@ -4,23 +4,21 @@ import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
 import { Pagination, paginate } from '@/lib/pagination';
+import { fetchWilayah, type Wilayah, type WilayahLevel } from '@/lib/wilayah';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-const WILAYAH_API = 'https://www.emsifa.com/api-wilayah-indonesia/api';
-interface Wilayah { id: string; name: string }
-
-function useWilayah(level: string, parentId?: string) {
+function useWilayah(level: WilayahLevel, parentId?: string) {
   const [data, setData] = useState<Wilayah[]>([]);
   useEffect(() => {
-    if (level === 'provinces') {
-      fetch(`${WILAYAH_API}/provinces.json`).then(r => r.json()).then(setData).catch(() => {});
-    } else if (parentId) {
-      fetch(`${WILAYAH_API}/${level}/${parentId}.json`).then(r => r.json()).then(setData).catch(() => {});
+    let cancelled = false;
+    if (level === 'provinces' || parentId) {
+      fetchWilayah(level, parentId).then(d => { if (!cancelled) setData(d); });
     } else {
       setData([]);
     }
+    return () => { cancelled = true; };
   }, [level, parentId]);
   return { data };
 }
@@ -302,25 +300,30 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, resellers, 
   // each ID from the loaded list by matching the stored name so the
   // SearchableSelect renders the current selection (and the child levels
   // can cascade). Runs whenever the API list finishes loading.
+  // Cocokkan nama tersimpan ke daftar API secara CASE-INSENSITIVE, lalu
+  // normalisasi ke nama kanonik API. Order lama (emsifa) menyimpan HURUF BESAR
+  // ("ACEH"), wilayah.id pakai Title Case ("Aceh") — tanpa ini dropdown edit
+  // order lama tidak ke-highlight. Data tersimpan tidak diubah kecuali user
+  // memang menyimpan ulang.
   useEffect(() => {
     if (!editOrder || !provinces.length || provId) return;
     if (!provinsi) return;
-    const p = provinces.find(x => x.name === provinsi);
-    if (p) setProvId(p.id);
+    const p = provinces.find(x => x.name.toLowerCase() === provinsi.toLowerCase());
+    if (p) { setProvId(p.id); if (p.name !== provinsi) setProvinsi(p.name); }
   }, [editOrder, provinces, provinsi, provId]);
 
   useEffect(() => {
     if (!editOrder || !regencies.length || kabId) return;
     if (!kabupaten) return;
-    const r = regencies.find(x => x.name === kabupaten);
-    if (r) setKabId(r.id);
+    const r = regencies.find(x => x.name.toLowerCase() === kabupaten.toLowerCase());
+    if (r) { setKabId(r.id); if (r.name !== kabupaten) setKabupaten(r.name); }
   }, [editOrder, regencies, kabupaten, kabId]);
 
   useEffect(() => {
     if (!editOrder || !districts.length || kecId) return;
     if (!kecamatan) return;
-    const d = districts.find(x => x.name === kecamatan);
-    if (d) setKecId(d.id);
+    const d = districts.find(x => x.name.toLowerCase() === kecamatan.toLowerCase());
+    if (d) { setKecId(d.id); if (d.name !== kecamatan) setKecamatan(d.name); }
   }, [editOrder, districts, kecamatan, kecId]);
 
   function reset() {
