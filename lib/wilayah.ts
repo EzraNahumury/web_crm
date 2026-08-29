@@ -8,7 +8,10 @@
 // dinormalisasi ke { id, name } (id = code) supaya kode pemakai tetap sama
 // seperti waktu masih pakai emsifa (yang field-nya id/name).
 
-export const WILAYAH_API = 'https://wilayah.id/api';
+// Lewat proxy same-origin (app/api/wilayah) — bukan langsung ke wilayah.id,
+// karena wilayah.id tidak mengirim header CORS sehingga fetch dari browser
+// diblokir. Proxy meneruskan ke wilayah.id server-side + caching.
+export const WILAYAH_API = '/api/wilayah';
 
 export interface Wilayah { id: string; name: string }
 
