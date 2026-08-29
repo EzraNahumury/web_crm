@@ -115,12 +115,16 @@ export default function BuktiPembayaranPage() {
         if (st === 'SELLING' || st === 'DONE') return false;
         if (fs === 'REJECTED') return true; // ditolak Finance → re-upload
         const needsProof = ordersNeedingProof.has(Number(o.id));
-        // Sudah di-approve Finance → SELESAI. Cuma muncul lagi kalau memang
-        // masih ada DP Produksi (scalar > 0) yang belum ada bukti TF-nya.
-        // Order "tanpa DP Produksi" yang sudah approve TIDAK boleh muncul lagi.
-        if (fs === 'APPROVED') return needsProof;
-        if (bu !== 1) return true;          // belum upload sama sekali → wajib tampil
-        // Sudah upload, nunggu Finance → tampil hanya kalau masih kurang bukti.
+        // Belum pernah upload bukti (bu != 1) → WAJIB tampil. Ini termasuk
+        // kasus normal: DP Desain baru di-approve Finance (finance_status=
+        // 'APPROVED' = gate CS Order baru kebuka) tapi bukti DP Produksi / notes
+        // belum diisi. JANGAN di-exclude gara-gara fs='APPROVED' — itu approval
+        // DP DESAIN dari CS Selling, BUKAN approval invoice final.
+        if (bu !== 1) return true;
+        // Sudah pernah upload bukti (bu=1):
+        // - fs='APPROVED' di sini = invoice final sudah di-approve → SELESAI,
+        //   kecuali masih ada DP Produksi (scalar>0) yang belum ada bukti TF-nya.
+        // - selain itu (nunggu review) → tampil hanya kalau masih kurang bukti.
         return needsProof;
       })
       .sort((a, b) => Number(b.id) - Number(a.id));
