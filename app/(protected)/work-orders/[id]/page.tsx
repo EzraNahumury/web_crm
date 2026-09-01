@@ -2743,18 +2743,32 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       setDeadline(String(fresh.deadline || '').slice(0, 10));
       setDokDesain(fresh.dokumen_desain || null);
       setDokPattern(fresh.dokumen_pattern || null);
-      // Bahan section = 8 baris FIXED. Lookup existing bahan dari
-      // wo_spesifikasi_bahan by bagian name (case-insensitive, via normBagian).
+      // Bahan section = 8 baris FIXED + baris EXTRA (custom) yang pernah
+      // ditambah user (mis. "TEST: RUBBER GARUDA"). WAJIB ikut di-load: save
+      // menghapus semua bahan lama lalu re-insert dari editor, jadi kalau extra
+      // tidak di-load, dia hilang begitu spec di-Edit → Simpan.
       const bahanMap: Record<string, string> = {};
       for (const r of rows) {
         const key = normBagian(String(r.bagian)).toUpperCase();
         bahanMap[key] = String(r.bahan || '');
       }
-      setBahanRows(WO_BAHAN_ROWS.map((bagian, i) => ({
+      const fixedSet = new Set(WO_BAHAN_ROWS.map(b => normBagian(b).toUpperCase()));
+      const fixedRows = WO_BAHAN_ROWS.map((bagian, i) => ({
         id: i + 1,
         bagian,
         bahan: bahanMap[bagian.toUpperCase()] || '',
-      })));
+      }));
+      const extraRows = rows
+        .filter((r: Row) => {
+          const bg = normBagian(String(r.bagian)).toUpperCase();
+          return bg && !fixedSet.has(bg);
+        })
+        .map((r: Row, idx: number) => ({
+          id: WO_BAHAN_ROWS.length + idx + 1,
+          bagian: String(r.bagian || ''),
+          bahan: String(r.bahan || ''),
+        }));
+      setBahanRows([...fixedRows, ...extraRows]);
       setPj(parsePj(fresh.penanggung_jawab_json));
       setEditOpen(true);
     } catch (e) { toast.error('Gagal memuat data', String(e)); }
