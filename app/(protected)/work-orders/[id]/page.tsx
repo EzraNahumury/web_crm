@@ -3915,7 +3915,9 @@ const DEFAULT_WO2_KOLOM: Wo2Col[] = [
   ]},
   { id: 'var_kerah', label: 'VAR KERAH', urutan: 10 },
   { id: 'kerah', label: 'KERAH', urutan: 11 },
-  { id: 'penjahit', label: 'PENJAHIT', urutan: 12 },
+  { id: 'yoks', label: 'YOKS', urutan: 12 },
+  { id: 'tagline', label: 'TAGLINE', urutan: 13 },
+  { id: 'penjahit', label: 'PENJAHIT', urutan: 14 },
 ];
 
 function assignWo2Urutan(cols: Wo2Col[]): Wo2Col[] {
