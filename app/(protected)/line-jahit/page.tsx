@@ -124,7 +124,7 @@ function fmtPoin(n: number): string {
   return val.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 }
 
-type SubMenu = 'line-jahit' | 'kedatangan';
+type SubMenu = 'line-jahit' | 'kedatangan' | 'borongan' | 'cmt';
 
 export default function LineJahitPage() {
   const toast = useToast();
@@ -378,28 +378,59 @@ export default function LineJahitPage() {
         </div>
       </div>
 
-      {/* Sub-menu tabs */}
-      <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#111827] border border-white/[0.06]">
-        <button
-          onClick={() => setActiveMenu('line-jahit')}
-          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            activeMenu === 'line-jahit'
-              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          Line Jahit
-        </button>
-        <button
-          onClick={() => setActiveMenu('kedatangan')}
-          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            activeMenu === 'kedatangan'
-              ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/20'
-              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          Kedatangan Penjahit
-        </button>
+      {/* Sub-menu tabs — grup PENJAHIT INTERNAL (Line Jahit + Kedatangan) di
+          kiri, lalu grup Borongan + CMT. */}
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-widest text-cyan-300/80 mb-1.5 px-1">Penjahit Internal</div>
+          <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#111827] border border-white/[0.06]">
+            <button
+              onClick={() => setActiveMenu('line-jahit')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                activeMenu === 'line-jahit'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+              }`}
+            >
+              Line Jahit
+            </button>
+            <button
+              onClick={() => setActiveMenu('kedatangan')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                activeMenu === 'kedatangan'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+              }`}
+            >
+              Kedatangan Penjahit
+            </button>
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5 px-1">Penjahit Luar</div>
+          <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#111827] border border-white/[0.06]">
+            <button
+              onClick={() => setActiveMenu('borongan')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                activeMenu === 'borongan'
+                  ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+              }`}
+            >
+              Penjahit Borongan
+            </button>
+            <button
+              onClick={() => setActiveMenu('cmt')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                activeMenu === 'cmt'
+                  ? 'bg-rose-600 text-white shadow-lg shadow-rose-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+              }`}
+            >
+              CMT
+            </button>
+          </div>
+        </div>
       </div>
 
       {activeMenu === 'line-jahit' && (
@@ -712,6 +743,13 @@ export default function LineJahitPage() {
 
       {activeMenu === 'kedatangan' && (
         <KedatanganView month={month} onSubmitted={fetchAll} />
+      )}
+
+      {activeMenu === 'borongan' && (
+        <BoronganCmtView table="penjahit_borongan" title="Penjahit Borongan" accent="amber" month={month} paketList={paketList} />
+      )}
+      {activeMenu === 'cmt' && (
+        <BoronganCmtView table="cmt" title="CMT" accent="rose" month={month} paketList={paketList} />
       )}
 
       {editingRow && (
@@ -1211,6 +1249,201 @@ function QtyBlock({
             className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none ${palette.formRing} text-center tabular-nums`}
           />
         </label>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ Penjahit Borongan / CMT — input realisasi per penjahit + WO ═══
+   Sama seperti Line Jahit (penjahit internal) tapi field-nya tanggal, nama
+   penjahit, nama WO, + realisasi qty per paket (kartu QtyBlock). realisasi
+   disimpan sebagai realisasi_json ({prefix_atasan/celana: number}). */
+const BORONGAN_ACCENT: Record<'amber' | 'rose', { btn: string; ring: string }> = {
+  amber: { btn: 'bg-amber-600 hover:bg-amber-500 shadow-amber-500/20', ring: 'focus:border-amber-500/40' },
+  rose: { btn: 'bg-rose-600 hover:bg-rose-500 shadow-rose-500/20', ring: 'focus:border-rose-500/40' },
+};
+
+function parseRealisasi(raw: unknown): Record<string, number> {
+  try {
+    const o = JSON.parse(String(raw || '{}'));
+    return o && typeof o === 'object' ? (o as Record<string, number>) : {};
+  } catch { return {}; }
+}
+
+function BoronganCmtView({ table, title, accent, month, paketList }: {
+  table: 'penjahit_borongan' | 'cmt';
+  title: string;
+  accent: 'amber' | 'rose';
+  month: string;
+  paketList: Paket[];
+}) {
+  const toast = useToast();
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tanggal, setTanggal] = useState('');
+  const [namaPenjahit, setNamaPenjahit] = useState('');
+  const [namaWo, setNamaWo] = useState('');
+  const [qty, setQty] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const a = BORONGAN_ACCENT[accent];
+
+  const monthLabel = (() => {
+    const [y, m] = month.split('-').map(Number);
+    return `${BULAN_ID[(m || 1) - 1]?.toUpperCase() || ''} ${y || ''}`;
+  })();
+
+  const fetchRows = useCallback(async () => {
+    setLoading(true);
+    try {
+      const all = await dbGet<Row>(table).catch(() => []);
+      setRows((all as Row[])
+        .filter(r => String(r.tanggal || '').slice(0, 7) === month)
+        .sort((x, y) => String(y.tanggal).localeCompare(String(x.tanggal)) || Number(y.id) - Number(x.id)));
+    } catch { setRows([]); }
+    setLoading(false);
+  }, [table, month]);
+  useEffect(() => { fetchRows(); }, [fetchRows]);
+
+  async function save() {
+    if (!tanggal) { toast.warning('Validasi', 'Pilih tanggal.'); return; }
+    if (!namaPenjahit.trim()) { toast.warning('Validasi', 'Isi nama penjahit.'); return; }
+    setSaving(true);
+    try {
+      const realisasi: Record<string, number> = {};
+      for (const p of paketList) {
+        realisasi[`${p.kolom_prefix}_atasan`] = Number(qty[`${p.kolom_prefix}_atasan`]) || 0;
+        realisasi[`${p.kolom_prefix}_celana`] = Number(qty[`${p.kolom_prefix}_celana`]) || 0;
+      }
+      await dbCreate(table, {
+        tanggal,
+        nama_penjahit: namaPenjahit.trim(),
+        nama_wo: namaWo.trim(),
+        realisasi_json: JSON.stringify(realisasi),
+      });
+      setNamaPenjahit(''); setNamaWo(''); setQty({});
+      await fetchRows();
+      toast.success('Tersimpan', `${title} tanggal ${fmtDayShort(tanggal)} berhasil disimpan.`);
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
+  async function remove(id: number) {
+    const yes = await toast.confirm({ title: `Hapus ${title}?`, message: 'Baris ini akan dihapus permanen.', type: 'danger', confirmText: 'Ya, Hapus' });
+    if (!yes) return;
+    try { await dbDelete(table, id); await fetchRows(); toast.success('Dihapus', 'Baris berhasil dihapus.'); }
+    catch (e) { toast.error('Gagal', String(e)); }
+  }
+
+  const colSpan = 6 + paketList.length;
+
+  return (
+    <div className="space-y-5">
+      {/* Form input */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-5 space-y-4">
+        <p className="text-sm font-semibold text-white">Tambah {title}</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tanggal *</label>
+            <input type="date" value={tanggal} onChange={e => setTanggal(e.target.value)} min={`${month}-01`} max={`${month}-31`}
+              className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none ${a.ring} date-input`} />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Nama Penjahit *</label>
+            <input type="text" value={namaPenjahit} onChange={e => setNamaPenjahit(e.target.value)} placeholder="Nama penjahit..."
+              className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none ${a.ring}`} />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Nama WO</label>
+            <input type="text" value={namaWo} onChange={e => setNamaWo(e.target.value)} placeholder="No / nama WO..."
+              className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none ${a.ring}`} />
+          </div>
+        </div>
+        <div>
+          <label className="block text-[11px] font-medium text-slate-400 mb-2">Realisasi (qty per paket)</label>
+          <div className="flex flex-wrap gap-3">
+            {paketList.map(p => (
+              <div key={p.id} className="flex-1 min-w-[220px]">
+                <QtyBlock title={p.nama} palette={paketColor(p.urutan)}
+                  atasan={qty[`${p.kolom_prefix}_atasan`] || ''} celana={qty[`${p.kolom_prefix}_celana`] || ''}
+                  onAtasan={v => setQty(pr => ({ ...pr, [`${p.kolom_prefix}_atasan`]: v }))}
+                  onCelana={v => setQty(pr => ({ ...pr, [`${p.kolom_prefix}_celana`]: v }))} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button type="button" onClick={() => { setTanggal(''); setNamaPenjahit(''); setNamaWo(''); setQty({}); }} disabled={saving}
+            className="text-sm font-medium text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 px-4 py-2 rounded-lg transition-colors">Reset</button>
+          <button onClick={save} disabled={saving}
+            className={`inline-flex items-center gap-2 ${a.btn} disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg`}>
+            {saving ? 'Menyimpan...' : `Simpan ${title}`}
+          </button>
+        </div>
+      </div>
+
+      {/* Tabel data */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+        <div className="rounded-t-2xl px-4 py-2 bg-white text-slate-800 border-b border-slate-200 font-bold text-sm tracking-wide">
+          {title.toUpperCase()} · {monthLabel}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm bg-white text-slate-800 border-collapse">
+            <thead>
+              <tr className="text-[11px] text-slate-600 uppercase tracking-wide">
+                <th className="bg-slate-100 border border-slate-300 px-2 py-1.5">No</th>
+                <th className="bg-slate-100 border border-slate-300 px-2 py-1.5">Tanggal</th>
+                <th className="bg-slate-100 border border-slate-300 px-2 py-1.5 text-left">Nama Penjahit</th>
+                <th className="bg-slate-100 border border-slate-300 px-2 py-1.5 text-left">Nama WO</th>
+                {paketList.map(p => (
+                  <th key={p.id} className="bg-slate-50 border border-slate-300 px-2 py-1.5">
+                    {p.nama}
+                    <div className="text-[9px] normal-case font-normal text-slate-400">Atasan / Celana</div>
+                  </th>
+                ))}
+                <th className="bg-slate-100 border border-slate-300 px-2 py-1.5">Total</th>
+                <th className="bg-slate-100 border border-slate-300 px-2 py-1.5">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={colSpan} className="border border-slate-300 px-3 py-6 text-center text-xs text-slate-400">Memuat...</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={colSpan} className="border border-slate-300 px-3 py-6 text-center text-xs text-slate-400">Belum ada data bulan ini.</td></tr>
+              ) : rows.map((r, i) => {
+                const real = parseRealisasi(r.realisasi_json);
+                let totA = 0, totC = 0;
+                for (const p of paketList) {
+                  totA += Number(real[`${p.kolom_prefix}_atasan`]) || 0;
+                  totC += Number(real[`${p.kolom_prefix}_celana`]) || 0;
+                }
+                return (
+                  <tr key={r.id}>
+                    <td className="border border-slate-300 px-2 py-1.5 text-center text-slate-500">{i + 1}</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-center whitespace-nowrap">{fmtDayShort(String(r.tanggal))}</td>
+                    <td className="border border-slate-300 px-2 py-1.5 font-medium">{String(r.nama_penjahit || '')}</td>
+                    <td className="border border-slate-300 px-2 py-1.5">{String(r.nama_wo || '') || <span className="text-slate-300">—</span>}</td>
+                    {paketList.map(p => {
+                      const av = Number(real[`${p.kolom_prefix}_atasan`]) || 0;
+                      const cv = Number(real[`${p.kolom_prefix}_celana`]) || 0;
+                      return (
+                        <td key={p.id} className="border border-slate-300 px-2 py-1.5 text-center tabular-nums">
+                          {av || cv ? `${av} / ${cv}` : <span className="text-slate-300">—</span>}
+                        </td>
+                      );
+                    })}
+                    <td className="border border-slate-300 px-2 py-1.5 text-center font-bold tabular-nums text-emerald-700">{totA + totC}</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-center">
+                      <button onClick={() => remove(Number(r.id))} title="Hapus"
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-rose-600 hover:text-white hover:bg-rose-500 border border-rose-200 hover:border-rose-500 transition-colors">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

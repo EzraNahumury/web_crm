@@ -1505,6 +1505,36 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `deadline_paket_tier` VARCHAR(20) NULL",
     ],
   },
+  {
+    // Penjahit Borongan & CMT — input realisasi jahit per penjahit/WO, mirip
+    // Line Jahit (penjahit internal) tapi per WO + nama penjahit, bukan per
+    // customer. realisasi_json = snapshot qty per paket ({prefix_atasan,
+    // prefix_celana: number}) supaya tidak perlu kolom per paket (paket
+    // dinamis dari line_jahit_paket).
+    name: '076_penjahit_borongan_cmt',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `penjahit_borongan` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`nama_penjahit` VARCHAR(150) NOT NULL DEFAULT ''," +
+        "`nama_wo` VARCHAR(150) NOT NULL DEFAULT ''," +
+        "`realisasi_json` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_borongan_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "CREATE TABLE IF NOT EXISTS `cmt` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`nama_penjahit` VARCHAR(150) NOT NULL DEFAULT ''," +
+        "`nama_wo` VARCHAR(150) NOT NULL DEFAULT ''," +
+        "`realisasi_json` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_cmt_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
