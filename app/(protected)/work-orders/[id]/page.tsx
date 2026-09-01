@@ -3962,13 +3962,36 @@ function moveWo2Item<T>(items: T[], fromIndex: number, toIndex: number, edge: 'b
 
 type UkuranRow = { id: number | null; urutan: number; data: Record<string, string> };
 
+// Kolom template baru yang WAJIB ada di SEMUA WO (termasuk WO lama yang sudah
+// punya wo2_kolom_json tersimpan tanpa kolom ini). Disisipkan sebelum PENJAHIT
+// saat load kalau belum ada — tidak menyentuh data tersimpan (baru persist
+// kalau user klik Simpan). Kalau user pernah sengaja menghapusnya, ya hilang
+// lagi setelah save; tapi kolom ini baru, jadi belum pernah dihapus siapa pun.
+const WO2_REQUIRED_COLS: { id: string; label: string }[] = [
+  { id: 'yoks', label: 'YOKS' },
+  { id: 'tagline', label: 'TAGLINE' },
+];
+
+function ensureWo2RequiredCols(cols: Wo2Col[]): Wo2Col[] {
+  const existing = new Set(cols.map(c => c.id));
+  const missing = WO2_REQUIRED_COLS.filter(c => !existing.has(c.id));
+  if (missing.length === 0) return cols;
+  const next = cols.slice();
+  const penjahitIdx = next.findIndex(c => c.id === 'penjahit');
+  const at = penjahitIdx >= 0 ? penjahitIdx : next.length;
+  next.splice(at, 0, ...missing.map(c => ({ id: c.id, label: c.label, urutan: 0 })));
+  return next;
+}
+
 function parseWo2Kolom(raw: string | null | undefined): Wo2Col[] {
-  if (!raw) return assignWo2Urutan(DEFAULT_WO2_KOLOM.slice());
+  if (!raw) return assignWo2Urutan(ensureWo2RequiredCols(DEFAULT_WO2_KOLOM.slice()));
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) return orderWo2Kolom(parsed as Wo2Col[]);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return assignWo2Urutan(ensureWo2RequiredCols(orderWo2Kolom(parsed as Wo2Col[])));
+    }
   } catch {}
-  return assignWo2Urutan(DEFAULT_WO2_KOLOM.slice());
+  return assignWo2Urutan(ensureWo2RequiredCols(DEFAULT_WO2_KOLOM.slice()));
 }
 
 // Flatten config jadi list leaf keys (untuk header row 2 dan tbody cells).
