@@ -3400,6 +3400,13 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
             const bahanBySpec = allSpecBahan.filter((b: Row) => String(b.spesifikasi_id) === String(spec.id));
             const bahanMap: Record<string, string> = {};
             for (const b of bahanBySpec) bahanMap[normBagian(String(b.bagian)).toUpperCase()] = String(b.bahan || '');
+            // Baris bahan EXTRA (custom, mis. "TEST: RUBBER GARUDA") di luar 8
+            // baris fixed — ditampilkan di bawah baris fixed (mirror PDF).
+            const fixedBahanSet = new Set(WO_BAHAN_ROWS.map(x => normBagian(x).toUpperCase()));
+            const extraBahanRows = bahanBySpec.filter((b: Row) => {
+              const bg = normBagian(String(b.bagian)).toUpperCase();
+              return bg && !fixedBahanSet.has(bg);
+            });
             const pjData = parsePj(spec.penanggung_jawab_json);
             return (
               <div key={spec.id}>
@@ -3449,6 +3456,12 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                           <div key={bagian} className="grid grid-cols-[110px_1fr] border-b border-black">
                             <span className="font-bold px-1.5 py-1 border-r border-black">{bagian}</span>
                             <span className="px-1.5 py-1">{bahanMap[bagian] || ''}</span>
+                          </div>
+                        ))}
+                        {extraBahanRows.map((b: Row, i: number) => (
+                          <div key={`extra-${i}`} className="grid grid-cols-[110px_1fr] border-b border-black">
+                            <span className="font-bold px-1.5 py-1 border-r border-black">{normBagian(String(b.bagian)).toUpperCase()}</span>
+                            <span className="px-1.5 py-1">{String(b.bahan || '')}</span>
                           </div>
                         ))}
                       </div>
