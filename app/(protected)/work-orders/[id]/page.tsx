@@ -349,6 +349,22 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       <span style="padding:5px 6px;font-size:10px;color:#dc2626;font-weight:700">${bahanMap[bagian] || ''}</span>
     </div>`).join('');
 
+  // Baris bahan EXTRA (custom) yang ditambah user di WO1 tapi bukan salah satu
+  // dari 8 baris fixed — mis. "TAMBAHAN: RUBBER LOGO". Sebelumnya ke-drop di PDF
+  // karena hanya WO_BAHAN_ROWS yang diiterasi. Render di bawah baris fixed,
+  // ikut urutan tersimpan.
+  const fixedBahanSet = new Set(WO_BAHAN_ROWS.map(b => normBagian(b).toUpperCase()));
+  const extraBahanHtml = bRows
+    .filter(b => {
+      const bg = normBagian(String(b.bagian)).toUpperCase();
+      return bg && !fixedBahanSet.has(bg);
+    })
+    .map(b => `
+    <div style="display:grid;grid-template-columns:110px 1fr;border-bottom:1px solid #000">
+      <span style="font-weight:800;padding:5px 6px;border-right:1px solid #000;font-size:10px">${escapeHtml(normBagian(String(b.bagian)).toUpperCase())}</span>
+      <span style="padding:5px 6px;font-size:10px;color:#dc2626;font-weight:700">${escapeHtml(String(b.bahan || ''))}</span>
+    </div>`).join('');
+
   // PJ rows rendered sebagai <tr> di dalam right-column table (colspan=2
   // supaya lebar match dengan section header di atasnya). Row-height uniform
   // via vertical-align:middle + line-height 1.3.
@@ -395,7 +411,7 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       </div>
       <!-- Bahan table -->
       <div style="display:flex;flex-direction:column">
-        ${bahanRowsHtml}
+        ${bahanRowsHtml}${extraBahanHtml}
       </div>
       <!-- Keterangan Jahit — kotak besar kosong di bawah bahan (left
            column). Flex-1 supaya isi sisa vertikal space. -->
