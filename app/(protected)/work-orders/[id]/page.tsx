@@ -3938,8 +3938,10 @@ type Wo2HeaderDrop =
   | { kind: 'column'; id: string; edge: 'before' | 'after' }
   | { kind: 'child'; parentId: string; id: string; edge: 'before' | 'after' };
 
-// Kolom default = 13 kolom sesuai template Excel AYRES. id nya match
-// nama kolom legacy di wo_ukuran_tim supaya value existing tetap ke-read.
+// Kolom default = template Excel AYRES lengkap. id nya match nama kolom legacy
+// di wo_ukuran_tim supaya value existing tetap ke-read. KERAH sekarang grup
+// (KEMBEN/VAR/DAUN) — id `kerah` & `var_kerah` di-reuse jadi child KEMBEN & VAR
+// supaya data lama tidak hilang.
 const DEFAULT_WO2_KOLOM: Wo2Col[] = [
   { id: 'nama', label: 'NAMA', urutan: 1 },
   { id: 'np', label: 'NP', urutan: 2 },
@@ -3948,19 +3950,27 @@ const DEFAULT_WO2_KOLOM: Wo2Col[] = [
   { id: 'ket2', label: 'KET', urutan: 5 },
   { id: 'bd', label: 'BD', urutan: 6 },
   { id: 'bb', label: 'BB', urutan: 7 },
-  { id: 'lengan', label: 'LENGAN', urutan: 8, children: [
+  { id: 'var_samping', label: 'VAR SAMPING', urutan: 8, children: [
+    { id: 'var_samping_kanan', label: 'KANAN', urutan: 1 },
+    { id: 'var_samping_kiri', label: 'KIRI', urutan: 2 },
+  ]},
+  { id: 'lengan', label: 'LENGAN', urutan: 9, children: [
     { id: 'lengan_kanan', label: 'KANAN', urutan: 1 },
     { id: 'lengan_kiri', label: 'KIRI', urutan: 2 },
   ]},
-  { id: 'lis_lengan', label: 'LIS LENGAN', urutan: 9, children: [
+  { id: 'lis_lengan', label: 'LIS LENGAN', urutan: 10, children: [
     { id: 'lis_lengan_kanan', label: 'KANAN', urutan: 1 },
     { id: 'lis_lengan_kiri', label: 'KIRI', urutan: 2 },
   ]},
-  { id: 'var_kerah', label: 'VAR KERAH', urutan: 10 },
-  { id: 'kerah', label: 'KERAH', urutan: 11 },
+  { id: 'kerah_grp', label: 'KERAH', urutan: 11, children: [
+    { id: 'kerah', label: 'KEMBEN', urutan: 1 },
+    { id: 'var_kerah', label: 'VAR', urutan: 2 },
+    { id: 'kerah_daun', label: 'DAUN', urutan: 3 },
+  ]},
   { id: 'yoks', label: 'YOKS', urutan: 12 },
   { id: 'tagline', label: 'TAGLINE', urutan: 13 },
-  { id: 'penjahit', label: 'PENJAHIT', urutan: 14 },
+  { id: 'lis_celana', label: 'LIS CELANA', urutan: 14 },
+  { id: 'penjahit', label: 'PENJAHIT', urutan: 15 },
 ];
 
 function assignWo2Urutan(cols: Wo2Col[]): Wo2Col[] {
@@ -4005,24 +4015,58 @@ function moveWo2Item<T>(items: T[], fromIndex: number, toIndex: number, edge: 'b
 
 type UkuranRow = { id: number | null; urutan: number; data: Record<string, string> };
 
-// Kolom template baru yang WAJIB ada di SEMUA WO (termasuk WO lama yang sudah
-// punya wo2_kolom_json tersimpan tanpa kolom ini). Disisipkan sebelum PENJAHIT
-// saat load kalau belum ada — tidak menyentuh data tersimpan (baru persist
-// kalau user klik Simpan). Kalau user pernah sengaja menghapusnya, ya hilang
-// lagi setelah save; tapi kolom ini baru, jadi belum pernah dihapus siapa pun.
-const WO2_REQUIRED_COLS: { id: string; label: string }[] = [
-  { id: 'yoks', label: 'YOKS' },
-  { id: 'tagline', label: 'TAGLINE' },
-];
-
+// Lengkapi layout WO2 tersimpan (WO lama) dengan kolom template baru yang
+// belum ada. In-memory saat load; baru persist kalau user klik Simpan. Data
+// tersimpan tidak disentuh — kolom KERAH bahkan me-reuse id `kerah`/`var_kerah`
+// jadi child KEMBEN/VAR supaya value lama ikut, tanpa hilang.
 function ensureWo2RequiredCols(cols: Wo2Col[]): Wo2Col[] {
-  const existing = new Set(cols.map(c => c.id));
-  const missing = WO2_REQUIRED_COLS.filter(c => !existing.has(c.id));
-  if (missing.length === 0) return cols;
   const next = cols.slice();
-  const penjahitIdx = next.findIndex(c => c.id === 'penjahit');
-  const at = penjahitIdx >= 0 ? penjahitIdx : next.length;
-  next.splice(at, 0, ...missing.map(c => ({ id: c.id, label: c.label, urutan: 0 })));
+  // Cek id di top-level ATAU sebagai child (biar tidak dobel).
+  const idExists = (id: string) =>
+    next.some(c => c.id === id || (c.children ?? []).some(ch => ch.id === id));
+  const insertBefore = (col: Wo2Col, ...beforeIds: string[]) => {
+    let at = -1;
+    for (const bid of beforeIds) { at = next.findIndex(c => c.id === bid); if (at >= 0) break; }
+    if (at < 0) at = next.length;
+    next.splice(at, 0, col);
+  };
+
+  // VAR SAMPING (KANAN/KIRI) — sebelum LENGAN.
+  if (!idExists('var_samping')) {
+    insertBefore(
+      { id: 'var_samping', label: 'VAR SAMPING', urutan: 0, children: [
+        { id: 'var_samping_kanan', label: 'KANAN', urutan: 1 },
+        { id: 'var_samping_kiri', label: 'KIRI', urutan: 2 },
+      ]},
+      'lengan', 'kerah_grp', 'var_kerah', 'kerah', 'yoks', 'penjahit',
+    );
+  }
+
+  // KERAH grup (KEMBEN/VAR/DAUN). Konversi kolom lama standalone `kerah` +
+  // `var_kerah` → 1 parent, id di-reuse jadi child supaya data lama ikut:
+  //   KEMBEN=kerah, VAR=var_kerah, DAUN=kerah_daun (baru).
+  if (!next.some(c => c.id === 'kerah_grp')) {
+    const idxVar = next.findIndex(c => c.id === 'var_kerah' && !(c.children && c.children.length));
+    const idxKerah = next.findIndex(c => c.id === 'kerah' && !(c.children && c.children.length));
+    // Hapus yang standalone (dari index terbesar dulu supaya posisi tidak geser).
+    [idxVar, idxKerah].filter(x => x >= 0).sort((a, b) => b - a).forEach(ri => next.splice(ri, 1));
+    insertBefore(
+      { id: 'kerah_grp', label: 'KERAH', urutan: 0, children: [
+        { id: 'kerah', label: 'KEMBEN', urutan: 1 },
+        { id: 'var_kerah', label: 'VAR', urutan: 2 },
+        { id: 'kerah_daun', label: 'DAUN', urutan: 3 },
+      ]},
+      'yoks', 'tagline', 'lis_celana', 'penjahit',
+    );
+  }
+
+  // YOKS / TAGLINE — sebelum LIS CELANA / PENJAHIT.
+  if (!idExists('yoks')) insertBefore({ id: 'yoks', label: 'YOKS', urutan: 0 }, 'tagline', 'lis_celana', 'penjahit');
+  if (!idExists('tagline')) insertBefore({ id: 'tagline', label: 'TAGLINE', urutan: 0 }, 'lis_celana', 'penjahit');
+
+  // LIS CELANA — sebelum PENJAHIT.
+  if (!idExists('lis_celana')) insertBefore({ id: 'lis_celana', label: 'LIS CELANA', urutan: 0 }, 'penjahit');
+
   return next;
 }
 
@@ -4987,19 +5031,50 @@ function TabFormPengiriman({ wo }: { wo: Row }) {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [items, woFresh] = await Promise.all([
+      const [items, woFresh, ukuran] = await Promise.all([
         dbGet<Row>('wo_pengiriman', undefined, { work_order_id: wo.id }),
         dbGet<Row>('work_orders', undefined, { id: wo.id }),
+        // WO2 (Detail Ukuran Tim) — dipakai supaya KET dari WO2 LANGSUNG muncul
+        // di WO3 tanpa harus re-save WO2 (sync utama tetap jalan saat WO2 Simpan).
+        dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: wo.id }).catch(() => []),
       ]);
+      const ukuranSorted = (ukuran as Row[]).slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
+      // Ambil field WO2 per index baris (data_json menang atas kolom legacy).
+      const wo2Data = (i: number): Record<string, string> => {
+        const u = ukuranSorted[i];
+        if (!u) return {};
+        let dj: Record<string, string> = {};
+        try { dj = u.data_json ? (JSON.parse(String(u.data_json)) || {}) : {}; } catch {}
+        return { ...u, ...dj } as Record<string, string>;
+      };
+      const wo2Ket = (i: number): string => {
+        const d = wo2Data(i);
+        return String(d.ket1 || d.ket2 || '');
+      };
+
       const sorted = items.slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
-      setRows(sorted.length > 0
-        ? sorted.map(r => ({
-            id: Number(r.id), urutan: Number(r.urutan) || 0,
-            nama: String(r.nama || ''), np: String(r.np || ''),
-            ukuran: String(r.ukuran || ''), keterangan: String(r.keterangan || ''),
-            checklist: Number(r.checklist) || 0,
-          }))
-        : Array.from({ length: 5 }, (_, i) => ({ id: null, urutan: i + 1, nama: '', np: '', ukuran: '', keterangan: '', checklist: 0 })));
+      if (sorted.length > 0) {
+        setRows(sorted.map((r, i) => ({
+          id: Number(r.id), urutan: Number(r.urutan) || 0,
+          nama: String(r.nama || ''), np: String(r.np || ''),
+          ukuran: String(r.ukuran || ''),
+          // Isi keterangan dari WO2 KET kalau di WO3 masih kosong.
+          keterangan: String(r.keterangan || '') || wo2Ket(i),
+          checklist: Number(r.checklist) || 0,
+        })));
+      } else if (ukuranSorted.length > 0) {
+        // WO3 belum punya baris tapi WO2 sudah terisi → seed dari WO2.
+        setRows(ukuranSorted.map((_, i) => {
+          const d = wo2Data(i);
+          return {
+            id: null, urutan: i + 1,
+            nama: String(d.nama || ''), np: String(d.np || ''),
+            ukuran: String(d.size || ''), keterangan: wo2Ket(i), checklist: 0,
+          };
+        }));
+      } else {
+        setRows(Array.from({ length: 5 }, (_, i) => ({ id: null, urutan: i + 1, nama: '', np: '', ukuran: '', keterangan: '', checklist: 0 })));
+      }
       const fresh = woFresh[0];
       if (fresh) {
         setPromo(String(fresh.pengiriman_promo || ''));
