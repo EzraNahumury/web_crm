@@ -137,6 +137,15 @@ const ADMIN_NAV: SideNavItem[] = [
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 6.878V6a2.25 2.25 0 012.25-2.25h7.5A2.25 2.25 0 0118 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 004.5 9v.878m13.5-3A2.25 2.25 0 0119.5 9v.878m0 0a2.246 2.246 0 00-.75-.128H5.25c-.263 0-.515.045-.75.128m15 0A2.25 2.25 0 0121 12v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6c0-.98.626-1.813 1.5-2.122" /></svg>,
   },
   {
+    label: 'Progress Produksi',
+    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" /></svg>,
+    children: [
+      { href: '/progress/printing', label: 'Progress Printing' },
+      { href: '/progress/press', label: 'Progress Press' },
+      { href: '/progress/cutting', label: 'Progress Cutting' },
+    ],
+  },
+  {
     label: 'Laporan',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>,
     children: [
@@ -205,7 +214,11 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'Approval Gudang': ['/approval-gudang'],
   'CRM Deadline Lock': ['/crm-deadline-lock'],
   'CRM Finishing': ['/crm-finishing', '/crm-finishing/history'],
-  'Line Jahit': ['/line-jahit'],
+  // Progress hrefs dipetakan juga di bawah 'Line Jahit' supaya menu Progress
+  // Produksi tampil untuk akun yang cookie session-nya belum punya key
+  // 'Progress Produksi' (sebelum login ulang) — asalkan punya akses Line Jahit.
+  'Line Jahit': ['/line-jahit', '/progress/printing', '/progress/press', '/progress/cutting'],
+  'Progress Produksi': ['/progress/printing', '/progress/press', '/progress/cutting'],
   'Laporan': ['/laporan/produksi', '/laporan/penggunaan-bahan'],
   'Gudang': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan'],
   // Legacy alias: user yg role/menuAccess-nya masih pakai 'Stok' (nama
