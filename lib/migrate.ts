@@ -1597,6 +1597,15 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `rincian_draft_json` TEXT NULL",
     ],
   },
+  {
+    // Auto-save Detail Ukuran Tim (WO2): snapshot rows + kolom (JSON) disimpan
+    // berkala saat diisi, supaya kalau listrik mati sebelum Simpan Semua datanya
+    // tidak hilang. Di-restore saat tab dibuka, dihapus setelah Simpan Semua.
+    name: '080_work_orders_wo2_draft',
+    up: [
+      "ALTER TABLE `work_orders` ADD COLUMN `wo2_draft_json` LONGTEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

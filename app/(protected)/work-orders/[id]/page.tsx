@@ -4108,6 +4108,10 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   const [kolom, setKolom] = useState<Wo2Col[]>(DEFAULT_WO2_KOLOM);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Auto-save draft (anti listrik mati): waktu terakhir tersimpan + baseline.
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const lastSavedDraftRef = useRef<string>('');
+  const justPrefilledRef = useRef(false);
   const [addHeaderOpen, setAddHeaderOpen] = useState(false);
   const [deleteHeader, setDeleteHeader] = useState<{ colId: string; label: string } | null>(null);
   // Sort by size — cycle: null → asc → desc → null. Cuma dipakai untuk
@@ -4171,6 +4175,8 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    // Perubahan state dari fetch/restore ini = baseline, jangan auto-save.
+    justPrefilledRef.current = true;
     try {
       const [data, woFresh] = await Promise.all([
         dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: wo.id }),
@@ -4203,11 +4209,52 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
       } else {
         setRows(Array.from({ length: 5 }, (_, i) => ({ id: null, urutan: i + 1, data: {} })));
       }
+      // RESTORE DRAFT: kalau ada draft auto-save (belum Simpan Semua, mis.
+      // listrik mati saat mengisi), timpa rows + kolom dengan isi draft supaya
+      // lanjut dari titik terakhir.
+      if (fresh?.wo2_draft_json) {
+        try {
+          const d = JSON.parse(String(fresh.wo2_draft_json));
+          if (d && typeof d === 'object') {
+            if (Array.isArray(d.kolom) && d.kolom.length > 0) setKolom(d.kolom as Wo2Col[]);
+            if (Array.isArray(d.rows)) {
+              setRows((d.rows as UkuranRow[]).map((r, i) => ({
+                id: r.id ?? null,
+                urutan: Number(r.urutan) || i + 1,
+                data: (r.data && typeof r.data === 'object') ? r.data : {},
+              })));
+            }
+          }
+        } catch { /* draft rusak — abaikan, pakai data DB */ }
+      }
     } catch (e) { toast.error('Gagal Muat', String(e)); }
     setLoading(false);
   }, [wo.id, toast]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // ─── Auto-save DRAFT (anti listrik mati) ───
+  // Snapshot rows + kolom → disimpan berkala ke work_orders.wo2_draft_json
+  // (debounce). Simpan Semua tetap yang menyimpan permanen + sync WO3; draft
+  // dihapus setelahnya. Sort (tampilan saja) tidak ikut draft.
+  const wo2DraftJson = useMemo(() => JSON.stringify({ rows, kolom }), [rows, kolom]);
+  useEffect(() => {
+    if (loading) return;
+    if (justPrefilledRef.current) {
+      justPrefilledRef.current = false;
+      lastSavedDraftRef.current = wo2DraftJson;
+      return;
+    }
+    if (wo2DraftJson === lastSavedDraftRef.current) return;
+    const t = setTimeout(async () => {
+      try {
+        await dbUpdate('work_orders', wo.id, { wo2_draft_json: wo2DraftJson });
+        lastSavedDraftRef.current = wo2DraftJson;
+        setDraftSavedAt(Date.now());
+      } catch { /* kolom belum ada / offline — diamkan, coba lagi edit berikutnya */ }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [wo2DraftJson, loading, wo.id]);
 
   const leafKeys = useMemo(() => flatLeafKeys(kolom), [kolom]);
 
@@ -4505,6 +4552,9 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         else await dbCreate('wo_ukuran_tim', payload);
       }
       await syncWo2RowsToWo3(ordered);
+      // Hapus draft auto-save — sudah tersimpan permanen via Simpan Semua.
+      try { await dbUpdate('work_orders', wo.id, { wo2_draft_json: null }); } catch { /* kolom belum ada — abaikan */ }
+      lastSavedDraftRef.current = '';
       // Sort sudah ke-bake ke urutan fisik — reset supaya arrow indikator
       // tidak menyort ulang tampilan hasil fetchAll (idempoten, tapi lebih bersih).
       setSortBySize(null);
@@ -4681,6 +4731,12 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
           <p className="text-xs text-slate-500 mt-0.5">Customer: <span className="text-slate-300 font-medium">{wo.customer_nama || '-'}</span></p>
         </div>
         <div className="flex items-center gap-2">
+          {draftSavedAt && !saving && (
+            <span className="hidden md:inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 mr-1" title="Draft otomatis tersimpan — aman kalau listrik mati">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              Tersimpan otomatis {new Date(draftSavedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
           <button onClick={() => setAddHeaderOpen(true)} className="text-xs font-medium text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Header</button>
           <button onClick={addRow} className="text-xs font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors">+ Tambah Baris</button>
           <button onClick={handleExportExcel} className="text-xs font-medium text-green-300 border border-green-500/30 bg-green-500/10 hover:bg-green-500/20 px-3 py-1.5 rounded-lg transition-colors">Export Excel</button>
