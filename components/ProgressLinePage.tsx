@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 
@@ -17,6 +17,7 @@ export const PROGRESS_TARGET_PER_DAY = 340; // poin/hari, flat
 
 interface Paket { id: number; nama: string; kolom_prefix: string; urutan: number; rate_atasan: number; rate_celana: number; }
 interface PRow { id: number; tanggal: string; customer: string; data: Record<string, number>; }
+interface CustomerLite { id: number; nama: string; no_hp: string; kabupaten_kota: string; }
 
 function currentYm(): string {
   const d = new Date();
@@ -82,6 +83,7 @@ export default function ProgressLinePage({ table, title, accent }: {
   const [newQty, setNewQty] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [editingRow, setEditingRow] = useState<PRow | null>(null);
+  const [customers, setCustomers] = useState<CustomerLite[]>([]);
 
   const monthLabel = useMemo(() => {
     const [y, m] = month.split('-').map(Number);
@@ -101,11 +103,16 @@ export default function ProgressLinePage({ table, title, accent }: {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [all, paket] = await Promise.all([
+      const [all, paket, cust] = await Promise.all([
         dbGet<Row>(table).catch(() => []),
         dbGet<Row>('line_jahit_paket').catch(() => []),
+        dbGet<Row>('customers').catch(() => []),
       ]);
       setPaketList((paket as Paket[]).slice().sort((x, y) => (x.urutan || 0) - (y.urutan || 0)));
+      setCustomers((cust as Row[]).map(c => ({
+        id: Number(c.id), nama: String(c.nama || ''),
+        no_hp: String(c.no_hp || ''), kabupaten_kota: String(c.kabupaten_kota || ''),
+      })));
       setRows((all as Row[])
         .filter(r => String(r.tanggal || '').slice(0, 7) === month)
         .sort((x, y) => String(x.tanggal).localeCompare(String(y.tanggal)) || Number(x.id) - Number(y.id))
@@ -238,8 +245,7 @@ export default function ProgressLinePage({ table, title, accent }: {
           </div>
           <div>
             <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Customer *</label>
-            <input type="text" value={newCustomer} onChange={e => setNewCustomer(e.target.value)} placeholder="Nama customer..."
-              className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none ${a.ring}`} />
+            <CustomerNameInput value={newCustomer} onChange={setNewCustomer} customers={customers} ringCls={a.ring} />
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -391,9 +397,54 @@ export default function ProgressLinePage({ table, title, accent }: {
       )}
 
       {editingRow && (
-        <EditProgressModal row={editingRow} paketList={paketList} accent={a}
+        <EditProgressModal row={editingRow} paketList={paketList} accent={a} customers={customers}
           onCancel={() => setEditingRow(null)}
           onSave={async (patch) => { await persistRow(editingRow, patch); setEditingRow(null); }} />
+      )}
+    </div>
+  );
+}
+
+/* Input nama customer dengan autocomplete dari master customers (nama + no HP
+   + kota). Ketik untuk filter; klik salah satu untuk isi otomatis. Tetap bisa
+   ketik nama baru yang tidak ada di daftar. */
+function CustomerNameInput({ value, onChange, customers, ringCls }: {
+  value: string; onChange: (v: string) => void; customers: CustomerLite[]; ringCls: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const q = value.trim().toLowerCase();
+  const matches = useMemo(() => {
+    if (!q) return [];
+    return customers.filter(c => c.nama.toLowerCase().includes(q)).slice(0, 40);
+  }, [q, customers]);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  return (
+    <div ref={boxRef} className="relative">
+      <input type="text" value={value} autoComplete="off"
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }}
+        placeholder="Ketik nama customer..."
+        className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none ${ringCls}`} />
+      {open && matches.length > 0 && (
+        <div className="absolute z-40 mt-1 w-full max-h-72 overflow-y-auto bg-[#0d1117] border border-white/10 rounded-lg shadow-2xl shadow-black/60">
+          {matches.map(c => (
+            <button key={c.id} type="button"
+              onMouseDown={e => { e.preventDefault(); onChange(c.nama); setOpen(false); }}
+              className="w-full text-left px-3 py-2 hover:bg-white/[0.05] border-b border-white/[0.04] last:border-0 transition-colors">
+              <p className="text-sm text-white truncate">{c.nama}</p>
+              <p className="text-xs text-slate-500 truncate">
+                {c.no_hp || '—'}{c.kabupaten_kota ? ` · ${c.kabupaten_kota}` : ''}
+              </p>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -444,8 +495,8 @@ function QtyBlock({ title, palette, atasan, celana, onAtasan, onCelana }: {
 }
 
 /* Modal edit baris. */
-function EditProgressModal({ row, paketList, accent, onCancel, onSave }: {
-  row: PRow; paketList: Paket[]; accent: ProgressAccent;
+function EditProgressModal({ row, paketList, accent, customers, onCancel, onSave }: {
+  row: PRow; paketList: Paket[]; accent: ProgressAccent; customers: CustomerLite[];
   onCancel: () => void; onSave: (patch: Partial<PRow>) => void | Promise<void>;
 }) {
   const [tanggal, setTanggal] = useState(String(row.tanggal).slice(0, 10));
@@ -484,8 +535,7 @@ function EditProgressModal({ row, paketList, accent, onCancel, onSave }: {
           </div>
           <div>
             <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Customer</label>
-            <input type="text" value={customer} onChange={e => setCustomer(e.target.value)}
-              className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none ${accent.ring}`} />
+            <CustomerNameInput value={customer} onChange={setCustomer} customers={customers} ringCls={accent.ring} />
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
