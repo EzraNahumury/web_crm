@@ -1588,6 +1588,15 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Auto-save Rincian Order: snapshot form (JSON) disimpan berkala saat CS
+    // mengisi, supaya kalau listrik mati sebelum klik Simpan datanya tidak
+    // hilang. Di-restore saat modal dibuka, dihapus (NULL) setelah Simpan.
+    name: '079_orders_rincian_draft',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `rincian_draft_json` TEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

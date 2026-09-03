@@ -149,6 +149,16 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // Template NB — diambil dari settings (Master → Notes CS Order). Fallback
   // ke DEFAULT_NB_TEMPLATE kalau settings belum diisi.
   const [nbTemplate, setNbTemplate] = useState(DEFAULT_NB_TEMPLATE);
+  // Auto-save draft: waktu terakhir tersimpan (buat indikator).
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  // Baseline snapshot terakhir yang tersimpan + flag "baru saja prefill" supaya
+  // hasil prefill/restore tidak langsung memicu auto-save.
+  const lastSavedDraftRef = useRef<string>('');
+  const justPrefilledRef = useRef(false);
+  // Draft terbaru per order dalam sesi modal ini (orders state di-load sekali
+  // saat buka; ref ini memastikan pindah-order lalu balik tetap dapat draft
+  // versi terbaru, bukan yang basi dari load awal).
+  const draftByOrderRef = useRef<Record<string, string>>({});
 
   const fetchAll = useCallback(async () => {
     try {
@@ -181,6 +191,9 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
   // Prefill from the picked order
   useEffect(() => {
+    // Tandai: perubahan state akibat prefill/restore ini adalah baseline,
+    // bukan editan user → jangan langsung memicu auto-save.
+    justPrefilledRef.current = true;
     if (!pickedOrderId) {
       // Clear so a fresh open (no seed) shows an empty invoice.
       setNama(''); setAlamat(''); setLeadId(''); setEkspNama(''); setEkspKg(''); setEkspBiaya(0);
@@ -230,6 +243,36 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     );
     setDpDesainAmount(Number(dpDesainPay?.amount) || Number(o.dp_desain) || 0);
     setDpDesainPaymentId(dpDesainPay ? Number(dpDesainPay.id) : null);
+
+    // RESTORE DRAFT: kalau order ini punya draft auto-save (belum di-Simpan,
+    // mis. listrik mati saat mengisi), timpa field form dengan isi draft supaya
+    // CS lanjut dari titik terakhir, bukan mulai ulang.
+    const rawDraft = draftByOrderRef.current[pickedOrderId] || o.rincian_draft_json;
+    if (rawDraft) {
+      try {
+        const d = JSON.parse(String(rawDraft));
+        if (d && typeof d === 'object') {
+          if (d.nama != null) setNama(String(d.nama));
+          if (d.alamat != null) setAlamat(String(d.alamat));
+          if (d.leadId != null) setLeadId(String(d.leadId));
+          if (d.pembayTunai != null) setPembayTunai(String(d.pembayTunai));
+          if (d.payMethod != null) setPayMethod(d.payMethod === 'cash' || d.payMethod === 'bank' ? d.payMethod : '');
+          if (Array.isArray(d.itemLines) && d.itemLines.length > 0) {
+            setItemLines(d.itemLines.map((it: ItemLine, idx: number) => ({
+              id: idx + 1, nama: String(it.nama || ''), qty: Number(it.qty) || 0, harga: Number(it.harga) || 0,
+            })));
+          }
+          if (d.ekspNama != null) setEkspNama(String(d.ekspNama));
+          if (d.ekspKg != null) setEkspKg(String(d.ekspKg));
+          if (d.ekspBiaya != null) setEkspBiaya(Number(d.ekspBiaya) || 0);
+          if (d.nb != null) setNb(String(d.nb));
+          if (d.diskonPct != null) setDiskonPct(Number(d.diskonPct) || 0);
+          if (d.dpProdPct != null) setDpProdPct(Number(d.dpProdPct) || 0);
+          if (d.dpProdMode != null) setDpProdMode(d.dpProdMode === 'nominal' ? 'nominal' : 'pct');
+          if (d.dpProdManual != null) setDpProdManual(Number(d.dpProdManual) || 0);
+        }
+      } catch { /* draft rusak — abaikan, pakai prefill order */ }
+    }
   }, [pickedOrderId, orders, items, payments]);
 
   // One-shot migration bootstrap on modal open — makes sure migration
@@ -269,6 +312,36 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // Sisa Tagihan = apa yang belum dibayar sama sekali oleh customer
   // setelah dikurangi diskon + DP Design + DP Produksi dari Grand Total.
   const sisaTagihan = grandTotal - diskonAmount - (Number(dpDesainAmount) || 0) - dpProduksi;
+
+  // ─── Auto-save DRAFT Rincian Order ───
+  // Snapshot semua field form → disimpan berkala ke orders.rincian_draft_json.
+  // Tujuan: kalau listrik mati sebelum klik Simpan, data tidak hilang (di-
+  // restore saat modal dibuka lagi). Simpan tetap yang mempromosikan order ke
+  // daftar CS Order + sync WO. Draft dihapus setelah Simpan sukses.
+  const draftJson = useMemo(() => JSON.stringify({
+    nama, alamat, leadId, pembayTunai, payMethod, itemLines,
+    ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual,
+  }), [nama, alamat, leadId, pembayTunai, payMethod, itemLines, ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual]);
+
+  useEffect(() => {
+    if (!open || !pickedOrderId || readOnly) return;
+    // Snapshot pertama setelah prefill/restore = baseline, jangan disimpan.
+    if (justPrefilledRef.current) {
+      justPrefilledRef.current = false;
+      lastSavedDraftRef.current = draftJson;
+      return;
+    }
+    if (draftJson === lastSavedDraftRef.current) return;
+    const t = setTimeout(async () => {
+      try {
+        await dbUpdate('orders', Number(pickedOrderId), { rincian_draft_json: draftJson });
+        lastSavedDraftRef.current = draftJson;
+        draftByOrderRef.current[pickedOrderId] = draftJson;
+        setDraftSavedAt(Date.now());
+      } catch { /* kolom belum ada / offline — diamkan, coba lagi saat edit berikutnya */ }
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [draftJson, open, pickedOrderId, readOnly]);
 
   // ─── Helpers ───
   function addItemLine() {
@@ -648,6 +721,11 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       // resets finance_status). Rincian Order save alone shouldn't
       // requeue the order at Finance — it's not ready yet.
 
+      // Hapus draft auto-save — order sudah tersimpan permanen via Simpan.
+      try { await dbUpdate('orders', orderId, { rincian_draft_json: null }); } catch { /* kolom belum ada — abaikan */ }
+      lastSavedDraftRef.current = '';
+      delete draftByOrderRef.current[String(orderId)];
+
       invalidateCache('wp_orders', 'wp_dashboard');
       // Refetch the modal's own payments/items list so the pre-fill
       // effect re-runs with the just-persisted rows. Without this,
@@ -695,6 +773,12 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
               )}
             </div>
             <div className="flex items-center gap-2">
+              {!readOnly && pickedOrderId && draftSavedAt && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600" title="Draft otomatis tersimpan — aman kalau listrik mati">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  Tersimpan otomatis {new Date(draftSavedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
               <button onClick={handleDownload} disabled={downloading || downloadingPdf || !nama}
                 className="text-xs font-medium text-slate-700 border border-slate-300 hover:bg-slate-100 px-3 py-1.5 rounded transition-colors disabled:opacity-40">
                 {downloading ? 'Menyiapkan...' : 'Download PNG'}
