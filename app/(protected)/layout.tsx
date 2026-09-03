@@ -143,6 +143,7 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/progress/printing', label: 'Progress Printing' },
       { href: '/progress/press', label: 'Progress Press' },
       { href: '/progress/cutting', label: 'Progress Cutting' },
+      { href: '/progress/shipment', label: 'Progress Shipment' },
     ],
   },
   {
@@ -217,8 +218,8 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // Progress hrefs dipetakan juga di bawah 'Line Jahit' supaya menu Progress
   // Produksi tampil untuk akun yang cookie session-nya belum punya key
   // 'Progress Produksi' (sebelum login ulang) — asalkan punya akses Line Jahit.
-  'Line Jahit': ['/line-jahit', '/progress/printing', '/progress/press', '/progress/cutting'],
-  'Progress Produksi': ['/progress/printing', '/progress/press', '/progress/cutting'],
+  'Line Jahit': ['/line-jahit', '/progress/printing', '/progress/press', '/progress/cutting', '/progress/shipment'],
+  'Progress Produksi': ['/progress/printing', '/progress/press', '/progress/cutting', '/progress/shipment'],
   'Laporan': ['/laporan/produksi', '/laporan/penggunaan-bahan'],
   'Gudang': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan'],
   // Legacy alias: user yg role/menuAccess-nya masih pakai 'Stok' (nama

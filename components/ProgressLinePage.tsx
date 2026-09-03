@@ -65,10 +65,11 @@ export const PROGRESS_ACCENTS: Record<string, ProgressAccent> = {
   sky: { heroGrad: 'from-sky-500/[0.14] via-blue-500/[0.06]', iconBg: 'from-sky-500/25 to-sky-500/5 border-sky-500/25', iconText: 'text-sky-300', addBtn: 'bg-sky-600 hover:bg-sky-500 shadow-sky-500/20', ring: 'focus:border-sky-500/40' },
   fuchsia: { heroGrad: 'from-fuchsia-500/[0.14] via-purple-500/[0.06]', iconBg: 'from-fuchsia-500/25 to-fuchsia-500/5 border-fuchsia-500/25', iconText: 'text-fuchsia-300', addBtn: 'bg-fuchsia-600 hover:bg-fuchsia-500 shadow-fuchsia-500/20', ring: 'focus:border-fuchsia-500/40' },
   orange: { heroGrad: 'from-orange-500/[0.14] via-amber-500/[0.06]', iconBg: 'from-orange-500/25 to-orange-500/5 border-orange-500/25', iconText: 'text-orange-300', addBtn: 'bg-orange-600 hover:bg-orange-500 shadow-orange-500/20', ring: 'focus:border-orange-500/40' },
+  teal: { heroGrad: 'from-teal-500/[0.14] via-emerald-500/[0.06]', iconBg: 'from-teal-500/25 to-teal-500/5 border-teal-500/25', iconText: 'text-teal-300', addBtn: 'bg-teal-600 hover:bg-teal-500 shadow-teal-500/20', ring: 'focus:border-teal-500/40' },
 };
 
 export default function ProgressLinePage({ table, title, accent }: {
-  table: 'progress_printing' | 'progress_press' | 'progress_cutting';
+  table: 'progress_printing' | 'progress_press' | 'progress_cutting' | 'progress_shipment';
   title: string;
   accent: keyof typeof PROGRESS_ACCENTS;
 }) {
