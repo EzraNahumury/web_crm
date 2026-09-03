@@ -240,23 +240,23 @@ export default function LaporanDeadlineCsOrderPage() {
           )}
         </div>
       ) : (
-        dateGroups.map(g => (
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 items-start">
+          {dateGroups.map(g => (
           <div key={g.dl} className="rounded-xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-            <div className="px-6 py-3 border-b border-white/[0.06] bg-amber-500/[0.06]">
-              <h2 className="text-lg font-bold text-amber-300 tracking-wide">{fmtDL(g.dl)}</h2>
-              <p className="text-[11px] text-slate-500 mt-0.5">Deadline Lock · {g.rows.length} order · {g.qty} pcs · {g.point.toLocaleString('id-ID')} poin</p>
+            <div className="px-4 py-2.5 border-b border-white/[0.06] bg-amber-500/[0.06]">
+              <h2 className="text-base font-bold text-amber-300 tracking-wide">{fmtDL(g.dl)}</h2>
+              <p className="text-[10px] text-slate-500 mt-0.5">Deadline Lock · {g.rows.length} order · {g.qty} pcs · {g.point.toLocaleString('id-ID')} poin</p>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-sm bg-white text-slate-800 border-collapse">
+              <table className="w-full text-xs bg-white text-slate-800 border-collapse">
                 <thead>
-                  <tr className="text-[11px] text-slate-700 font-bold uppercase tracking-wide">
-                    <th className="bg-sky-100 border border-slate-300 px-2 py-2 text-center w-12">No</th>
-                    <th className="bg-sky-100 border border-slate-300 px-3 py-2 text-left min-w-[240px]">Cust</th>
-                    <th className="bg-sky-100 border border-slate-300 px-2 py-2 text-center w-16">Qty</th>
-                    <th className="bg-sky-100 border border-slate-300 px-3 py-2 text-left min-w-[150px]">Paket</th>
-                    <th className="bg-sky-100 border border-slate-300 px-3 py-2 text-center w-24">Point</th>
-                    <th className="bg-sky-100 border border-slate-300 px-3 py-2 text-left min-w-[170px]">Bonus</th>
-                    <th className="bg-sky-100 border border-slate-300 px-1 py-2 w-8"></th>
+                  <tr className="text-[10px] text-slate-700 font-bold uppercase tracking-wide">
+                    <th className="bg-sky-100 border border-slate-300 px-1 py-1.5 text-center w-7">No</th>
+                    <th className="bg-sky-100 border border-slate-300 px-2 py-1.5 text-left">Cust</th>
+                    <th className="bg-sky-100 border border-slate-300 px-1 py-1.5 text-center w-10">Qty</th>
+                    <th className="bg-sky-100 border border-slate-300 px-2 py-1.5 text-left w-24">Paket</th>
+                    <th className="bg-sky-100 border border-slate-300 px-1 py-1.5 text-center w-14">Point</th>
+                    <th className="bg-sky-100 border border-slate-300 px-0.5 py-1.5 w-6"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -271,35 +271,34 @@ export default function LaporanDeadlineCsOrderPage() {
                           className={`cursor-pointer transition-colors ${isOpen ? 'bg-sky-50' : 'bg-white hover:bg-slate-50'}`}
                           title="Klik untuk lihat keterangan"
                         >
-                          <td className="border border-slate-300 px-2 py-2 text-center tabular-nums text-slate-500">{i + 1}</td>
-                          <td className="border border-slate-300 px-3 py-2 font-semibold text-slate-800">{r.customer || '-'}</td>
-                          <td className="border border-slate-300 px-2 py-2 text-center tabular-nums font-semibold">{r.qty}</td>
-                          <td className="border border-slate-300 px-3 py-2">
+                          <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums text-slate-500">{i + 1}</td>
+                          <td className="border border-slate-300 px-2 py-1.5 font-semibold text-slate-800 break-words">{r.customer || '-'}</td>
+                          <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums font-semibold">{r.qty}</td>
+                          <td className="border border-slate-300 px-2 py-1.5">
                             {r.detectedTier ? (
-                              <span className="uppercase text-xs font-semibold tracking-wide text-slate-700">{r.detectedDisplay}</span>
+                              <span className="uppercase text-[11px] font-semibold tracking-wide text-slate-700">{r.detectedDisplay}</span>
                             ) : (
                               <select
                                 value={r.manualTier}
                                 onClick={e => e.stopPropagation()}
                                 onChange={e => { e.stopPropagation(); pickTier(r.id, e.target.value); }}
-                                className={`bg-white border rounded-md px-2 py-1 text-xs focus:outline-none cursor-pointer ${r.manualTier ? 'border-slate-300 text-slate-800' : 'border-amber-400 text-amber-700 bg-amber-50'}`}
+                                className={`bg-white border rounded-md px-1 py-0.5 text-[11px] focus:outline-none cursor-pointer w-full ${r.manualTier ? 'border-slate-300 text-slate-800' : 'border-amber-400 text-amber-700 bg-amber-50'}`}
                               >
-                                <option value="">Pilih paket…</option>
+                                <option value="">Pilih…</option>
                                 {TIER_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
                               </select>
                             )}
                           </td>
-                          <td className="border border-slate-300 px-3 py-2 text-center tabular-nums font-bold text-slate-900">
+                          <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums font-bold text-slate-900">
                             {eff ? pt.toLocaleString('id-ID') : <span className="text-slate-300">—</span>}
                           </td>
-                          <td className="border border-slate-300 px-3 py-2 text-slate-600 text-xs">{r.bonus || '—'}</td>
-                          <td className="border border-slate-300 px-1 py-2 text-center text-slate-400">
-                            <svg className={`w-3.5 h-3.5 inline-block transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                          <td className="border border-slate-300 px-0.5 py-1.5 text-center text-slate-400">
+                            <svg className={`w-3 h-3 inline-block transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                           </td>
                         </tr>
                         {isOpen && (
                           <tr className="bg-sky-50/60">
-                            <td className="border border-slate-300 px-3 py-2.5 text-xs text-slate-600 whitespace-pre-wrap" colSpan={7}>
+                            <td className="border border-slate-300 px-2 py-2 text-[11px] text-slate-600 whitespace-pre-wrap break-words" colSpan={6}>
                               <span className="font-bold text-slate-700 uppercase tracking-wide mr-1">Keterangan:</span>
                               {r.ket ? r.ket : <span className="text-slate-400 italic">— tidak ada keterangan —</span>}
                             </td>
@@ -309,18 +308,19 @@ export default function LaporanDeadlineCsOrderPage() {
                     );
                   })}
                   <tr className="font-bold text-slate-900">
-                    <td className="bg-slate-100 border border-slate-300 px-2 py-2" />
-                    <td className="bg-slate-100 border border-slate-300 px-3 py-2 uppercase text-xs text-slate-600">Total</td>
-                    <td className="bg-emerald-200 border border-slate-400 px-2 py-2 text-center tabular-nums text-emerald-900">{g.qty}</td>
-                    <td className="bg-slate-100 border border-slate-300 px-3 py-2" />
-                    <td className="bg-rose-200 border border-slate-400 px-3 py-2 text-center tabular-nums text-rose-900">{g.point.toLocaleString('id-ID')}</td>
-                    <td colSpan={2} className="bg-slate-100 border border-slate-300 px-3 py-2" />
+                    <td className="bg-slate-100 border border-slate-300 px-1 py-1.5" />
+                    <td className="bg-slate-100 border border-slate-300 px-2 py-1.5 uppercase text-[11px] text-slate-600">Total</td>
+                    <td className="bg-emerald-200 border border-slate-400 px-1 py-1.5 text-center tabular-nums text-emerald-900">{g.qty}</td>
+                    <td className="bg-slate-100 border border-slate-300 px-2 py-1.5" />
+                    <td className="bg-rose-200 border border-slate-400 px-1 py-1.5 text-center tabular-nums text-rose-900">{g.point.toLocaleString('id-ID')}</td>
+                    <td className="bg-slate-100 border border-slate-300 px-0.5 py-1.5" />
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
-        ))
+          ))}
+        </div>
       )}
     </div>
   );
