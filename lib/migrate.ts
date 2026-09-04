@@ -1606,6 +1606,17 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `work_orders` ADD COLUMN `wo2_draft_json` LONGTEXT NULL",
     ],
   },
+  {
+    // Flag: layout kolom WO2 sudah pernah disimpan user dengan template baru.
+    // 0 = legacy / belum pernah save → boleh auto-backfill kolom template wajib
+    // (VAR SAMPING/KERAH/YOKS/TAGLINE/LIS CELANA) saat load.
+    // 1 = user sudah save → hormati layout persis apa adanya; kolom yang
+    // dihapus tetap hilang (tidak di-inject ulang). Di-set 1 di saveAll.
+    name: '081_work_orders_wo2_kolom_ready',
+    up: [
+      "ALTER TABLE `work_orders` ADD COLUMN `wo2_kolom_ready` TINYINT NOT NULL DEFAULT 0",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

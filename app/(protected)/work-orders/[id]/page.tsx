@@ -1547,7 +1547,7 @@ export default function WorkOrderDetailPage() {
         pdf.setFontSize(10);
         pdf.text(`No WO: ${woName}`, 14, 26);
 
-        const kolom = parseWo2Kolom(freshWoData.wo2_kolom_json as string);
+        const kolom = parseWo2Kolom(freshWoData.wo2_kolom_json as string, Number(freshWoData.wo2_kolom_ready) !== 1);
         const hasGrpChildren = kolom.some((k: Wo2Col) => k.children && k.children.length > 0);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const headRow1: any[] = [{ content: 'NO', rowSpan: hasGrpChildren ? 2 : 1 }];
@@ -4070,12 +4070,17 @@ function ensureWo2RequiredCols(cols: Wo2Col[]): Wo2Col[] {
   return next;
 }
 
-function parseWo2Kolom(raw: string | null | undefined): Wo2Col[] {
+// backfill=true (default): inject kolom template wajib yang belum ada (WO
+// legacy). backfill=false: hormati layout tersimpan PERSIS apa adanya —
+// dipakai kalau wo2_kolom_ready=1 (user sudah pernah Simpan), supaya kolom
+// yang user hapus tidak muncul lagi. Layout kosong tetap pakai DEFAULT.
+function parseWo2Kolom(raw: string | null | undefined, backfill = true): Wo2Col[] {
   if (!raw) return assignWo2Urutan(ensureWo2RequiredCols(DEFAULT_WO2_KOLOM.slice()));
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return assignWo2Urutan(ensureWo2RequiredCols(orderWo2Kolom(parsed as Wo2Col[])));
+      const ordered = orderWo2Kolom(parsed as Wo2Col[]);
+      return assignWo2Urutan(backfill ? ensureWo2RequiredCols(ordered) : ordered);
     }
   } catch {}
   return assignWo2Urutan(ensureWo2RequiredCols(DEFAULT_WO2_KOLOM.slice()));
@@ -4183,7 +4188,10 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
         dbGet<Row>('work_orders', undefined, { id: wo.id }),
       ]);
       const fresh = woFresh[0];
-      setKolom(parseWo2Kolom(fresh?.wo2_kolom_json as string));
+      // Kalau user sudah pernah Simpan layout (ready=1), hormati apa adanya —
+      // jangan inject ulang kolom yang sudah dihapus.
+      const kolomReady = Number(fresh?.wo2_kolom_ready) === 1;
+      setKolom(parseWo2Kolom(fresh?.wo2_kolom_json as string, !kolomReady));
       const sorted = data.slice().sort((a, b) => Number(a.urutan) - Number(b.urutan));
       if (sorted.length > 0) {
         setRows(sorted.map((r) => {
@@ -4526,6 +4534,9 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
     try {
       await dbUpdate('work_orders', wo.id, {
         wo2_kolom_json: JSON.stringify(kolom),
+        // Tandai layout sudah final → load berikutnya hormati persis (kolom
+        // yang dihapus tidak di-inject ulang).
+        wo2_kolom_ready: 1,
       });
       // Simpan mengikuti urutan yang SEDANG TAMPIL (displayRows) supaya hasil
       // sort ikut ke-persist: urutan ditulis dari atas ke bawah sesuai
