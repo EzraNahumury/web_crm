@@ -2,6 +2,16 @@ import { Order, DashboardStats, ApiResponse } from './types';
 import { getCached, setCached, invalidateCache } from './cache';
 import { computeDeadlineLock, hasJaket } from './business-days';
 import { isVisibleTanggalOrder } from './data-cutoff';
+import { fetchJSON } from './api-db';
+
+// GET /api/db/* dengan retry+timeout (lihat api-db.fetchJSON) supaya blip
+// koneksi transient (koneksi DB basi, server sibuk sesaat) tidak langsung
+// menggagalkan Promise.all → layar "Gagal terhubung ke server".
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getDb(path: string): Promise<any> {
+  const res = await fetchJSON(path, {}, { retries: 2, timeoutMs: 12_000 });
+  return res.json();
+}
 
 // ─── Auth ───────────────────────────────────────────────
 export async function apiLogin(username: string, password: string) {
@@ -19,12 +29,12 @@ export async function apiGetOrders(): Promise<ApiResponse<Order[]>> {
   if (cached) return { success: true, data: cached };
 
   const [ordersRes, itemsRes, woRes, wpRes, stagesRes, holidaysRes] = await Promise.all([
-    fetch('/api/db/orders').then(r => r.json()),
-    fetch('/api/db/order_items').then(r => r.json()),
-    fetch('/api/db/work_orders').then(r => r.json()),
-    fetch('/api/db/wo_progress').then(r => r.json()),
-    fetch('/api/db/production_stages').then(r => r.json()),
-    fetch('/api/db/libur_nasional').then(r => r.json()).catch(() => ({ success: false, data: [] })),
+    getDb('/api/db/orders'),
+    getDb('/api/db/order_items'),
+    getDb('/api/db/work_orders'),
+    getDb('/api/db/wo_progress'),
+    getDb('/api/db/production_stages'),
+    getDb('/api/db/libur_nasional').catch(() => ({ success: false, data: [] })),
   ]);
   if (ordersRes.success && ordersRes.data) {
     const items = itemsRes.success ? itemsRes.data : [];
@@ -50,12 +60,12 @@ export async function apiGetDashboard(): Promise<ApiResponse<DashboardStats>> {
   if (cached) return { success: true, data: cached };
 
   const [oRes, iRes, woRes, wpRes, stagesRes, holidaysRes] = await Promise.all([
-    fetch('/api/db/orders').then(r => r.json()),
-    fetch('/api/db/order_items').then(r => r.json()),
-    fetch('/api/db/work_orders').then(r => r.json()),
-    fetch('/api/db/wo_progress').then(r => r.json()),
-    fetch('/api/db/production_stages').then(r => r.json()),
-    fetch('/api/db/libur_nasional').then(r => r.json()).catch(() => ({ success: false, data: [] })),
+    getDb('/api/db/orders'),
+    getDb('/api/db/order_items'),
+    getDb('/api/db/work_orders'),
+    getDb('/api/db/wo_progress'),
+    getDb('/api/db/production_stages'),
+    getDb('/api/db/libur_nasional').catch(() => ({ success: false, data: [] })),
   ]);
   if (oRes.success && oRes.data) {
     const orders = mapOrders(oRes.data, iRes.success ? iRes.data : [], woRes.success ? woRes.data : [], wpRes.success ? wpRes.data : [], stagesRes.success ? stagesRes.data : [], holidaysRes?.success ? holidaysRes.data : []);
@@ -77,8 +87,7 @@ export async function apiGetDashboardForce(): Promise<ApiResponse<DashboardStats
 
 // ─── Tracking (public) ──────────────────────────────────
 export async function apiGetTracking(noWorkOrder: string): Promise<ApiResponse<Order>> {
-  const res = await fetch(`/api/db/orders?search=${encodeURIComponent(noWorkOrder)}`);
-  const json = await res.json();
+  const json = await getDb(`/api/db/orders?search=${encodeURIComponent(noWorkOrder)}`);
   if (json.success && json.data?.length) {
     const orders = mapOrders(json.data);
     const found = orders.find(o => o.noWorkOrder === noWorkOrder);
