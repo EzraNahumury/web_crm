@@ -3,7 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 const SECRET = process.env.SESSION_SECRET || 'ayres-crm-default-secret-key';
 const COOKIE_NAME = 'session';
 
-const PUBLIC_PATHS = ['/', '/tracking', '/api'];
+// Prefix match: path itu sendiri + semua di bawahnya (mis. /api/*).
+const PUBLIC_PREFIX = ['/api', '/tracking'];
+// Exact match saja. PENTING: '/progress' di sini (bukan prefix) supaya
+// halaman input internal /progress/printing|press|cutting|shipment TETAP
+// butuh login — hanya papan TV publik /progress yang terbuka.
+const PUBLIC_EXACT = ['/', '/progress'];
 
 async function hmacSign(payload: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -25,7 +30,10 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Allow public paths
-  if (PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))) {
+  if (PUBLIC_EXACT.includes(pathname)) {
+    return NextResponse.next();
+  }
+  if (PUBLIC_PREFIX.some(p => pathname === p || pathname.startsWith(p + '/'))) {
     return NextResponse.next();
   }
 
