@@ -58,6 +58,90 @@ function fmtTanggalShort(iso: string): string {
   return `${p.d} ${MON_SHORT[p.m - 1]}`;
 }
 
+// ── Demo data (?demo=1) — preview layout tanpa DB / saat proses masih
+// kosong. Tanggal dihitung relatif ke hari ini biar terlihat hidup.
+function isoPlus(days: number): string {
+  const d = new Date(); d.setDate(d.getDate() + days);
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), da = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${da}`;
+}
+function buildSample(): Feed {
+  const target = 340;
+  const mkProc = (key: string, label: string, poin: number, pcs: number, orders: number, month: number): ProcPoin =>
+    ({ key, label, todayPoin: poin, todayPcs: pcs, todayOrders: orders, monthPoin: month, pct: Math.min(100, Math.round((poin / target) * 100)) });
+  const processes = [
+    mkProc('printing', 'Printing', 372, 388, 9, 6420),
+    mkProc('press', 'Press', 268, 279, 7, 5180),
+    mkProc('cutting', 'Cutting', 415, 431, 11, 7040),
+    mkProc('jahit', 'Jahit', 306, 318, 8, 5960),
+    mkProc('shipment', 'Shipment', 188, 195, 5, 3120),
+  ];
+  return {
+    success: true, generatedAt: new Date().toISOString(), today: isoPlus(0),
+    poin: { target, processes, totalTodayPoin: processes.reduce((s, p) => s + p.todayPoin, 0) },
+    deadline: {
+      upcoming: [
+        { date: isoPlus(0), count: 4, qty: 262, orders: [
+          { cust: 'RO 1 Sovya Royza Putra', qty: 72, paket: 'PRO', noOrder: 'AY0831-002' },
+          { cust: 'SMANSA Cup 2026', qty: 88, paket: 'KLASIK', noOrder: 'AY0829-014' },
+          { cust: 'Persib Junior Bandung', qty: 54, paket: 'STANDAR', noOrder: 'AY0830-006' },
+          { cust: 'FC Garuda Muda', qty: 48, paket: 'PRO', noOrder: 'AY0828-021' },
+        ] },
+        { date: isoPlus(2), count: 3, qty: 176, orders: [
+          { cust: 'Komunitas Lari Senja', qty: 40, paket: 'STANDAR', noOrder: 'AY0827-009' },
+          { cust: 'PS Bintang Timur', qty: 96, paket: 'PRO', noOrder: 'AY0826-033' },
+          { cust: 'Futsal Kelurahan Jaya', qty: 40, paket: 'KLASIK', noOrder: 'AY0825-002' },
+        ] },
+        { date: isoPlus(5), count: 2, qty: 120, orders: [
+          { cust: 'Tim Voli Merdeka', qty: 60, paket: 'KLASIK', noOrder: 'AY0824-018' },
+          { cust: 'CV Sinar Abadi', qty: 60, paket: 'PRO', noOrder: 'AY0823-041' },
+        ] },
+        { date: isoPlus(8), count: 3, qty: 204, orders: [
+          { cust: 'Akademi Sepakbola Nusantara', qty: 120, paket: 'PRO', noOrder: 'AY0822-005' },
+          { cust: 'Panitia Porseni SMP 3', qty: 44, paket: 'STANDAR', noOrder: 'AY0821-012' },
+          { cust: 'Basket Putri Elang', qty: 40, paket: 'KLASIK', noOrder: 'AY0820-027' },
+        ] },
+      ],
+    },
+    urgent: {
+      overdue: [
+        { cust: 'PT Maju Bersama Sport', noOrder: 'AY0812-004', deadline: isoPlus(-3), qty: 84, paket: 'PRO', daysLate: 3 },
+        { cust: 'Turnamen RW 07', noOrder: 'AY0815-019', deadline: isoPlus(-1), qty: 36, paket: 'STANDAR', daysLate: 1 },
+      ],
+      h3: [
+        { cust: 'RO 1 Sovya Royza Putra', noOrder: 'AY0831-002', deadline: isoPlus(0), qty: 72, paket: 'PRO', daysLeft: 0 },
+        { cust: 'Persib Junior Bandung', noOrder: 'AY0830-006', deadline: isoPlus(1), qty: 54, paket: 'STANDAR', daysLeft: 1 },
+        { cust: 'PS Bintang Timur', noOrder: 'AY0826-033', deadline: isoPlus(2), qty: 96, paket: 'PRO', daysLeft: 2 },
+      ],
+    },
+    reject: {
+      total: 3,
+      byProcess: [{ proses: 'Design', count: 3 }],
+      items: [
+        { cust: 'Klub Renang Tirta', proses: 'Design', reason: 'Customer batal, pindah vendor lain', at: isoPlus(-1) },
+        { cust: 'EO Pesta Rakyat', proses: 'Design', reason: 'Budget tidak sesuai, tunda ke tahun depan', at: isoPlus(-2) },
+        { cust: 'Toko Olahraga Jaya', proses: 'Design', reason: 'Salah brief, minta ulang total', at: isoPlus(-4) },
+      ],
+    },
+    sla: {
+      design: {
+        counts: { aman: 6, warning: 2, terlambat: 1 },
+        stages: [
+          { stage: 'Waiting List', count: 4 }, { stage: 'Design Awal', count: 3 },
+          { stage: 'Design Revisi 1', count: 2 },
+        ],
+        items: [
+          { cust: 'CV Sinar Abadi', stage: 'Design Revisi 1', target: isoPlus(-1), status: 'terlambat' },
+          { cust: 'Tim Voli Merdeka', stage: 'Design Awal', target: isoPlus(0), status: 'warning' },
+          { cust: 'Panitia Porseni SMP 3', stage: 'Design Awal', target: isoPlus(0), status: 'warning' },
+          { cust: 'Akademi Sepakbola Nusantara', stage: 'Waiting List', target: isoPlus(2), status: 'aman' },
+          { cust: 'Basket Putri Elang', stage: 'Waiting List', target: isoPlus(3), status: 'aman' },
+        ],
+      },
+    },
+  };
+}
+
 const BOARDS = ['poin', 'deadline', 'urgent', 'reject', 'sla'] as const;
 type Board = typeof BOARDS[number];
 const BOARD_META: Record<Board, { title: string; sub: string }> = {
@@ -90,12 +174,27 @@ export default function ProgressTVPage() {
     } catch { setErr(true); }
   }, []);
 
-  useEffect(() => { load(); const t = setInterval(load, POLL_MS); return () => clearInterval(t); }, [load]);
+  // Clock tick.
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+
+  // Poll + rotate. ?demo=1 → pakai data sample (tanpa DB). ?board=<id> →
+  // kunci ke satu papan (buat preview / screenshot).
   useEffect(() => {
-    const t = setInterval(() => { setBoardIdx(i => (i + 1) % BOARDS.length); setRotToken(x => x + 1); }, ROTATE_MS);
-    return () => clearInterval(t);
-  }, []);
+    const sp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const demo = sp.has('demo');
+    const b = sp.get('board');
+    const lockIdx = b ? BOARDS.indexOf(b as Board) : -1;
+    if (lockIdx >= 0) setBoardIdx(lockIdx);
+    if (demo) {
+      const s = buildSample();
+      setFeed(s); feedRef.current = s; setLastOk(Date.now()); setErr(false);
+    } else {
+      load();
+    }
+    const pollT = demo ? null : setInterval(load, POLL_MS);
+    const rotT = lockIdx >= 0 ? null : setInterval(() => { setBoardIdx(i => (i + 1) % BOARDS.length); setRotToken(x => x + 1); }, ROTATE_MS);
+    return () => { if (pollT) clearInterval(pollT); if (rotT) clearInterval(rotT); };
+  }, [load]);
 
   const board = BOARDS[boardIdx];
   const meta = BOARD_META[board];
