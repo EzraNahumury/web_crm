@@ -1339,25 +1339,50 @@ export default function WorkOrderDetailPage() {
   async function handleDeleteAllImports() {
     if (!wo) return;
     const yes = await toast.confirm({
-      title: 'Hapus Semua Import?',
-      message: 'Semua file di WO 1 - WO 4 akan dihapus. Aksi ini tidak bisa dibatalkan.',
+      title: 'Hapus Semua WO 1 – WO 4?',
+      message: 'Semua data & file di WO 1 – WO 4 (Lembar Spesifikasi, Detail Ukuran Tim, Pengiriman, Form Gudang, dan file import) akan dihapus permanen. Aksi ini tidak bisa dibatalkan.',
       type: 'danger',
       confirmText: 'Ya, Hapus Semua',
     });
     if (!yes) return;
     setDeletingAll(true);
     try {
-      const [specs, sections] = await Promise.all([
-        dbGet<Row>('wo_spesifikasi', undefined, { work_order_id: wo.id }),
-        dbGet<Row>('wo_section_imports', undefined, { work_order_id: wo.id }),
+      const woId = Number(wo.id);
+      // Ambil SEMUA data per tab (bukan cuma yang hasil import). Bug lama:
+      // hanya spec ber-`imported_file` yang dihapus, sehingga Lembar
+      // Spesifikasi manual (WO1) + Detail Ukuran Tim (WO2) + Pengiriman
+      // (WO3) tetap tersisa.
+      const [specs, sections, ukuran, pengiriman, detailItems, permintaan] = await Promise.all([
+        dbGet<Row>('wo_spesifikasi', undefined, { work_order_id: woId }).catch(() => [] as Row[]),
+        dbGet<Row>('wo_section_imports', undefined, { work_order_id: woId }).catch(() => [] as Row[]),
+        dbGet<Row>('wo_ukuran_tim', undefined, { work_order_id: woId }).catch(() => [] as Row[]),
+        dbGet<Row>('wo_pengiriman', undefined, { work_order_id: woId }).catch(() => [] as Row[]),
+        dbGet<Row>('wo_detail_items', undefined, { work_order_id: woId }).catch(() => [] as Row[]),
+        dbGet<Row>('wo_permintaan_gudang', undefined, { work_order_id: woId }).catch(() => [] as Row[]),
       ]);
-      const importedSpecs = specs.filter((s: Row) => s.imported_file);
+
+      // wo_spesifikasi_bahan hanya bisa difilter per spesifikasi_id → hapus
+      // anak-anaknya dulu supaya tidak ada baris yatim.
+      const bahanLists = await Promise.all(
+        specs.map((s: Row) => dbGet<Row>('wo_spesifikasi_bahan', undefined, { spesifikasi_id: Number(s.id) }).catch(() => [] as Row[])),
+      );
+      await Promise.all(bahanLists.flat().map((b: Row) => dbDelete('wo_spesifikasi_bahan', Number(b.id))));
+
       await Promise.all([
-        ...importedSpecs.map((s: Row) => dbDelete('wo_spesifikasi', Number(s.id))),
+        ...specs.map((s: Row) => dbDelete('wo_spesifikasi', Number(s.id))),
         ...sections.map((s: Row) => dbDelete('wo_section_imports', Number(s.id))),
-        dbUpdate('work_orders', Number(wo.id), { master_import_file: null, master_import_file_name: null }),
+        ...ukuran.map((s: Row) => dbDelete('wo_ukuran_tim', Number(s.id))),
+        ...pengiriman.map((s: Row) => dbDelete('wo_pengiriman', Number(s.id))),
+        ...detailItems.map((s: Row) => dbDelete('wo_detail_items', Number(s.id))),
+        ...permintaan.map((s: Row) => dbDelete('wo_permintaan_gudang', Number(s.id))),
+        // Reset field WO di work_orders: master import + config/draft WO2.
+        dbUpdate('work_orders', woId, {
+          master_import_file: null, master_import_file_name: null,
+          wo2_kolom_json: null, wo2_draft_json: null, wo2_kolom_ready: 0,
+        }),
       ]);
-      toast.deleted('Dihapus', `${importedSpecs.length + sections.length} file dihapus dari WO 1 - WO 4.`);
+      const total = specs.length + sections.length + ukuran.length + pengiriman.length + detailItems.length + permintaan.length;
+      toast.deleted('Dihapus', `${total} item dihapus dari WO 1 – WO 4.`);
       window.location.reload();
     } catch (e) {
       toast.error('Gagal Hapus', String(e));
@@ -1942,7 +1967,7 @@ export default function WorkOrderDetailPage() {
           <button
             onClick={handleDeleteAllImports}
             disabled={deletingAll}
-            title="Hapus semua file imported di WO 1 - WO 4"
+            title="Hapus semua data & file di WO 1 – WO 4"
             className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/30 bg-red-500/10 px-3 py-1.5 rounded-full hover:bg-red-500/20 disabled:opacity-50 transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
