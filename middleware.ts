@@ -8,7 +8,7 @@ const PUBLIC_PREFIX = ['/api', '/tracking'];
 // Exact match saja. PENTING: '/progress' di sini (bukan prefix) supaya
 // halaman input internal /progress/printing|press|cutting|shipment TETAP
 // butuh login — hanya papan TV publik /progress yang terbuka.
-const PUBLIC_EXACT = ['/', '/progress'];
+const PUBLIC_EXACT = ['/', '/progress', '/progress/harian', '/progress/reject', '/progress/deadline', '/progress/telat'];
 
 async function hmacSign(payload: string): Promise<string> {
   const encoder = new TextEncoder();
