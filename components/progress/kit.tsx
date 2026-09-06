@@ -11,7 +11,7 @@
 // /api/public/progress; tiap page render slice-nya sendiri.
 // ═══════════════════════════════════════════════════════════════════════
 
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // ── Types (mirror /api/public/progress) ────────────────────────────────
 export interface ProcPoin { key: string; label: string; todayPoin: number; todayPcs: number; todayOrders: number; monthPoin: number; pct: number; }
@@ -198,12 +198,31 @@ const STATUS_PILL: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = { terlambat: 'TERLAMBAT', warning: 'HARI-H', aman: 'AMAN' };
 
 // ══════════════════════ REPORT 2 · HARIAN (Poin + SLA) ═════════════════
-const PROC_ACCENT: Record<string, { bar: string; text: string; glow: string; border: string }> = {
-  printing: { bar: 'from-sky-400 to-sky-600', text: 'text-sky-700', glow: 'rgba(56,189,248,0.18)', border: 'border-sky-200' },
-  press: { bar: 'from-violet-400 to-violet-600', text: 'text-violet-700', glow: 'rgba(167,139,250,0.18)', border: 'border-violet-200' },
-  cutting: { bar: 'from-orange-400 to-orange-600', text: 'text-orange-700', glow: 'rgba(251,146,60,0.18)', border: 'border-orange-200' },
-  jahit: { bar: 'from-emerald-400 to-emerald-600', text: 'text-emerald-700', glow: 'rgba(52,211,153,0.18)', border: 'border-emerald-200' },
-  shipment: { bar: 'from-teal-400 to-teal-600', text: 'text-teal-700', glow: 'rgba(45,212,191,0.18)', border: 'border-teal-200' },
+// Icon per proses (inline SVG, currentColor — dipakai kecil di chip + besar
+// sebagai watermark di header band).
+const svgProps = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+function IconPrinter({ className }: { className?: string }) {
+  return (<svg className={className} {...svgProps}><path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 01-2-2v-4a2 2 0 012-2h16a2 2 0 012 2v4a2 2 0 01-2 2h-2" /><rect x="6" y="14" width="12" height="7" rx="1" /><path d="M17 12h.01" /></svg>);
+}
+function IconLayers({ className }: { className?: string }) {
+  return (<svg className={className} {...svgProps}><path d="M12 2l9 5-9 5-9-5 9-5z" /><path d="M3 12l9 5 9-5" /><path d="M3 17l9 5 9-5" /></svg>);
+}
+function IconScissors({ className }: { className?: string }) {
+  return (<svg className={className} {...svgProps}><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M20 4L8.12 15.88" /><path d="M14.47 14.48L20 20" /><path d="M8.12 8.12L12 12" /></svg>);
+}
+function IconSewing({ className }: { className?: string }) {
+  return (<svg className={className} {...svgProps}><path d="M3 19h16" /><path d="M5 19V8h9a3 3 0 013 3v1" /><path d="M17 12v4l-1.5 2.5" /><circle cx="9" cy="12" r="1.5" /><path d="M3 19v2M19 19v2" /></svg>);
+}
+function IconBox({ className }: { className?: string }) {
+  return (<svg className={className} {...svgProps}><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" /><path d="M3.27 6.96L12 12l8.73-5.04" /><path d="M12 22.08V12" /></svg>);
+}
+
+const PROC_META: Record<string, { sub: string; grad: string; bar: string; Icon: ComponentType<{ className?: string }> }> = {
+  printing: { sub: 'Proses Cetak', grad: 'from-emerald-500 to-green-600', bar: 'from-emerald-400 to-green-500', Icon: IconPrinter },
+  press: { sub: 'Proses Press', grad: 'from-violet-500 to-purple-600', bar: 'from-violet-400 to-purple-500', Icon: IconLayers },
+  cutting: { sub: 'Proses Pemotongan', grad: 'from-orange-500 to-amber-600', bar: 'from-orange-400 to-amber-500', Icon: IconScissors },
+  jahit: { sub: 'Proses Jahit', grad: 'from-blue-500 to-sky-600', bar: 'from-blue-400 to-sky-500', Icon: IconSewing },
+  shipment: { sub: 'Proses Pengiriman', grad: 'from-teal-500 to-cyan-600', bar: 'from-teal-400 to-cyan-500', Icon: IconBox },
 };
 export function PoinSlaBody({ feed }: { feed: Feed }) {
   const { processes, target } = feed.poin;
@@ -232,24 +251,38 @@ export function PoinSlaBody({ feed }: { feed: Feed }) {
       {/* Poin harian */}
       <div className="grid grid-cols-5 gap-[1vw]" style={{ flex: '1 1 0' }}>
         {processes.map((p, idx) => {
-          const a = PROC_ACCENT[p.key] || PROC_ACCENT.printing;
+          const m = PROC_META[p.key] || PROC_META.printing;
           const reached = p.todayPoin >= target;
           return (
-            <div key={p.key} className={`tv-item relative flex flex-col rounded-2xl border ${a.border} bg-white tv-card p-[1vw] overflow-hidden`} style={{ animationDelay: `${idx * 60}ms` }}>
-              <div aria-hidden className="absolute -top-[7vh] -right-[3vw] rounded-full blur-2xl" style={{ width: '11vw', height: '11vw', background: a.glow }} />
-              <div className="relative flex items-center justify-between">
-                <span className={`font-black tracking-wide uppercase ${a.text}`} style={{ fontSize: 'clamp(12px,1.05vw,21px)' }}>{p.label}</span>
-                {reached && <span className="rounded-md bg-emerald-100 text-emerald-700 font-black px-[0.5vw] py-[0.3vh]" style={{ fontSize: 'clamp(8px,0.62vw,11px)' }}>✓</span>}
-              </div>
-              <div className="relative mt-auto">
-                <div className="flex items-end gap-[0.4vw] leading-none">
-                  <CountUp value={p.todayPoin} decimals={1} className="font-black text-slate-900 tabular-nums" style={{ fontSize: 'clamp(30px,3.2vw,68px)' }} />
-                  <span className="text-slate-400 font-bold mb-[0.6vh]" style={{ fontSize: 'clamp(10px,0.85vw,16px)' }}>poin</span>
+            <div key={p.key} className="tv-item relative flex flex-col rounded-2xl border border-slate-200 bg-white tv-card overflow-hidden" style={{ animationDelay: `${idx * 60}ms` }}>
+              {/* Header band — gradient + icon + watermark */}
+              <div className={`relative px-[0.95vw] py-[1.05vh] bg-gradient-to-br ${m.grad} overflow-hidden`}>
+                <m.Icon className="absolute -right-[0.4vw] -bottom-[2.4vh] w-[6.5vw] h-[6.5vw] text-white/20 pointer-events-none" />
+                <div className="relative flex items-center gap-[0.6vw]">
+                  <div className="grid place-items-center rounded-xl bg-white/20 text-white shrink-0" style={{ width: '2.6vw', height: '2.6vw', minWidth: 34, minHeight: 34 }}>
+                    <m.Icon className="w-[58%] h-[58%]" />
+                  </div>
+                  <div className="leading-none min-w-0">
+                    <div className="font-black text-white tracking-wide uppercase truncate" style={{ fontSize: 'clamp(13px,1.15vw,23px)' }}>{p.label}</div>
+                    <div className="text-white/85 font-semibold mt-[0.5vh] truncate" style={{ fontSize: 'clamp(8px,0.7vw,13px)' }}>{m.sub}</div>
+                  </div>
                 </div>
-                <div className="mt-[1vh] h-[0.9vh] min-h-[6px] rounded-full bg-slate-100 overflow-hidden"><div className={`h-full rounded-full bg-gradient-to-r ${a.bar} transition-all duration-1000`} style={{ width: `${p.pct}%` }} /></div>
-                <div className="flex items-center justify-between mt-[0.8vh] text-slate-500" style={{ fontSize: 'clamp(9px,0.78vw,14px)' }}>
-                  <span className="tabular-nums font-bold text-slate-700">{p.pct}%<span className="text-slate-400 font-medium"> / {target}</span></span>
-                  <span className="tabular-nums">{fmtNum(p.todayPcs)} pcs</span>
+              </div>
+              {/* Body */}
+              <div className="flex-1 flex flex-col p-[1vw]">
+                <div className="mt-auto">
+                  <div className="flex items-end justify-between">
+                    <div className="flex items-end gap-[0.4vw] leading-none">
+                      <CountUp value={p.todayPoin} decimals={1} className="font-black text-slate-900 tabular-nums" style={{ fontSize: 'clamp(28px,3vw,64px)' }} />
+                      <span className="text-slate-400 font-bold mb-[0.6vh]" style={{ fontSize: 'clamp(10px,0.85vw,16px)' }}>poin</span>
+                    </div>
+                    {reached && <span className="rounded-md bg-emerald-100 text-emerald-700 font-black px-[0.5vw] py-[0.3vh] mb-[0.6vh]" style={{ fontSize: 'clamp(8px,0.62vw,11px)' }}>TARGET ✓</span>}
+                  </div>
+                  <div className="mt-[1vh] h-[0.9vh] min-h-[6px] rounded-full bg-slate-100 overflow-hidden"><div className={`h-full rounded-full bg-gradient-to-r ${m.bar} transition-all duration-1000`} style={{ width: `${p.pct}%` }} /></div>
+                  <div className="flex items-center justify-between mt-[0.8vh] text-slate-500" style={{ fontSize: 'clamp(9px,0.78vw,14px)' }}>
+                    <span className="tabular-nums font-bold text-slate-700">{p.pct}% <span className="text-slate-400 font-medium">selesai</span></span>
+                    <span className="tabular-nums">{fmtNum(p.todayPcs)} pcs · {fmtNum(p.todayOrders)} order</span>
+                  </div>
                 </div>
               </div>
             </div>
