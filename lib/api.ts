@@ -9,7 +9,7 @@ import { fetchJSON } from './api-db';
 // menggagalkan Promise.all → layar "Gagal terhubung ke server".
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getDb(path: string): Promise<any> {
-  const res = await fetchJSON(path, {}, { retries: 2, timeoutMs: 12_000 });
+  const res = await fetchJSON(path, {}, { retries: 2 });
   return res.json();
 }
 
