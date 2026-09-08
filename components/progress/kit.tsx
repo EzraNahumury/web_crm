@@ -217,11 +217,20 @@ function IconBox({ className }: { className?: string }) {
   return (<svg className={className} {...svgProps}><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" /><path d="M3.27 6.96L12 12l8.73-5.04" /><path d="M12 22.08V12" /></svg>);
 }
 
+function IconSteam({ className }: { className?: string }) {
+  return (<svg className={className} {...svgProps}><path d="M7 4c0 1.5-1.5 1.8-1.5 3.5S7 9 7 10.5" /><path d="M12 3c0 1.5-1.5 1.8-1.5 3.5S12 8 12 9.5" /><path d="M17 4c0 1.5-1.5 1.8-1.5 3.5S17 9 17 10.5" /><rect x="3" y="14" width="18" height="6" rx="2" /></svg>);
+}
+function IconFinishing({ className }: { className?: string }) {
+  return (<svg className={className} {...svgProps}><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4L12 3z" /><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9L18 14z" /></svg>);
+}
+
 const PROC_META: Record<string, { sub: string; grad: string; bar: string; Icon: ComponentType<{ className?: string }> }> = {
   printing: { sub: 'Proses Cetak', grad: 'from-emerald-500 to-green-600', bar: 'from-emerald-400 to-green-500', Icon: IconPrinter },
   press: { sub: 'Proses Press', grad: 'from-violet-500 to-purple-600', bar: 'from-violet-400 to-purple-500', Icon: IconLayers },
   cutting: { sub: 'Proses Pemotongan', grad: 'from-orange-500 to-amber-600', bar: 'from-orange-400 to-amber-500', Icon: IconScissors },
   jahit: { sub: 'Proses Jahit', grad: 'from-blue-500 to-sky-600', bar: 'from-blue-400 to-sky-500', Icon: IconSewing },
+  steam: { sub: 'Proses Steam', grad: 'from-rose-500 to-red-600', bar: 'from-rose-400 to-red-500', Icon: IconSteam },
+  finishing: { sub: 'Proses Finishing', grad: 'from-indigo-500 to-violet-600', bar: 'from-indigo-400 to-violet-500', Icon: IconFinishing },
   shipment: { sub: 'Proses Pengiriman', grad: 'from-teal-500 to-cyan-600', bar: 'from-teal-400 to-cyan-500', Icon: IconBox },
 };
 export function PoinSlaBody({ feed }: { feed: Feed }) {
@@ -249,7 +258,7 @@ export function PoinSlaBody({ feed }: { feed: Feed }) {
   return (
     <div className="h-full flex flex-col p-[1.2vw] gap-[1vw]">
       {/* Poin harian */}
-      <div className="grid grid-cols-5 gap-[1vw]" style={{ flex: '1 1 0' }}>
+      <div className="grid grid-cols-7 gap-[0.7vw]" style={{ flex: '1 1 0' }}>
         {processes.map((p, idx) => {
           const m = PROC_META[p.key] || PROC_META.printing;
           const reached = p.todayPoin >= target;
@@ -430,6 +439,7 @@ export function buildSample(): Feed {
   const processes = [
     mkProc('printing', 'Printing', 372, 388, 9, 6420), mkProc('press', 'Press', 268, 279, 7, 5180),
     mkProc('cutting', 'Cutting', 415, 431, 11, 7040), mkProc('jahit', 'Jahit', 306, 318, 8, 5960),
+    mkProc('steam', 'Steam', 224, 233, 6, 4180), mkProc('finishing', 'Finishing', 341, 352, 9, 6010),
     mkProc('shipment', 'Shipment', 188, 195, 5, 3120),
   ];
   const mkUpcoming = (d: number, orders: UpcomingGroup['orders']): UpcomingGroup => ({ date: isoPlus(d), count: orders.length, qty: orders.reduce((s, o) => s + o.qty, 0), orders });

@@ -66,10 +66,12 @@ export const PROGRESS_ACCENTS: Record<string, ProgressAccent> = {
   fuchsia: { heroGrad: 'from-fuchsia-500/[0.14] via-purple-500/[0.06]', iconBg: 'from-fuchsia-500/25 to-fuchsia-500/5 border-fuchsia-500/25', iconText: 'text-fuchsia-300', addBtn: 'bg-fuchsia-600 hover:bg-fuchsia-500 shadow-fuchsia-500/20', ring: 'focus:border-fuchsia-500/40' },
   orange: { heroGrad: 'from-orange-500/[0.14] via-amber-500/[0.06]', iconBg: 'from-orange-500/25 to-orange-500/5 border-orange-500/25', iconText: 'text-orange-300', addBtn: 'bg-orange-600 hover:bg-orange-500 shadow-orange-500/20', ring: 'focus:border-orange-500/40' },
   teal: { heroGrad: 'from-teal-500/[0.14] via-emerald-500/[0.06]', iconBg: 'from-teal-500/25 to-teal-500/5 border-teal-500/25', iconText: 'text-teal-300', addBtn: 'bg-teal-600 hover:bg-teal-500 shadow-teal-500/20', ring: 'focus:border-teal-500/40' },
+  rose: { heroGrad: 'from-rose-500/[0.14] via-red-500/[0.06]', iconBg: 'from-rose-500/25 to-rose-500/5 border-rose-500/25', iconText: 'text-rose-300', addBtn: 'bg-rose-600 hover:bg-rose-500 shadow-rose-500/20', ring: 'focus:border-rose-500/40' },
+  indigo: { heroGrad: 'from-indigo-500/[0.14] via-violet-500/[0.06]', iconBg: 'from-indigo-500/25 to-indigo-500/5 border-indigo-500/25', iconText: 'text-indigo-300', addBtn: 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/20', ring: 'focus:border-indigo-500/40' },
 };
 
 export default function ProgressLinePage({ table, title, accent }: {
-  table: 'progress_printing' | 'progress_press' | 'progress_cutting' | 'progress_shipment';
+  table: 'progress_printing' | 'progress_press' | 'progress_cutting' | 'progress_shipment' | 'progress_steam' | 'progress_finishing';
   title: string;
   accent: keyof typeof PROGRESS_ACCENTS;
 }) {

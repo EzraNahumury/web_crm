@@ -127,10 +127,12 @@ export async function GET() {
     if (rates.length === 0) rates.push({ prefix: 'standar', ra: 5000, rc: 5000 }, { prefix: 'klasik', ra: 7000, rc: 6000 }, { prefix: 'pro', ra: 8500, rc: 6000 });
 
     // ── Poin harian per proses ───────────────────────────────────────────
-    const [printing, press, cutting, shipment] = await Promise.all([
+    const [printing, press, cutting, steam, finishing, shipment] = await Promise.all([
       progressProcess('progress_printing', 'Printing', rates, todayISO, monthStart, monthEnd),
       progressProcess('progress_press', 'Press', rates, todayISO, monthStart, monthEnd),
       progressProcess('progress_cutting', 'Cutting', rates, todayISO, monthStart, monthEnd),
+      progressProcess('progress_steam', 'Steam', rates, todayISO, monthStart, monthEnd),
+      progressProcess('progress_finishing', 'Finishing', rates, todayISO, monthStart, monthEnd),
       progressProcess('progress_shipment', 'Shipment', rates, todayISO, monthStart, monthEnd),
     ]);
     const jahitRows = await query<Record<string, unknown>>('SELECT * FROM line_jahit WHERE tanggal BETWEEN ? AND ?', [monthStart, monthEnd]).catch(() => []);
@@ -143,7 +145,7 @@ export async function GET() {
       if (isoDate(r.tanggal) === todayISO) { jTodayPoin += poin; jTodayPcs += pcs; jTodayOrders += 1; }
     }
     const jahit = { key: 'jahit', label: 'Jahit', todayPoin: jTodayPoin, todayPcs: jTodayPcs, todayOrders: jTodayOrders, monthPoin: jMonthPoin };
-    const processes = [printing, press, cutting, jahit, shipment].map(p => ({
+    const processes = [printing, press, cutting, jahit, steam, finishing, shipment].map(p => ({
       ...p, todayPoin: Math.round(p.todayPoin * 10) / 10, monthPoin: Math.round(p.monthPoin * 10) / 10,
       pct: Math.min(100, Math.round((p.todayPoin / TARGET_POIN_HARIAN) * 100)),
     }));

@@ -1617,6 +1617,32 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `work_orders` ADD COLUMN `wo2_kolom_ready` TINYINT NOT NULL DEFAULT 0",
     ],
   },
+  {
+    // Progress Steam & Finishing — 2 proses tambahan, struktur & target sama
+    // dengan Progress Printing/Press/Cutting/Shipment (flat 340 poin/hari).
+    // Urutan di Hasil Kerja Harian: Jahit → Steam → Finishing → Shipment.
+    name: '082_progress_steam_finishing',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `progress_steam` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`customer` VARCHAR(200) NOT NULL DEFAULT ''," +
+        "`realisasi_json` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_steam_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "CREATE TABLE IF NOT EXISTS `progress_finishing` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`customer` VARCHAR(200) NOT NULL DEFAULT ''," +
+        "`realisasi_json` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_finishing_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
