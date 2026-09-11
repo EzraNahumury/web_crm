@@ -425,6 +425,9 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
     <div style="border-right:2px solid #000;display:flex;flex-direction:column">
       <!-- PATTERN header -->
       <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:4px 0;border-bottom:2px solid #000">PATTERN</div>
+      <!-- Nama customer — isi ruang kosong di bawah header PATTERN supaya
+           lebih mudah dibaca (permintaan user). -->
+      <div style="text-align:center;font-size:13px;font-weight:800;padding:7px 8px;border-bottom:2px solid #000">${escapeHtml(String(wo.customer || ''))}</div>
       <!-- Pattern image — kotak FIXED height (tinggi, isi sampai bawah)
            supaya ukuran konsisten antar-WO & gambar contain-fit di dalamnya. -->
       <div style="border-bottom:2px solid #000;background:#fff;height:708px;display:flex;align-items:center;justify-content:center;padding:4px">
@@ -3509,6 +3512,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                     {/* ─── MIDDLE COLUMN ─── */}
                     <div className="border-r-2 border-black flex flex-col">
                       <div className="bg-black text-center text-[11px] font-bold py-1 border-b-2 border-black" style={{ color: '#fff' }}>PATTERN</div>
+                      <div className="text-center text-[13px] font-bold py-1.5 border-b-2 border-black">{wo.customer || ''}</div>
                       <div className="border-b-2 border-black bg-white flex-1" style={{ minHeight: 380 }}>
                         {spec.dokumen_pattern ? (
                           <img src={spec.dokumen_pattern} alt="Pattern" className="w-full h-full object-contain" style={{ maxHeight: 480 }} />
