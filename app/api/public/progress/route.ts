@@ -95,18 +95,32 @@ function classifyDeadline(deadlineISO: string, todayISO: string): 'aman' | 'warn
 }
 
 type ProgRow = { customer: string; tanggal: unknown; realisasi_json: unknown };
-async function progressProcess(table: string, label: string, rates: PaketRate[], todayISO: string, monthStart: string, monthEnd: string) {
+type PerDate = Record<string, { qty: number; poin: number }>;
+function emptyPerDate(dates: string[]): PerDate {
+  const o: PerDate = {};
+  for (const d of dates) o[d] = { qty: 0, poin: 0 };
+  return o;
+}
+// Fetch 1x untuk window lebar (cover bulan ini + rentang report), lalu hitung
+// poin hari ini, poin bulan ini (monthKey), dan per-tanggal (reportDates).
+async function progressProcess(
+  table: string, label: string, rates: PaketRate[], todayISO: string,
+  monthKey: string, winStart: string, winEnd: string, reportDates: string[],
+) {
   const rows = await query<ProgRow>(
     `SELECT customer, tanggal, realisasi_json FROM \`${table}\` WHERE tanggal BETWEEN ? AND ?`,
-    [monthStart, monthEnd],
+    [winStart, winEnd],
   ).catch(() => [] as ProgRow[]);
   let todayPoin = 0, todayPcs = 0, todayOrders = 0, monthPoin = 0;
+  const perDate = emptyPerDate(reportDates);
   for (const r of rows) {
+    const iso = isoDate(r.tanggal);
     const { poin, pcs } = poinOf(parseData(r.realisasi_json), rates);
-    monthPoin += poin;
-    if (isoDate(r.tanggal) === todayISO) { todayPoin += poin; todayPcs += pcs; todayOrders += 1; }
+    if (iso.slice(0, 7) === monthKey) monthPoin += poin;
+    if (iso === todayISO) { todayPoin += poin; todayPcs += pcs; todayOrders += 1; }
+    if (perDate[iso]) { perDate[iso].qty += pcs; perDate[iso].poin += poin; }
   }
-  return { key: table.replace('progress_', ''), label, todayPoin, todayPcs, todayOrders, monthPoin };
+  return { key: table.replace('progress_', ''), label, todayPoin, todayPcs, todayOrders, monthPoin, perDate };
 }
 
 export async function GET() {
@@ -116,6 +130,18 @@ export async function GET() {
     const monthStart = `${todayISO.slice(0, 7)}-01`;
     const lastDayNum = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const monthEnd = `${todayISO.slice(0, 7)}-${String(lastDayNum).padStart(2, '0')}`;
+    const monthKey = todayISO.slice(0, 7);
+
+    // Report tabel (slide 2 Hasil Kerja Harian): 7 hari terakhir termasuk hari
+    // ini, urut lama → baru. Window fetch = gabungan bulan ini + rentang report.
+    const isoMinus = (baseISO: string, days: number): string => {
+      const [y, m, d] = baseISO.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d)); dt.setUTCDate(dt.getUTCDate() - days);
+      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+    };
+    const reportDates: string[] = [];
+    for (let i = 6; i >= 0; i--) reportDates.push(isoMinus(todayISO, i));
+    const winStart = reportDates[0] < monthStart ? reportDates[0] : monthStart;
 
     // ── Paket rates ──────────────────────────────────────────────────────
     const paketRows = await query<{ kolom_prefix: string; rate_atasan: number; rate_celana: number }>(
@@ -126,30 +152,50 @@ export async function GET() {
     }));
     if (rates.length === 0) rates.push({ prefix: 'standar', ra: 5000, rc: 5000 }, { prefix: 'klasik', ra: 7000, rc: 6000 }, { prefix: 'pro', ra: 8500, rc: 6000 });
 
-    // ── Poin harian per proses ───────────────────────────────────────────
+    // ── Poin harian per proses (+ per-tanggal untuk report) ──────────────
     const [printing, press, cutting, steam, finishing, shipment] = await Promise.all([
-      progressProcess('progress_printing', 'Printing', rates, todayISO, monthStart, monthEnd),
-      progressProcess('progress_press', 'Press', rates, todayISO, monthStart, monthEnd),
-      progressProcess('progress_cutting', 'Cutting', rates, todayISO, monthStart, monthEnd),
-      progressProcess('progress_steam', 'Steam', rates, todayISO, monthStart, monthEnd),
-      progressProcess('progress_finishing', 'Finishing', rates, todayISO, monthStart, monthEnd),
-      progressProcess('progress_shipment', 'Shipment', rates, todayISO, monthStart, monthEnd),
+      progressProcess('progress_printing', 'Printing', rates, todayISO, monthKey, winStart, monthEnd, reportDates),
+      progressProcess('progress_press', 'Press', rates, todayISO, monthKey, winStart, monthEnd, reportDates),
+      progressProcess('progress_cutting', 'Cutting', rates, todayISO, monthKey, winStart, monthEnd, reportDates),
+      progressProcess('progress_steam', 'Steam', rates, todayISO, monthKey, winStart, monthEnd, reportDates),
+      progressProcess('progress_finishing', 'Finishing', rates, todayISO, monthKey, winStart, monthEnd, reportDates),
+      progressProcess('progress_shipment', 'Shipment', rates, todayISO, monthKey, winStart, monthEnd, reportDates),
     ]);
-    const jahitRows = await query<Record<string, unknown>>('SELECT * FROM line_jahit WHERE tanggal BETWEEN ? AND ?', [monthStart, monthEnd]).catch(() => []);
+    const jahitRows = await query<Record<string, unknown>>('SELECT * FROM line_jahit WHERE tanggal BETWEEN ? AND ?', [winStart, monthEnd]).catch(() => []);
     let jTodayPoin = 0, jTodayPcs = 0, jTodayOrders = 0, jMonthPoin = 0;
+    const jPerDate = emptyPerDate(reportDates);
     for (const r of jahitRows) {
+      const iso = isoDate(r.tanggal);
       const data: Record<string, number> = {};
       for (const rt of rates) { data[`${rt.prefix}_atasan`] = Number(r[`${rt.prefix}_atasan`]) || 0; data[`${rt.prefix}_celana`] = Number(r[`${rt.prefix}_celana`]) || 0; }
       const { poin, pcs } = poinOf(data, rates);
-      jMonthPoin += poin;
-      if (isoDate(r.tanggal) === todayISO) { jTodayPoin += poin; jTodayPcs += pcs; jTodayOrders += 1; }
+      if (iso.slice(0, 7) === monthKey) jMonthPoin += poin;
+      if (iso === todayISO) { jTodayPoin += poin; jTodayPcs += pcs; jTodayOrders += 1; }
+      if (jPerDate[iso]) { jPerDate[iso].qty += pcs; jPerDate[iso].poin += poin; }
     }
-    const jahit = { key: 'jahit', label: 'Jahit', todayPoin: jTodayPoin, todayPcs: jTodayPcs, todayOrders: jTodayOrders, monthPoin: jMonthPoin };
-    const processes = [printing, press, cutting, jahit, steam, finishing, shipment].map(p => ({
-      ...p, todayPoin: Math.round(p.todayPoin * 10) / 10, monthPoin: Math.round(p.monthPoin * 10) / 10,
+    const jahit = { key: 'jahit', label: 'Jahit', todayPoin: jTodayPoin, todayPcs: jTodayPcs, todayOrders: jTodayOrders, monthPoin: jMonthPoin, perDate: jPerDate };
+
+    const rawProc = [printing, press, cutting, jahit, steam, finishing, shipment];
+    const processes = rawProc.map(p => ({
+      key: p.key, label: p.label, todayPcs: p.todayPcs, todayOrders: p.todayOrders,
+      todayPoin: Math.round(p.todayPoin * 10) / 10, monthPoin: Math.round(p.monthPoin * 10) / 10,
       pct: Math.min(100, Math.round((p.todayPoin / TARGET_POIN_HARIAN) * 100)),
     }));
     const totalTodayPoin = Math.round(processes.reduce((s, p) => s + p.todayPoin, 0) * 10) / 10;
+
+    // Report matrix: proses (baris) × tanggal (kolom), QTY (pcs) + POINT.
+    const report = {
+      dates: reportDates,
+      rows: rawProc.map(p => ({
+        key: p.key, label: p.label,
+        cells: reportDates.map(d => ({ qty: Math.round(p.perDate[d].qty), poin: Math.round(p.perDate[d].poin * 10) / 10 })),
+      })),
+      totals: reportDates.map(d => {
+        let qty = 0, poin = 0;
+        for (const p of rawProc) { qty += p.perDate[d].qty; poin += p.perDate[d].poin; }
+        return { qty: Math.round(qty), poin: Math.round(poin * 10) / 10 };
+      }),
+    };
 
     // ── Master data untuk deadline / reject / SLA ────────────────────────
     const holidayRows = await query<{ tanggal: unknown }>('SELECT `tanggal` FROM `libur_nasional`').catch(() => []);
@@ -285,6 +331,7 @@ export async function GET() {
       generatedAt: new Date().toISOString(),
       today: todayISO,
       poin: { target: TARGET_POIN_HARIAN, processes, totalTodayPoin },
+      report,
       deadline: { upcoming },
       urgent: { overdue, h3 },
       reject: { total: rejectItems.length, byProcess: rejectByProcess, items: rejectItems.slice(0, 60) },

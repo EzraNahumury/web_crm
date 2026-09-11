@@ -11,7 +11,7 @@
 // /api/public/progress; tiap page render slice-nya sendiri.
 // ═══════════════════════════════════════════════════════════════════════
 
-import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ComponentType, Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // ── Types (mirror /api/public/progress) ────────────────────────────────
 export interface ProcPoin { key: string; label: string; todayPoin: number; todayPcs: number; todayOrders: number; monthPoin: number; pct: number; }
@@ -22,9 +22,12 @@ export interface RejectItem { cust: string; proses: string; deadline: string; ju
 export interface DesignItem { cust: string; stage: string; target: string; status: string; }
 export interface PhaseItem { cust: string; deadline: string; jumlah: number; status: string; stage?: string; }
 export interface SlaCounts { aman: number; warning: number; terlambat: number; }
+export interface ReportCell { qty: number; poin: number; }
+export interface ReportRow { key: string; label: string; cells: ReportCell[]; }
 export interface Feed {
   success: boolean; generatedAt: string; today: string;
   poin: { target: number; processes: ProcPoin[]; totalTodayPoin: number };
+  report: { dates: string[]; rows: ReportRow[]; totals: ReportCell[] };
   deadline: { upcoming: UpcomingGroup[] };
   urgent: { overdue: OverdueItem[]; h3: H3Item[] };
   reject: { total: number; byProcess: { proses: string; count: number }[]; items: RejectItem[] };
@@ -120,8 +123,8 @@ const KIT_STYLE = `
 `;
 
 // ── Shell dipakai semua page ────────────────────────────────────────────
-export function ReportFrame({ slug, now, live, secsAgo, children }: {
-  slug: ReportSlug; now: Date; live: boolean; secsAgo: number | null; children: ReactNode;
+export function ReportFrame({ slug, now, live, secsAgo, children, titleExtra }: {
+  slug: ReportSlug; now: Date; live: boolean; secsAgo: number | null; children: ReactNode; titleExtra?: ReactNode;
 }) {
   const meta = REPORTS.find(r => r.slug === slug)!;
   const clock = useMemo(() => ({
@@ -168,12 +171,15 @@ export function ReportFrame({ slug, now, live, secsAgo, children }: {
             <h1 className="font-black tracking-tight text-slate-900 leading-none" style={{ fontSize: 'clamp(20px,2vw,42px)' }}>{meta.title}</h1>
             <p className="text-slate-500 font-medium mt-[0.7vh]" style={{ fontSize: 'clamp(11px,0.92vw,18px)' }}>{meta.sub}</p>
           </div>
-          {/* Nav antar report */}
+          {/* Slide indicator (opsional) + Nav antar report */}
+          <div className="flex items-center gap-[1vw]">
+          {titleExtra}
           <nav className="flex items-center gap-[0.6vw]">
             {REPORTS.map(r => (
               <a key={r.slug} href={`/progress/${r.slug}`} className={`rounded-lg font-bold px-[0.9vw] py-[0.7vh] transition-colors ${r.slug === slug ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`} style={{ fontSize: 'clamp(10px,0.82vw,15px)' }}>{r.title.split(' ')[0]}</a>
             ))}
           </nav>
+          </div>
         </div>
       </div>
 
@@ -303,6 +309,64 @@ export function PoinSlaBody({ feed }: { feed: Feed }) {
         {slaCard('SLA Design', sla.design.counts, 'border-indigo-200')}
         {slaCard('SLA Proofing', sla.proofing.counts, 'border-sky-200')}
         {slaCard('SLA Perbanyak', sla.perbanyak.counts, 'border-violet-200')}
+      </div>
+    </div>
+  );
+}
+
+// ── Slide 2 Hasil Kerja Harian: tabel report proses × tanggal ───────────
+function fmtPoin1(n: number): string { return (Math.round((n || 0) * 10) / 10).toLocaleString('id-ID', { maximumFractionDigits: 1 }); }
+export function ReportTableBody({ feed }: { feed: Feed }) {
+  const { dates, rows, totals } = feed.report;
+  const cell = 'border border-slate-300 text-center tabular-nums px-[0.4vw] py-[0.9vh]';
+  return (
+    <div className="h-full p-[1.1vw] flex flex-col">
+      <div className="mb-[0.8vh] flex items-center justify-between">
+        <span className="font-black text-slate-800" style={{ fontSize: 'clamp(13px,1.15vw,23px)' }}>Rekap Poin per Proses · 7 Hari Terakhir</span>
+        <span className="text-slate-400 font-semibold" style={{ fontSize: 'clamp(10px,0.82vw,15px)' }}>QTY = pcs · POINT = poin</span>
+      </div>
+      <div className="flex-1 overflow-hidden rounded-2xl border border-slate-300 tv-card">
+        <table className="w-full h-full border-collapse bg-white" style={{ fontSize: 'clamp(10px,0.9vw,17px)' }}>
+          <thead>
+            <tr className="text-white">
+              <th rowSpan={2} className="border border-slate-400 bg-indigo-600 px-[0.6vw] text-left font-black uppercase tracking-wide" style={{ fontSize: 'clamp(11px,0.95vw,18px)' }}>Proses</th>
+              {dates.map(d => {
+                const isToday = d === feed.today;
+                return <th key={d} colSpan={2} className={`border border-slate-400 px-[0.3vw] py-[0.7vh] font-black ${isToday ? 'bg-rose-600' : 'bg-indigo-500'}`} style={{ fontSize: 'clamp(9px,0.82vw,15px)' }}>{fmtTanggalShort(d)}</th>;
+              })}
+            </tr>
+            <tr className="text-slate-600">
+              {dates.map(d => (
+                <Fragment key={d}>
+                  <th className="border border-slate-300 bg-indigo-50 px-[0.3vw] py-[0.4vh] font-bold" style={{ fontSize: 'clamp(8px,0.7vw,13px)' }}>QTY</th>
+                  <th className="border border-slate-300 bg-indigo-50 px-[0.3vw] py-[0.4vh] font-bold" style={{ fontSize: 'clamp(8px,0.7vw,13px)' }}>POINT</th>
+                </Fragment>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, ri) => (
+              <tr key={r.key} className={ri % 2 ? 'bg-slate-50' : 'bg-white'}>
+                <td className="border border-slate-300 px-[0.6vw] py-[0.9vh] font-black text-slate-800 uppercase whitespace-nowrap" style={{ fontSize: 'clamp(10px,0.88vw,16px)' }}>{r.label}</td>
+                {r.cells.map((c, i) => (
+                  <Fragment key={i}>
+                    <td className={`${cell} text-slate-600`}>{c.qty > 0 ? fmtNum(c.qty) : <span className="text-slate-300">·</span>}</td>
+                    <td className={`${cell} font-bold text-indigo-700`}>{c.poin > 0 ? fmtPoin1(c.poin) : <span className="text-slate-300">·</span>}</td>
+                  </Fragment>
+                ))}
+              </tr>
+            ))}
+            <tr className="font-black text-slate-900">
+              <td className="border border-slate-400 bg-cyan-200 px-[0.6vw] py-[0.9vh] uppercase whitespace-nowrap" style={{ fontSize: 'clamp(10px,0.9vw,17px)' }}>Total per Hari</td>
+              {totals.map((t, i) => (
+                <Fragment key={i}>
+                  <td className="border border-slate-400 bg-cyan-100 text-center tabular-nums px-[0.4vw] py-[0.9vh]">{fmtNum(t.qty)}</td>
+                  <td className="border border-slate-400 bg-cyan-200 text-center tabular-nums px-[0.4vw] py-[0.9vh] text-cyan-900">{fmtPoin1(t.poin)}</td>
+                </Fragment>
+              ))}
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -446,6 +510,15 @@ export function buildSample(): Feed {
   return {
     success: true, generatedAt: new Date().toISOString(), today: isoPlus(0),
     poin: { target, processes, totalTodayPoin: processes.reduce((s, p) => s + p.todayPoin, 0) },
+    report: (() => {
+      const dates = [-6, -5, -4, -3, -2, -1, 0].map(isoPlus);
+      const mk = (label: string, key: string, base: number): ReportRow => ({
+        key, label, cells: dates.map((_, i) => { const qty = (base + i * 13) % 150; return { qty, poin: Math.round(qty * 1.4 * 10) / 10 }; }),
+      });
+      const rows = [mk('Printing', 'printing', 80), mk('Press', 'press', 60), mk('Cutting', 'cutting', 100), mk('Jahit', 'jahit', 90), mk('Steam', 'steam', 70), mk('Finishing', 'finishing', 110), mk('Shipment', 'shipment', 50)];
+      const totals = dates.map((_, i) => { let qty = 0, poin = 0; for (const r of rows) { qty += r.cells[i].qty; poin += r.cells[i].poin; } return { qty, poin: Math.round(poin * 10) / 10 }; });
+      return { dates, rows, totals };
+    })(),
     deadline: {
       upcoming: [
         mkUpcoming(0, [{ cust: 'RO 1 Sovya Royza Putra', qty: 72, paket: 'PRO', noOrder: 'AY0831-002' }, { cust: 'SMANSA Cup 2026', qty: 88, paket: 'KLASIK', noOrder: 'AY0829-014' }, { cust: 'Persib Junior Bandung', qty: 54, paket: 'STANDAR', noOrder: 'AY0830-006' }]),
