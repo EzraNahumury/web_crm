@@ -90,16 +90,31 @@ export default function BuktiPembayaranPage() {
   const ordersNeedingProof = useMemo(() => {
     const dpScalar = new Map<number, number>();
     for (const o of orders) dpScalar.set(Number(o.id), Number(o.dp_produksi) || 0);
-    const s = new Set<number>();
+
+    // Dedupe baris dp_produksi kembar per (order, urutan) — prioritaskan yang
+    // SUDAH punya bukti_tf, PERSIS seperti buildRows. Tanpa dedup ini, baris
+    // duplikat KOSONG (urutan sama, sisa dari row dibuat 2x di order_payments)
+    // bikin order salah dianggap "butuh bukti" walau installment-nya sudah ada
+    // buktinya di baris kembarnya → order yang sudah upload+submit tetap muncul
+    // lagi di list (bug BRAYEN PATANDUK dkk).
+    const byKey = new Map<string, Row>();
     for (const p of payments) {
       if (String(p.tipe) !== 'dp_produksi') continue;
       const oid = Number(p.order_id);
       if ((dpScalar.get(oid) || 0) <= 0) continue; // order tanpa DP Produksi → abaikan baris basi
       const amt = Number(p.amount) || (Number(p.tunai) || 0) + (Number(p.trf) || 0);
       if (amt <= 0) continue;
+      const key = `${oid}:${Number(p.urutan) || 0}`;
+      const ex = byKey.get(key);
+      if (!ex) { byKey.set(key, p); continue; }
+      if (!ex.bukti_tf && p.bukti_tf) byKey.set(key, p);
+    }
+
+    const s = new Set<number>();
+    for (const p of byKey.values()) {
       const isCash = String(p.method || '').toUpperCase() === 'CASH';
       const hasProof = p.bukti_tf && String(p.bukti_tf).trim();
-      if (!isCash && !hasProof) s.add(oid);
+      if (!isCash && !hasProof) s.add(Number(p.order_id));
     }
     return s;
   }, [payments, orders]);
