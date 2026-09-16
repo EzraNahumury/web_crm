@@ -114,6 +114,7 @@ const KIT_STYLE = `
   @keyframes tvgrad { to { background-position: 300% 0; } }
   @keyframes tvshine { to { background-position: -200% 0; } }
   @keyframes tvdrift { 0% { background-position: 0 0; } 100% { background-position: 26px 26px; } }
+  @keyframes tvvscroll { from { transform: translateY(0); } to { transform: translateY(-50%); } }
   .tv-fade { animation: tvfade .55s cubic-bezier(.22,.61,.36,1) both; }
   .tv-item { animation: tvitem .5s cubic-bezier(.22,.61,.36,1) both; }
   .tv-scroll::-webkit-scrollbar { display: none; }
@@ -448,45 +449,86 @@ export function DeadlineBody({ feed }: { feed: Feed }) {
 }
 
 // ══════════════════════ REPORT 5 · LEWAT DEADLINE & H-3 ════════════════
+interface TelatRow { cust: string; deadline: string; qty: number; tag: string; }
+const TELAT_GRID = '0.55fr 1.7fr 1.2fr 0.8fr 0.9fr';
+
+// Satu panel (Lewat Deadline / H-3). Semua customer ditampilkan; kalau
+// melebihi tinggi panel, list auto-scroll vertikal mulus (loop) supaya
+// semuanya kebaca bergiliran. Nomor urut ikut urutan data (paling telat /
+// paling dekat deadline = No.1).
+function TelatPanel({ rows, tone, title, empty }: { rows: TelatRow[]; tone: 'rose' | 'amber'; title: string; empty: string }) {
+  const head = tone === 'rose' ? 'bg-rose-600 text-white' : 'bg-amber-500 text-[#1a1204]';
+  const divide = tone === 'rose' ? 'divide-rose-100' : 'divide-amber-100';
+  const tagCls = tone === 'rose' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700';
+  const numCls = tone === 'rose' ? 'text-rose-400' : 'text-amber-500';
+
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scroll, setScroll] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      const w = wrapRef.current, l = listRef.current;
+      if (!w || !l) return;
+      setScroll(l.scrollHeight > w.clientHeight + 4);
+    };
+    check();
+    const t = setTimeout(check, 350); // setelah layout/font settle
+    window.addEventListener('resize', check);
+    return () => { clearTimeout(t); window.removeEventListener('resize', check); };
+  }, [rows.length]);
+
+  const renderList = (dupe: boolean) => (
+    <div ref={dupe ? undefined : listRef} aria-hidden={dupe} className={`divide-y ${divide}`}>
+      {rows.map((r, i) => (
+        <div key={i} className="grid items-center px-[1.1vw] py-[1.0vh]" style={{ gridTemplateColumns: TELAT_GRID }}>
+          <span className={`tabular-nums font-black ${numCls}`} style={{ fontSize: 'clamp(11px,0.95vw,17px)' }}>{i + 1}</span>
+          <span className="truncate font-bold text-slate-800" style={{ fontSize: 'clamp(12px,1.05vw,20px)' }}>{r.cust}</span>
+          <span className="tabular-nums text-slate-600 font-semibold" style={{ fontSize: 'clamp(10px,0.9vw,16px)' }}>{fmtTanggalShort(r.deadline)}</span>
+          <span className="text-center tabular-nums font-black text-slate-900" style={{ fontSize: 'clamp(12px,1.05vw,20px)' }}>{fmtNum(r.qty)}</span>
+          <span className="text-right"><span className={`inline-block rounded-md font-black px-[0.6vw] py-[0.3vh] ${tagCls}`} style={{ fontSize: 'clamp(9px,0.78vw,14px)' }}>{r.tag}</span></span>
+        </div>
+      ))}
+    </div>
+  );
+
+  // Kecepatan konsisten: ~1.8 dtk per baris untuk lewati satu tinggi baris.
+  const dur = Math.max(24, rows.length * 1.8);
+
+  return (
+    <div className={`flex flex-col rounded-2xl border ${tone === 'rose' ? 'border-rose-200' : 'border-amber-200'} bg-white tv-card overflow-hidden`}>
+      <div className={`flex items-center justify-between px-[1.2vw] py-[1.2vh] ${head}`}>
+        <span className="font-black tracking-wide" style={{ fontSize: 'clamp(15px,1.4vw,28px)' }}>{title}</span>
+        <span className="font-black tabular-nums rounded-lg bg-black/10 px-[0.8vw] py-[0.3vh]" style={{ fontSize: 'clamp(15px,1.4vw,28px)' }}><CountUp value={rows.length} /></span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="flex-1 grid place-items-center text-emerald-600 font-bold" style={{ fontSize: 'clamp(13px,1.1vw,20px)' }}>✓ {empty}</div>
+      ) : (
+        <>
+          <div className="grid items-center px-[1.1vw] py-[0.8vh] bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase tracking-wide" style={{ gridTemplateColumns: TELAT_GRID, fontSize: 'clamp(9px,0.76vw,14px)' }}>
+            <span>No</span><span>Nama Customer</span><span>Deadline</span><span className="text-center">Jumlah</span><span className="text-right">{tone === 'rose' ? 'Telat' : 'Sisa'}</span>
+          </div>
+          <div ref={wrapRef} className="flex-1 overflow-hidden">
+            {scroll ? (
+              <div style={{ animation: `tvvscroll ${dur}s linear infinite` }}>
+                {renderList(false)}
+                {renderList(true)}
+              </div>
+            ) : renderList(false)}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function TelatBody({ feed }: { feed: Feed }) {
   const { overdue, h3 } = feed.urgent;
-  const table = (rows: { cust: string; deadline: string; qty: number; tag: string }[], tone: 'rose' | 'amber', empty: string) => {
-    const head = tone === 'rose' ? 'bg-rose-600' : 'bg-amber-500 text-[#1a1204]';
-    const divide = tone === 'rose' ? 'divide-rose-100' : 'divide-amber-100';
-    const tagCls = tone === 'rose' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700';
-    return (
-      <div className={`tv-item flex flex-col rounded-2xl border ${tone === 'rose' ? 'border-rose-200' : 'border-amber-200'} bg-white tv-card overflow-hidden`}>
-        <div className={`flex items-center justify-between px-[1.2vw] py-[1.2vh] text-white ${head}`}>
-          <span className="font-black tracking-wide" style={{ fontSize: 'clamp(15px,1.4vw,28px)' }}>{tone === 'rose' ? 'LEWAT DEADLINE' : 'H-3 SEBELUM DEADLINE'}</span>
-          <span className="font-black tabular-nums rounded-lg bg-black/10 px-[0.8vw] py-[0.3vh]" style={{ fontSize: 'clamp(15px,1.4vw,28px)' }}><CountUp value={rows.length} /></span>
-        </div>
-        {rows.length === 0 ? (
-          <div className="flex-1 grid place-items-center text-emerald-600 font-bold" style={{ fontSize: 'clamp(13px,1.1vw,20px)' }}>✓ {empty}</div>
-        ) : (
-          <>
-            <div className="grid items-center px-[1.2vw] py-[0.8vh] bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase tracking-wide" style={{ gridTemplateColumns: '1.7fr 1.2fr 0.8fr 0.9fr', fontSize: 'clamp(9px,0.76vw,14px)' }}>
-              <span>Nama Customer</span><span>Deadline</span><span className="text-center">Jumlah</span><span className="text-right">{tone === 'rose' ? 'Telat' : 'Sisa'}</span>
-            </div>
-            <div className={`flex-1 tv-scroll overflow-hidden divide-y ${divide}`}>
-              {rows.slice(0, 9).map((r, i) => (
-                <div key={i} className="tv-item grid items-center px-[1.2vw] py-[1.02vh]" style={{ gridTemplateColumns: '1.7fr 1.2fr 0.8fr 0.9fr', animationDelay: `${i * 45}ms` }}>
-                  <span className="truncate font-bold text-slate-800" style={{ fontSize: 'clamp(12px,1.05vw,20px)' }}>{r.cust}</span>
-                  <span className="tabular-nums text-slate-600 font-semibold" style={{ fontSize: 'clamp(10px,0.9vw,16px)' }}>{fmtTanggalShort(r.deadline)}</span>
-                  <span className="text-center tabular-nums font-black text-slate-900" style={{ fontSize: 'clamp(12px,1.05vw,20px)' }}>{fmtNum(r.qty)}</span>
-                  <span className="text-right"><span className={`inline-block rounded-md font-black px-[0.6vw] py-[0.3vh] ${tagCls}`} style={{ fontSize: 'clamp(9px,0.78vw,14px)' }}>{r.tag}</span></span>
-                </div>
-              ))}
-              {rows.length > 9 && <div className="px-[1.2vw] py-[0.8vh] text-slate-400 font-semibold" style={{ fontSize: 'clamp(9px,0.76vw,14px)' }}>+{rows.length - 9} lainnya…</div>}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  };
   return (
     <div className="h-full grid grid-cols-2 gap-[1.1vw] p-[1.4vw]">
-      {table(overdue.map(o => ({ cust: o.cust, deadline: o.deadline, qty: o.qty, tag: `+${o.daysLate}h` })), 'rose', 'Tidak ada yang lewat deadline')}
-      {table(h3.map(h => ({ cust: h.cust, deadline: h.deadline, qty: h.qty, tag: h.daysLeft === 0 ? 'HARI INI' : `H-${h.daysLeft}` })), 'amber', 'Tidak ada yang mendekati deadline')}
+      <TelatPanel tone="rose" title="LEWAT DEADLINE" empty="Tidak ada yang lewat deadline"
+        rows={overdue.map(o => ({ cust: o.cust, deadline: o.deadline, qty: o.qty, tag: `+${o.daysLate}h` }))} />
+      <TelatPanel tone="amber" title="H-3 SEBELUM DEADLINE" empty="Tidak ada yang mendekati deadline"
+        rows={h3.map(h => ({ cust: h.cust, deadline: h.deadline, qty: h.qty, tag: h.daysLeft === 0 ? 'HARI INI' : `H-${h.daysLeft}` }))} />
     </div>
   );
 }
@@ -530,17 +572,12 @@ export function buildSample(): Feed {
         mkUpcoming(7, [{ cust: 'Panitia Porseni SMP 3', qty: 44, paket: 'STANDAR', noOrder: 'AY0821-012' }, { cust: 'Klub Renang Tirta', qty: 30, paket: 'STANDAR', noOrder: 'AY0819-050' }]),
       ],
     },
-    urgent: {
-      overdue: [
-        { cust: 'PT Maju Bersama Sport', noOrder: 'AY0812-004', deadline: isoPlus(-3), qty: 84, daysLate: 3 },
-        { cust: 'Turnamen RW 07', noOrder: 'AY0815-019', deadline: isoPlus(-1), qty: 36, daysLate: 1 },
-      ],
-      h3: [
-        { cust: 'RO 1 Sovya Royza Putra', noOrder: 'AY0831-002', deadline: isoPlus(0), qty: 72, daysLeft: 0 },
-        { cust: 'FC Garuda Muda', noOrder: 'AY0828-021', deadline: isoPlus(1), qty: 48, daysLeft: 1 },
-        { cust: 'PS Bintang Timur', noOrder: 'AY0826-033', deadline: isoPlus(2), qty: 96, daysLeft: 2 },
-      ],
-    },
+    urgent: (() => {
+      const names = ['ROHMAT FEBRI', 'ADIN ARKANANTA', 'RESSY ENTERPRISE', 'PERSIKAMA MAGELANG', 'SSB BATURETNO', 'QIQO ASSIDIQI', 'Agus Haryo', 'BENNY TWKL', 'MUSATAKLIMA', 'PT Maju Bersama Sport', 'Turnamen RW 07', 'Suwon FC SOLO', 'Amri PT Darma Henwa', 'Aris Saputra', 'RO 2 RIZKY ABDULLAH', 'RO 1 H ADY', 'Gede Agus Mahendra', 'WAREHOUSE PT.ULTRASAKTI', 'RYAN SEPTIANDI', 'Putra Mahendra SOLO', 'FC Garuda Muda', 'PS Bintang Timur'];
+      const overdue = names.map((cust, i) => { const dl = names.length - i; return { cust, noOrder: `AY${900 + i}`, deadline: isoPlus(-dl), qty: ((i * 37) % 180) + 12, daysLate: dl }; });
+      const h3 = names.slice(0, 14).map((cust, i) => { const left = Math.min(3, Math.floor(i / 4)); return { cust, noOrder: `AH${900 + i}`, deadline: isoPlus(left), qty: ((i * 29) % 120) + 7, daysLeft: left }; });
+      return { overdue, h3 };
+    })(),
     reject: {
       total: 4,
       byProcess: [{ proses: 'QC Panel Process', count: 2 }, { proses: 'Sewing', count: 1 }, { proses: 'QC Final dan Packing', count: 1 }],
