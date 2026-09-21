@@ -7,14 +7,17 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import {
   useProgressFeed, ReportFrame, LoadingBody,
-  PoinSlaBody, RejectBody, DeadlineBody, TelatBody,
+  PoinSlaBody, ReportTableBody, RejectBody, DeadlineBody, TelatBody,
   type Feed, type ReportSlug,
 } from '@/components/progress/kit';
 
-const SLIDE_MS = 30_000; // pindah report tiap 30 detik
+const SLIDE_MS = 30_000; // pindah slide tiap 30 detik
 
+// 5 slide: Hasil Kerja Harian punya 2 view (Ringkasan + Rekap 7 Hari),
+// keduanya ikut rotasi, lalu Reject → Deadline → Lewat.
 const SLIDES: { slug: ReportSlug; Body: ComponentType<{ feed: Feed }> }[] = [
   { slug: 'harian', Body: PoinSlaBody },
+  { slug: 'harian', Body: ReportTableBody },
   { slug: 'reject', Body: RejectBody },
   { slug: 'deadline', Body: DeadlineBody },
   { slug: 'telat', Body: TelatBody },
