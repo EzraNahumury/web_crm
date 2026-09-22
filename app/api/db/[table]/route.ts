@@ -22,6 +22,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   progress_shipment: { columns: '*', searchCols: ['customer'], filterCols: ['id', 'tanggal'] },
   progress_steam:    { columns: '*', searchCols: ['customer'], filterCols: ['id', 'tanggal'] },
   progress_finishing: { columns: '*', searchCols: ['customer'], filterCols: ['id', 'tanggal'] },
+  laporan_pic:       { columns: '*', filterCols: ['id', 'jenis', 'tanggal'] },
   cs_form_leads:     { columns: '*', filterCols: ['id', 'tanggal', 'lead_id'] },
   barang:            { columns: 'b.*, tb.nama AS tipe_nama', searchCols: ['b.nama'], filterCols: ['b.id'] },
   tipe_barang:       { columns: '*', searchCols: ['nama'], filterCols: ['id'] },

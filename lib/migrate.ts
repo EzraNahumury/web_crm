@@ -1643,6 +1643,25 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Laporan PIC — laporan harian manual yang diisi PIC (4 jenis). Semua
+    // field per jenis disimpan sebagai data_json biar fleksibel. Satu baris
+    // per (jenis, tanggal) — unik, jadi save = upsert.
+    name: '083_laporan_pic',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `laporan_pic` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`jenis` VARCHAR(40) NOT NULL," +
+        "`tanggal` DATE NOT NULL," +
+        "`data_json` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "UNIQUE KEY `uk_laporan_pic` (`jenis`, `tanggal`)," +
+        "KEY `idx_lpic_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
