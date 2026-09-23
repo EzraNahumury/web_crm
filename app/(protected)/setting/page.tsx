@@ -40,16 +40,19 @@ const MENU_ITEMS = [
   'CS Order',
   'Produksi',
   'Work Orders',
+  'Admin Produksi',
   'Monitoring Produksi',
   'Approval Gudang',
   'CRM Deadline Lock',
   'CRM Finishing',
   'Line Jahit',
+  'Progress Produksi',
   'Laporan',
   'Gudang',
   'Settings',
   'Master Data',
   'Analisa',
+  'Reseller',
 ];
 
 export default function SettingPage() {
