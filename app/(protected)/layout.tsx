@@ -117,10 +117,6 @@ const ADMIN_NAV: SideNavItem[] = [
     ],
   },
   {
-    href: '/approval-gudang', label: 'Approval Gudang',
-    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>,
-  },
-  {
     href: '/crm-deadline-lock', label: 'Produksi Deadline Lock',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>,
   },
@@ -174,6 +170,7 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/gudang/forecasting-bahan', label: 'Forecasting Bahan' },
       { href: '/gudang/real-pengeluaran-bahan', label: 'Real Pengeluaran Bahan' },
       { href: '/gudang/pembelian-bahan', label: 'Pembelian Bahan' },
+      { href: '/approval-gudang', label: 'Approval Gudang' },
     ],
   },
   {
@@ -237,10 +234,10 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // PIC' (sebelum login ulang) — asalkan punya akses 'Laporan'.
   'Laporan': ['/laporan/produksi', '/laporan/penggunaan-bahan', '/laporan-pic/printing-cutting', '/laporan-pic/design-proofing', '/laporan-pic/sewing-shipment', '/laporan-pic/deadline-sublim'],
   'Laporan PIC': ['/laporan-pic/printing-cutting', '/laporan-pic/design-proofing', '/laporan-pic/sewing-shipment', '/laporan-pic/deadline-sublim'],
-  'Gudang': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan'],
+  'Gudang': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan', '/approval-gudang'],
   // Legacy alias: user yg role/menuAccess-nya masih pakai 'Stok' (nama
   // lama sebelum jadi child menu Gudang) tetap dapat akses ke halaman stok.
-  'Stok': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan'],
+  'Stok': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan', '/approval-gudang'],
   'Settings': ['/setting'],
   'Master Data': ['/master'],
   // Reseller hrefs juga dipetakan di bawah 'Analisa' supaya menu Reseller
