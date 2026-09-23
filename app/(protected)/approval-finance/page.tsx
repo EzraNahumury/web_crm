@@ -518,9 +518,22 @@ export default function ApprovalFinancePage() {
         // lama yang mungkin tertinggal di order_payments (pembayaran-modal sengaja
         // tidak hapus row lama). Tanpa gate ini, Finance lihat nominal DP Produksi
         // padahal CS isi 0.
+        // Dedupe baris dp_produksi kembar per urutan (prioritaskan yang punya
+        // bukti_tf) — PERSIS seperti CS Bukti Pembayaran (buildRows). Tanpa
+        // dedup, baris duplikat (sisa row order_payments yang dibuat 2x) bikin
+        // Finance lihat "DP Produksi (2 pembayaran)" padahal sebenarnya 1.
         const dpProduksi = Number(detail.dp_produksi) > 0
-          ? p.filter((x: Row) => String(x.tipe) === 'dp_produksi')
-             .sort((a: Row, b: Row) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0))
+          ? (() => {
+              const rows = p.filter((x: Row) => String(x.tipe) === 'dp_produksi');
+              const byUrutan = new Map<number, Row>();
+              for (const r of rows) {
+                const key = Number(r.urutan) || 0;
+                const ex = byUrutan.get(key);
+                if (!ex) { byUrutan.set(key, r); continue; }
+                if (!ex.bukti_tf && r.bukti_tf) byUrutan.set(key, r);
+              }
+              return Array.from(byUrutan.values()).sort((a: Row, b: Row) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+            })()
           : [];
         const dpAmt = Number(dpDesain?.amount || detail.dp_desain || 0);
         const ps = String(detail.pelunasan_status || '').toUpperCase();
@@ -845,8 +858,11 @@ export default function ApprovalFinancePage() {
                     <div>
                       <div className="text-xs text-slate-500 mb-1.5">DP Produksi ({dpProduksi.length} pembayaran)</div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {dpProduksi.map((dp: Row, idx: number) => {
-                          const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'][idx + 1] || String(idx + 2);
+                        {dpProduksi.map((dp: Row) => {
+                          // Label ikut urutan (konsisten dgn CS: #I = DP Desain,
+                          // DP Produksi mulai #II), bukan index array.
+                          const uProd = Number(dp.urutan) || 0;
+                          const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'][uProd + 1] || String(uProd + 2);
                           const amt = Number(dp.amount) || (Number(dp.tunai) || 0) + (Number(dp.trf) || 0);
                           const ref = dp.bukti_tf ? String(dp.bukti_tf) : '';
                           const name = String(dp.bukti_tf_name || '');

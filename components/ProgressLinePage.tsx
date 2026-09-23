@@ -16,7 +16,7 @@ const BASE_RATE_POIN = 5000;
 export const PROGRESS_TARGET_PER_DAY = 340; // poin/hari, flat
 
 interface Paket { id: number; nama: string; kolom_prefix: string; urutan: number; rate_atasan: number; rate_celana: number; }
-interface PRow { id: number; tanggal: string; customer: string; data: Record<string, number>; }
+interface PRow { id: number; tanggal: string; customer: string; keterangan: string; data: Record<string, number>; }
 interface CustomerLite { id: number; nama: string; no_hp: string; kabupaten_kota: string; }
 
 function currentYm(): string {
@@ -83,6 +83,7 @@ export default function ProgressLinePage({ table, title, accent }: {
   const [loading, setLoading] = useState(true);
   const [newTanggal, setNewTanggal] = useState('');
   const [newCustomer, setNewCustomer] = useState('');
+  const [newKeterangan, setNewKeterangan] = useState('');
   const [newQty, setNewQty] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [editingRow, setEditingRow] = useState<PRow | null>(null);
@@ -119,7 +120,7 @@ export default function ProgressLinePage({ table, title, accent }: {
       setRows((all as Row[])
         .filter(r => String(r.tanggal || '').slice(0, 7) === month)
         .sort((x, y) => String(x.tanggal).localeCompare(String(y.tanggal)) || Number(x.id) - Number(y.id))
-        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), data: parseData(r.realisasi_json) })));
+        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), keterangan: String(r.keterangan || ''), data: parseData(r.realisasi_json) })));
     } catch { setRows([]); }
     setLoading(false);
   }, [table, month]);
@@ -160,8 +161,8 @@ export default function ProgressLinePage({ table, title, accent }: {
         data[`${p.kolom_prefix}_atasan`] = Number(newQty[`${p.kolom_prefix}_atasan`]) || 0;
         data[`${p.kolom_prefix}_celana`] = Number(newQty[`${p.kolom_prefix}_celana`]) || 0;
       }
-      await dbCreate(table, { tanggal: newTanggal, customer: newCustomer.trim(), realisasi_json: JSON.stringify(data) });
-      setNewCustomer(''); setNewQty({});
+      await dbCreate(table, { tanggal: newTanggal, customer: newCustomer.trim(), keterangan: newKeterangan.trim(), realisasi_json: JSON.stringify(data) });
+      setNewCustomer(''); setNewKeterangan(''); setNewQty({});
       await fetchAll();
       toast.success('Row Ditambahkan', `${newCustomer.trim()} tanggal ${fmtDayShort(newTanggal)}.`);
     } catch (e) { toast.error('Gagal', String(e)); }
@@ -173,7 +174,7 @@ export default function ProgressLinePage({ table, title, accent }: {
     setRows(prev => prev.map(r => r.id === row.id ? merged : r));
     try {
       await dbUpdate(table, row.id, {
-        tanggal: merged.tanggal, customer: merged.customer, realisasi_json: JSON.stringify(merged.data),
+        tanggal: merged.tanggal, customer: merged.customer, keterangan: merged.keterangan || '', realisasi_json: JSON.stringify(merged.data),
       });
     } catch (e) { toast.error('Gagal Update', String(e)); fetchAll(); }
   }
@@ -185,6 +186,11 @@ export default function ProgressLinePage({ table, title, accent }: {
     const trimmed = val.trim();
     if (!trimmed || trimmed === row.customer) return;
     await persistRow(row, { customer: trimmed });
+  }
+  async function updateKeterangan(row: PRow, val: string) {
+    const trimmed = val.trim();
+    if (trimmed === (row.keterangan || '')) return;
+    await persistRow(row, { keterangan: trimmed });
   }
   async function deleteRow(id: number, customer: string) {
     const yes = await toast.confirm({ title: 'Hapus Baris?', message: `Baris ${customer || ''} akan dihapus permanen.`, type: 'danger', confirmText: 'Ya, Hapus' });
@@ -251,6 +257,12 @@ export default function ProgressLinePage({ table, title, accent }: {
             <CustomerNameInput value={newCustomer} onChange={setNewCustomer} customers={customers} ringCls={a.ring} />
           </div>
         </div>
+        <div>
+          <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Keterangan <span className="text-slate-600">(opsional — mis. dicetak di mesin apa)</span></label>
+          <textarea value={newKeterangan} onChange={e => setNewKeterangan(e.target.value)} rows={2}
+            placeholder="Keterangan, mis. print di mesin A / mesin B…"
+            className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none resize-y ${a.ring}`} />
+        </div>
         <div className="flex flex-wrap gap-3">
           {paketList.map(p => (
             <div key={p.id} className="flex-1 min-w-[220px]">
@@ -262,7 +274,7 @@ export default function ProgressLinePage({ table, title, accent }: {
           ))}
         </div>
         <div className="flex items-center justify-end gap-2 pt-1">
-          <button type="button" onClick={() => { setNewTanggal(''); setNewCustomer(''); setNewQty({}); }} disabled={saving}
+          <button type="button" onClick={() => { setNewTanggal(''); setNewCustomer(''); setNewKeterangan(''); setNewQty({}); }} disabled={saving}
             className="text-sm font-medium text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] disabled:opacity-40 px-4 py-2 rounded-lg transition-colors">Reset</button>
           <button onClick={addRow} disabled={saving}
             className={`inline-flex items-center gap-2 ${a.addBtn} disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg`}>
@@ -322,7 +334,11 @@ export default function ProgressLinePage({ table, title, accent }: {
                     <td className="border border-slate-300 px-2 py-1">
                       <input type="text" defaultValue={r.customer}
                         onBlur={e => updateCustomer(r, e.target.value)}
-                        className="w-full bg-transparent focus:bg-slate-50 focus:outline-none px-1 py-0.5 rounded" />
+                        className="w-full bg-transparent focus:bg-slate-50 focus:outline-none px-1 py-0.5 rounded font-medium" />
+                      <input type="text" defaultValue={r.keterangan} placeholder="+ keterangan (mis. mesin)"
+                        onBlur={e => updateKeterangan(r, e.target.value)}
+                        title="Keterangan — mis. dicetak di mesin apa"
+                        className="w-full bg-transparent focus:bg-slate-50 focus:outline-none px-1 py-0.5 rounded text-[11px] text-slate-500 placeholder-slate-400 mt-0.5" />
                     </td>
                     {paketList.flatMap(p => {
                       const keyA = `${p.kolom_prefix}_atasan`;
@@ -504,6 +520,7 @@ function EditProgressModal({ row, paketList, accent, customers, onCancel, onSave
 }) {
   const [tanggal, setTanggal] = useState(String(row.tanggal).slice(0, 10));
   const [customer, setCustomer] = useState(row.customer);
+  const [keterangan, setKeterangan] = useState(row.keterangan || '');
   const [qty, setQty] = useState<Record<string, string>>(() => {
     const q: Record<string, string> = {};
     for (const p of paketList) {
@@ -522,7 +539,7 @@ function EditProgressModal({ row, paketList, accent, customers, onCancel, onSave
       data[`${p.kolom_prefix}_atasan`] = Number(qty[`${p.kolom_prefix}_atasan`]) || 0;
       data[`${p.kolom_prefix}_celana`] = Number(qty[`${p.kolom_prefix}_celana`]) || 0;
     }
-    await onSave({ tanggal, customer: customer.trim(), data });
+    await onSave({ tanggal, customer: customer.trim(), keterangan: keterangan.trim(), data });
     setBusy(false);
   }
 
@@ -540,6 +557,12 @@ function EditProgressModal({ row, paketList, accent, customers, onCancel, onSave
             <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Customer</label>
             <CustomerNameInput value={customer} onChange={setCustomer} customers={customers} ringCls={accent.ring} />
           </div>
+        </div>
+        <div>
+          <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Keterangan <span className="text-slate-600">(mis. dicetak di mesin apa)</span></label>
+          <textarea value={keterangan} onChange={e => setKeterangan(e.target.value)} rows={2}
+            placeholder="Keterangan, mis. print di mesin A / mesin B…"
+            className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none resize-y ${accent.ring}`} />
         </div>
         <div className="flex flex-wrap gap-3">
           {paketList.map(p => (

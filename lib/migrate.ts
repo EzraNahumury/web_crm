@@ -1662,6 +1662,20 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Kolom keterangan untuk Progress Produksi (mis. dicetak di mesin apa) —
+    // memudahkan monitoring & minta kekurangan. Idempotent (Duplicate column
+    // di-skip oleh runner).
+    name: '084_progress_keterangan',
+    up: [
+      "ALTER TABLE `progress_printing` ADD COLUMN `keterangan` TEXT NULL",
+      "ALTER TABLE `progress_press` ADD COLUMN `keterangan` TEXT NULL",
+      "ALTER TABLE `progress_cutting` ADD COLUMN `keterangan` TEXT NULL",
+      "ALTER TABLE `progress_shipment` ADD COLUMN `keterangan` TEXT NULL",
+      "ALTER TABLE `progress_steam` ADD COLUMN `keterangan` TEXT NULL",
+      "ALTER TABLE `progress_finishing` ADD COLUMN `keterangan` TEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
