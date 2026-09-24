@@ -284,8 +284,8 @@ export default function ProgressLinePage({ table, title, accent }: {
         </div>
       </div>
 
-      {/* Tabel */}
-      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-x-auto">
+      {/* Tabel — desktop/tablet (mobile pakai kartu di bawah) */}
+      <div className="hidden md:block rounded-2xl bg-[#111827] border border-white/[0.06] overflow-x-auto">
         <div className="rounded-t-2xl px-4 py-2 bg-white text-slate-800 border-b border-slate-200 font-bold text-sm tracking-wide">BULAN {monthLabel}</div>
         <table className="w-full min-w-[720px] text-sm border-collapse">
           <thead>
@@ -411,6 +411,74 @@ export default function ProgressLinePage({ table, title, accent }: {
             </tfoot>
           )}
         </table>
+      </div>
+
+      {/* Tabel versi MOBILE — kartu per tanggal (grid qty tetap bisa diedit) */}
+      <div className="md:hidden space-y-3">
+        <div className="rounded-xl px-4 py-2 bg-white text-slate-800 border border-slate-200 font-bold text-sm tracking-wide">BULAN {monthLabel}</div>
+        {Object.keys(groupedByDate).length === 0 ? (
+          <div className="rounded-2xl bg-[#111827] border border-white/[0.06] px-4 py-8 text-center text-sm text-slate-500">Belum ada data untuk bulan ini. Tambah baris di atas.</div>
+        ) : (
+          Object.entries(groupedByDate).map(([date, group]) => {
+            const totalRp = group.reduce((s, gr) => s + realisasiPoin(gr.data, paketList), 0);
+            const diff = totalRp - PROGRESS_TARGET_PER_DAY;
+            const pos = diff >= 0;
+            return (
+              <div key={date} className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+                <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.06]">
+                  <span className="font-bold text-white text-sm">{fmtDayShort(date)}</span>
+                  <div className="flex items-center gap-2.5 text-[11px] tabular-nums">
+                    <span className="text-slate-400">Target <b className="text-emerald-400">{fmtPoin(PROGRESS_TARGET_PER_DAY)}</b></span>
+                    <span className="text-slate-400">Real <b className="text-sky-400">{totalRp > 0 ? fmtPoin(totalRp) : '—'}</b></span>
+                    <span className={`font-bold ${pos ? 'text-emerald-400' : 'text-rose-400'}`}>{pos ? '+' : '−'}{fmtPoin(Math.abs(diff))}</span>
+                  </div>
+                </div>
+                <div className="divide-y divide-white/[0.05]">
+                  {group.map(r => (
+                    <div key={r.id} className="p-3 space-y-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <input type="text" defaultValue={r.customer} onBlur={e => updateCustomer(r, e.target.value)}
+                            className="w-full bg-transparent text-white font-semibold text-sm px-1 py-0.5 rounded focus:bg-white/[0.06] focus:outline-none" />
+                          <input type="text" defaultValue={r.keterangan} placeholder="+ keterangan (mis. mesin)" onBlur={e => updateKeterangan(r, e.target.value)}
+                            className="w-full bg-transparent text-slate-400 text-xs px-1 py-0.5 rounded focus:bg-white/[0.06] focus:outline-none placeholder-slate-600 mt-0.5" />
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => setEditingRow(r)} className="text-amber-500 p-1.5 rounded hover:bg-amber-500/10" title="Edit baris">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+                          </button>
+                          <button onClick={() => deleteRow(r.id, r.customer)} className="text-rose-500 p-1.5 rounded hover:bg-rose-500/10" title="Hapus baris">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166M18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {paketList.map(p => {
+                          const c = paketColor(p.urutan);
+                          return (
+                            <div key={p.id} className="rounded-lg border border-slate-300 overflow-hidden bg-white text-slate-800">
+                              <div className={`${c.tableHead} text-[10px] font-bold uppercase text-center py-1 border-b border-slate-300`}>{p.nama}</div>
+                              <div className="grid grid-cols-2">
+                                <div className="border-r border-slate-200 px-1 py-1.5">
+                                  <div className="text-[9px] text-slate-500 text-center mb-0.5">ATASAN</div>
+                                  <QtyCell value={Number(r.data[`${p.kolom_prefix}_atasan`]) || 0} onCommit={val => updateCell(r, `${p.kolom_prefix}_atasan`, val)} />
+                                </div>
+                                <div className="px-1 py-1.5">
+                                  <div className="text-[9px] text-slate-500 text-center mb-0.5">CELANA</div>
+                                  <QtyCell value={Number(r.data[`${p.kolom_prefix}_celana`]) || 0} onCommit={val => updateCell(r, `${p.kolom_prefix}_celana`, val)} />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
       </>
       )}
