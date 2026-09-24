@@ -13,7 +13,11 @@ const nextConfig: NextConfig & Record<string, any> = {
   // pdf-to-img / pdfjs-dist load a worker file from disk. When Next.js bundles
   // them into .next chunks the worker path breaks, so opt these packages out
   // of bundling and load them straight from node_modules.
-  serverExternalPackages: ['pdf-to-img', 'pdfjs-dist', 'libreoffice-convert'],
+  // mysql2 di-external supaya build Webpack tidak mencoba mem-bundle Node
+  // built-in (crypto/tls) yang dipakai driver — biar resolve dari runtime
+  // Node saja. (Build dipindah ke Webpack karena Turbopack build panic saat
+  // spawn worker PostCSS di hosting shared/CloudLinux.)
+  serverExternalPackages: ['pdf-to-img', 'pdfjs-dist', 'libreoffice-convert', 'mysql2'],
   experimental: {
     proxyClientMaxBodySize: LARGE_BODY,
     serverActions: {

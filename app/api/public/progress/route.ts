@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const BASE_RATE_POIN = 5000;
-export const TARGET_POIN_HARIAN = 340;
+const TARGET_POIN_HARIAN = 340;
 
 // Stage produksi tempat reject bisa terjadi (report 3).
 const REJECT_STAGES = ['QC Panel Process', 'Sewing', 'QC Final dan Packing'];
