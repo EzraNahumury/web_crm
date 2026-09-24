@@ -164,6 +164,12 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/analisa/grafik-cs', label: 'Grafik CS' },
       { href: '/analisa/grafik-leads', label: 'Grafik Leads' },
       { href: '/analisa/line-jahit', label: 'Line Jahit' },
+      { href: '/analisa/progress-printing', label: 'Progress Printing' },
+      { href: '/analisa/progress-press', label: 'Progress Press' },
+      { href: '/analisa/progress-cutting', label: 'Progress Cutting' },
+      { href: '/analisa/progress-steam', label: 'Progress Steam' },
+      { href: '/analisa/progress-finishing', label: 'Progress Finishing' },
+      { href: '/analisa/progress-shipment', label: 'Progress Shipment' },
       { href: '/analisa/analisa-cs', label: 'Analisa CS' },
     ],
   },
@@ -219,7 +225,7 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // Reseller hrefs juga dipetakan di bawah 'Analisa' supaya menu Reseller
   // tetap tampil untuk akun yang cookie session-nya belum punya key
   // 'Reseller' (sebelum login ulang) — asalkan punya akses 'Analisa'.
-  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/analisa-cs', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
+  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/progress-printing', '/analisa/progress-press', '/analisa/progress-cutting', '/analisa/progress-steam', '/analisa/progress-finishing', '/analisa/progress-shipment', '/analisa/analisa-cs', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
   'Reseller': ['/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
 };
 

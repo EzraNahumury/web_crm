@@ -1676,6 +1676,17 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `progress_finishing` ADD COLUMN `keterangan` TEXT NULL",
     ],
   },
+  {
+    // Pindah tahap Proofing tepat setelah Waiting List (permintaan user):
+    // Waiting List(1) → Proofing(2) → Approval Design(3) → Approval Pattern(4)
+    // → Approval WO(5) → dst (tidak berubah). Idempotent (UPDATE nilai tetap).
+    name: '085_reorder_proofing_after_waiting',
+    up: [
+      "UPDATE `production_stages` SET `urutan` = 2 WHERE `nama` = 'Proofing'",
+      "UPDATE `production_stages` SET `urutan` = 3 WHERE `nama` = 'Approval Design'",
+      "UPDATE `production_stages` SET `urutan` = 4 WHERE `nama` = 'Approval Pattern'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

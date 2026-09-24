@@ -29,7 +29,7 @@ const ROLLBACK_EMAIL = 'admin@gmail.com';
 // (marked when the WO is detailed via the Work Orders menu).
 // QC Panel Process + Sewing get an extra Reject button.
 const PROD_STAGES = [
-  'Waiting List', 'Approval Design', 'Approval Pattern', 'Proofing',
+  'Waiting List', 'Proofing', 'Approval Design', 'Approval Pattern',
   'Approval WO', 'Printing Layout', 'Approval Layout', 'Printing Process',
   'Sublim Press', 'Fabric Cutting', 'QC Panel Process', 'Sewing',
   'QC Jersey', 'Steam Jersey', 'Finishing', 'QC Final dan Packing',
