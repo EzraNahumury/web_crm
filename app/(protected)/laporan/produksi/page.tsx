@@ -62,8 +62,10 @@ function monthLabel(key: string): string {
 // selain itu default (transparan).
 function rowStyle(status: string): { bg: string; text: string } {
   const s = status.toUpperCase();
-  if (s === 'KIRIM') return { bg: 'rgba(16,185,129,0.12)', text: '#a7f3d0' };
-  if (s.includes('QC PANEL') || s.includes('QC CUTTING') || s === 'CUTTING') return { bg: 'rgba(244,63,94,0.10)', text: '#fecaca' };
+  // Text pakai tone 600 (bukan 200) supaya tetap kebaca di MODE TERANG (bg
+  // putih) maupun gelap — warna 200 sebelumnya nyaris tak terlihat di putih.
+  if (s === 'KIRIM') return { bg: 'rgba(16,185,129,0.12)', text: '#059669' };
+  if (s.includes('QC PANEL') || s.includes('QC CUTTING') || s === 'CUTTING') return { bg: 'rgba(244,63,94,0.10)', text: '#e11d48' };
   if (s === 'JAHIT' || s === 'FINISHING') return { bg: 'transparent', text: 'inherit' };
   return { bg: 'transparent', text: 'inherit' };
 }
