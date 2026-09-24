@@ -290,6 +290,16 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
       else if (daysLeft <= 7) riskLevel = 'NEAR';
     }
 
+    // Deadline lock efektif: Prioritas pakai orders.deadline_lock (manual),
+    // Reguler/Express dihitung dari tanggal_acc_proofing + hari kerja.
+    const deadlineIso = computeDeadlineLock({
+      pilihanPaket: r.pilihan_paket,
+      tanggalAccProofing: r.tanggal_acc_proofing,
+      deadlineLock: r.deadline_lock,
+      holidays: holidaySet,
+      isJaket: hasJaket(orderItems.map(it => it.paket_nama)),
+    });
+
     return {
       rowIndex: r.id,
       no: i + 1,
@@ -307,13 +317,11 @@ function mapOrders(rows: DbOrder[], items: DbItem[] = [], wos: DbWo[] = [], wps:
       //   Reguler   → tanggal_acc_proofing + 21 working days
       //   Express N → tanggal_acc_proofing + N working days
       //   Prioritas → orders.deadline_lock (manual from CS)
-      tglSelesai: fmtDate(computeDeadlineLock({
-        pilihanPaket: r.pilihan_paket,
-        tanggalAccProofing: r.tanggal_acc_proofing,
-        deadlineLock: r.deadline_lock,
-        holidays: holidaySet,
-        isJaket: hasJaket(orderItems.map(it => it.paket_nama)),
-      })),
+      tglSelesai: fmtDate(deadlineIso),
+      tglSelesaiIso: deadlineIso,
+      // deadline_lock manual (kalau CS override / Prioritas). Kolom TGL
+      // DEADLINE LOCK menampilkan deadlineLock || tglSelesaiIso (auto).
+      deadlineLock: normalizeDateOnly(r.deadline_lock),
       pilihanPaket: r.pilihan_paket || '',
       dpDesainAmount: Number(r.dp_desain) || 0,
       dpProduksiAmount: Number(r.dp_produksi) || 0,

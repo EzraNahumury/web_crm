@@ -408,6 +408,7 @@ export default function OrdersPage() {
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl ACC Proofing</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl DP Design</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl Selesai</th>
+                <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl Deadline Lock</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Progress</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Status</th>
                 <th className="text-right px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Aksi</th>
@@ -480,6 +481,20 @@ export default function OrdersPage() {
                       />
                     </td>
                     <td className="px-4 py-3.5 text-white/35">{formatDate(order.tglSelesai)}</td>
+                    <td className="px-4 py-3.5">
+                      <DeadlineLockCell
+                        orderId={order.rowIndex}
+                        value={order.deadlineLock || ''}
+                        autoValue={order.tglSelesaiIso || ''}
+                        onSaved={(newIso) => {
+                          setOrders(prev => prev.map(o =>
+                            o.rowIndex === order.rowIndex ? { ...o, deadlineLock: newIso } : o
+                          ));
+                          invalidateCache('wp_orders', 'wp_dashboard');
+                          fetchOrders();
+                        }}
+                      />
+                    </td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2 min-w-[100px]">
                         <div className="flex-1 h-1 bg-white/[0.06] rounded-full overflow-hidden">
@@ -791,6 +806,70 @@ function TanggalOrderCell({ orderId, value, onSaved }: {
         className="absolute inset-0 opacity-0 pointer-events-none"
         tabIndex={-1}
       />
+    </div>
+  );
+}
+
+// Editable "Tgl Deadline Lock". Default = deadline lock efektif (nilai
+// manual orders.deadline_lock kalau sudah diisi, kalau belum pakai hasil
+// hitung otomatis dari aturan). Edit → simpan override ke deadline_lock;
+// hapus (kosongkan) → balik ke nilai otomatis.
+function DeadlineLockCell({ orderId, value, autoValue, onSaved }: {
+  orderId: number;
+  value: string;      // orders.deadline_lock manual (ISO), '' kalau belum diisi
+  autoValue: string;  // deadline hasil hitung otomatis (ISO), fallback
+  onSaved: (newIso: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [local, setLocal] = useState(value || '');
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  useEffect(() => { setLocal(value || ''); }, [value]);
+
+  const manualIso = String(local).slice(0, 10);
+  const effIso = manualIso || String(autoValue).slice(0, 10);
+  const isAuto = !manualIso && !!effIso;
+  const display = effIso ? formatDate(effIso) : '-';
+
+  async function commit(newIso: string) {
+    if (newIso === manualIso) return;
+    setSaving(true);
+    const prev = local;
+    setLocal(newIso);
+    try {
+      await dbUpdate('orders', orderId, { deadline_lock: newIso || null });
+      onSaved(newIso);
+    } catch (e) {
+      setLocal(prev);
+      console.error('Failed to save deadline_lock', e);
+      alert('Gagal menyimpan deadline lock: ' + String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="relative inline-block" onClick={e => e.stopPropagation()}>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => {
+          const el = inputRef.current;
+          if (!el) return;
+          if (typeof el.showPicker === 'function') el.showPicker();
+          else el.focus();
+        }}
+        title={isAuto ? 'Otomatis dari aturan — klik untuk override tanggal' : 'Klik untuk ubah, atau Hapus untuk balik otomatis'}
+        className="group inline-flex items-center gap-1.5 rounded-md px-2 py-1 -mx-2 -my-1 hover:bg-white/[0.04] transition-colors cursor-pointer disabled:cursor-wait"
+      >
+        <span className={`text-sm ${effIso ? (isAuto ? 'text-white/45' : 'text-white/80') : 'text-white/25'}`}>{display}</span>
+        {isAuto && effIso && <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-400/70 border border-amber-400/25 rounded px-1 py-0.5 leading-none">auto</span>}
+        {saving ? (
+          <svg className="w-3 h-3 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+        ) : (
+          <svg className="w-3 h-3 text-white/15 group-hover:text-blue-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg>
+        )}
+      </button>
+      <input ref={inputRef} type="date" value={effIso} onChange={e => commit(e.target.value)} className="absolute inset-0 opacity-0 pointer-events-none" tabIndex={-1} />
     </div>
   );
 }

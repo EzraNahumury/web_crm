@@ -30,6 +30,8 @@ export interface Order {
   dlCust: string;
   noWorkOrder: string;
   tglSelesai: string;
+  tglSelesaiIso: string;   // deadline lock efektif (ISO) — auto/computed
+  deadlineLock: string;    // orders.deadline_lock manual (ISO), '' kalau belum diisi
   status: OrderStatus;
   progress: Progress;
   progressPercent?: number;
