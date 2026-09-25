@@ -274,10 +274,17 @@ export default function ProduksiPage() {
         (hol as Row[]).map((r: Row) => String(r.tanggal || '').slice(0, 10)).filter(Boolean)
       );
       setHolidays(holSet);
+      // Urutan tahap = urutan PROD_STAGES (canonical, sama dengan tab), BUKAN
+      // production_stages.urutan dari DB. Ini penting: "Selesai & Lanjut"
+      // memakai stages[idx+1], jadi kalau DB urutan belum ke-reorder (mis.
+      // migrasi reorder Proofing belum jalan di server), Waiting List malah
+      // lompat ke Approval Design. Dengan pakai PROD_STAGES, alur selalu
+      // Waiting List → Proofing → Approval Design → ... konsisten dengan tab.
+      const stageOrder = (nama: unknown) => { const i = PROD_STAGES.indexOf(String(nama)); return i === -1 ? 999 : i; };
       // Filter out inactive stages (QC Cutting retired in migration 016)
       const sortedStages = s
         .filter((r: Row) => r.active === undefined || r.active === 1 || r.active === true)
-        .sort((a: Row, b: Row) => (a.urutan || 0) - (b.urutan || 0));
+        .sort((a: Row, b: Row) => stageOrder(a.nama) - stageOrder(b.nama));
       let updatedProgress: Row[] = p;
 
       // Auto-create missing wo_progress rows untuk WO yang belum SELESAI.
@@ -343,7 +350,7 @@ export default function ProduksiPage() {
           .sort((a: Row, b: Row) => {
             const stageA = sortedStages.find(s => Number(s.id) === Number(a.stage_id));
             const stageB = sortedStages.find(s => Number(s.id) === Number(b.stage_id));
-            return (Number(stageA?.urutan) || 0) - (Number(stageB?.urutan) || 0);
+            return stageOrder(stageA?.nama) - stageOrder(stageB?.nama);
           });
         for (let i = 1; i < woProgress.length; i++) {
           const prev = woProgress[i - 1];
