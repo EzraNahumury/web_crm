@@ -407,7 +407,6 @@ export default function OrdersPage() {
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Customer</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl ACC Proofing</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl DP Design</th>
-                <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl Selesai</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Tgl Deadline Lock</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Progress</th>
                 <th className="text-left px-4 py-3.5 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Status</th>
@@ -480,7 +479,6 @@ export default function OrdersPage() {
                         }}
                       />
                     </td>
-                    <td className="px-4 py-3.5 text-white/35">{formatDate(order.tglSelesai)}</td>
                     <td className="px-4 py-3.5">
                       <DeadlineLockCell
                         orderId={order.rowIndex}

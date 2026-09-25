@@ -97,9 +97,16 @@ export function computeDeadlineLock(args: {
   // instead of 21. Ignored for Express/Prioritas.
   isJaket?: boolean;
 }): string {
+  // Manual deadline_lock (override CS di CS Order, atau Prioritas) SELALU
+  // menang kalau sudah diisi — berlaku untuk SEMUA jenis layanan, bukan cuma
+  // Prioritas. Tanpa ini, override manual pada order Reguler/Express diabaikan
+  // dan Laporan Deadline mengelompokkan order ke tanggal hasil hitung, bukan
+  // tanggal yang di-set user.
+  const manual = normalizeIso(args.deadlineLock);
+  if (manual) return manual;
   const kind = classifyLayanan(args.pilihanPaket);
   if (kind === 'prioritas') {
-    return normalizeIso(args.deadlineLock);
+    return ''; // Prioritas tanpa deadline manual = belum di-set
   }
   const acc = normalizeIso(args.tanggalAccProofing);
   if (!acc) return '';
