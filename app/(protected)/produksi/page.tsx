@@ -352,19 +352,47 @@ export default function ProduksiPage() {
             const stageB = sortedStages.find(s => Number(s.id) === Number(b.stage_id));
             return stageOrder(stageA?.nama) - stageOrder(stageB?.nama);
           });
-        for (let i = 1; i < woProgress.length; i++) {
-          const prev = woProgress[i - 1];
-          const cur = woProgress[i];
-          const prevStatus = String(prev.status || '').toUpperCase();
-          const curStatus = String(cur.status || '').toUpperCase();
-          if (prevStatus === 'SELESAI' && curStatus === 'BELUM') {
+        // Stage aktif (TERSEDIA/SEDANG) — normalnya HARUS tepat 1 per WO.
+        const activeRows = woProgress.filter((pr: Row) => {
+          const st = String(pr.status || '').toUpperCase();
+          return st === 'TERSEDIA' || st === 'SEDANG';
+        });
+
+        if (activeRows.length > 1) {
+          // >1 stage aktif = korup (mis. efek reorder Proofing yang sempat
+          // auto-promote gap: WO past Approval Design/Pattern jadi punya
+          // Proofing TERSEDIA juga). Pertahankan yang PALING BELAKANG di urutan
+          // canonical (= stage kerja sebenarnya), balikin sisanya ke BELUM.
+          const keep = activeRows[activeRows.length - 1];
+          for (const pr of activeRows) {
+            if (Number(pr.id) === Number(keep.id)) continue;
+            try { await dbUpdate('wo_progress', Number(pr.id), { status: 'BELUM' }); didRepair = true; }
+            catch (err) { console.warn('repair revert extra-active failed:', err); }
+          }
+          try { await dbUpdate('work_orders', Number(wo.id), { current_stage_id: keep.stage_id }); }
+          catch (err) { console.warn('repair set current_stage failed:', err); }
+          continue;
+        }
+
+        if (activeRows.length === 1) continue; // sudah normal, tidak perlu diapa-apakan
+
+        // Tidak ada stage aktif → WO mungkin nyangkut. Promote stage tepat
+        // SETELAH SELESAI TERAKHIR (bukan gap SELESAI→BELUM pertama). Penting:
+        // dengan patokan SELESAI terakhir, stage yang posisinya SEBELUM progres
+        // terjauh (mis. Proofing pos-2 untuk WO yang sudah lewat Approval
+        // Design/Pattern) TIDAK ikut ke-promote → tidak ada mass-promote lagi.
+        let lastSelesaiIdx = -1;
+        for (let i = 0; i < woProgress.length; i++) {
+          if (String(woProgress[i].status || '').toUpperCase() === 'SELESAI') lastSelesaiIdx = i;
+        }
+        if (lastSelesaiIdx >= 0 && lastSelesaiIdx + 1 < woProgress.length) {
+          const nextRow = woProgress[lastSelesaiIdx + 1];
+          if (String(nextRow.status || '').toUpperCase() === 'BELUM') {
             try {
-              await dbUpdate('wo_progress', Number(cur.id), { status: 'TERSEDIA' });
-              // Update WO current_stage_id juga supaya konsisten.
-              await dbUpdate('work_orders', Number(wo.id), { current_stage_id: cur.stage_id });
+              await dbUpdate('wo_progress', Number(nextRow.id), { status: 'TERSEDIA' });
+              await dbUpdate('work_orders', Number(wo.id), { current_stage_id: nextRow.stage_id });
               didRepair = true;
             } catch (err) { console.warn('sync-forward repair failed:', err); }
-            break; // cuma promote 1 stage sekaligus per WO
           }
         }
       }
