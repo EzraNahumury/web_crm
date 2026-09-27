@@ -115,6 +115,12 @@ export default function LaporanDeadlineCsOrderPage() {
       const out: DeadlineRow[] = [];
       for (const o of orders as Row[]) {
         if (!isVisibleTanggalOrder(o.tanggal_order)) continue;
+        // Buang lead yang masih di CS Selling (status SELLING) — belum jadi
+        // CS Order, belum punya deadline yang di-commit. Konsisten dengan
+        // tabel CS Order yang juga menyembunyikan row SELLING. Tanpa ini,
+        // lead pre-handoff (mis. Gunawan DS) bisa muncul di bucket auto
+        // sekaligus dengan order aslinya yang sudah di-set manual.
+        if (String(o.status || '').toUpperCase() === 'SELLING') continue;
         const its = itemsByOrder[String(o.id)] || [];
         const names = its.map(it => String(it.paket_nama || '')).filter(Boolean);
         const dl = computeDeadlineLock({
