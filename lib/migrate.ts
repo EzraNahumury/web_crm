@@ -1687,6 +1687,40 @@ const MIGRATIONS: Migration[] = [
       "UPDATE `production_stages` SET `urutan` = 4 WHERE `nama` = 'Approval Pattern'",
     ],
   },
+  {
+    // Kebutuhan team Press:
+    //   • sudah_eksekusi — gulungan yang keluar press ditandai "sudah
+    //     dieksekusi" oleh operator. Baris yang BELUM dieksekusi & sudah
+    //     lewat 2 hari dari tanggalnya = lewat SLA (dipantau di banner).
+    //   • urgensi — penanda Express/Urgent/Prioritas per baris (press sheet
+    //     tidak ter-link ke order, jadi operator set manual). Kosong = normal.
+    // Idempotent: Duplicate column di-skip runner.
+    name: '086_progress_press_sla',
+    up: [
+      "ALTER TABLE `progress_press` ADD COLUMN `sudah_eksekusi` TINYINT NOT NULL DEFAULT 0",
+      "ALTER TABLE `progress_press` ADD COLUMN `urgensi` VARCHAR(20) NULL",
+    ],
+  },
+  {
+    // Tabel Pendingan Press — catatan kendala operator (mesin rusak, reject
+    // kekurangan bahan, problem lain saat proses). Status OPEN → SELESAI.
+    name: '087_press_pendingan',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `press_pendingan` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`customer` VARCHAR(200) NOT NULL DEFAULT ''," +
+        "`kategori` VARCHAR(40) NOT NULL DEFAULT 'LAIN'," +
+        "`catatan` TEXT NOT NULL," +
+        "`status` VARCHAR(20) NOT NULL DEFAULT 'OPEN'," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`resolved_at` TIMESTAMP NULL," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_press_pendingan_status` (`status`)," +
+        "KEY `idx_press_pendingan_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
