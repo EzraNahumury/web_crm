@@ -586,14 +586,13 @@ export default function ProduksiPage() {
   }, { wo: 0, pcs: 0 });
   const tersediaLateCount = tersediaLate.wo;
 
-  // Gate for Proofing → Approval WO: the WO must be confirmed (details
-  // filled in via Work Orders menu) before the customer flow can proceed
-  // past Proofing. Existing legacy WOs default wo_confirmed=1 so they're
-  // never blocked.
-  function isProofingGated(item: Row): boolean {
-    if (activeStage !== 'Proofing') return false;
-    const conf = item.wo?.wo_confirmed;
-    return !(conf === 1 || conf === true || conf === undefined);
+  // Proofing TIDAK lagi menunggu konfirmasi WO. Setelah Proofing dipindah ke
+  // depan (tepat setelah Waiting List, sebelum WO didetailkan di menu Work
+  // Orders), tahap ini berada lebih awal dari titik pengisian detail WO —
+  // jadi tidak masuk akal memblokirnya menunggu wo_confirmed. Proofing bebas
+  // lanjut ke tahap berikutnya. (Param dipertahankan agar pemanggil tetap.)
+  function isProofingGated(_item: Row): boolean {
+    return false;
   }
 
   // Gate for Waiting List → Approval Design. Two-step CS Order flow:
