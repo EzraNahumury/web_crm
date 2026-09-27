@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { dbGet, dbUpdate } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { computeDeadlineLock, hasJaket } from '@/lib/business-days';
-import { buildAksesorisSet, sumQtyExcludingAksesoris } from '@/lib/qty-aksesoris';
+import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -51,26 +51,50 @@ function fmtDL(iso: string): string {
   return m ? `${Number(m[3])} ${MONTHS_ID[Number(m[2]) - 1]} ${m[1]}` : (iso || '—');
 }
 
+// Keterangan disimpan sebagai HTML (NB Rincian Order pakai contentEditable +
+// Ctrl+B). Di sini ditampilkan sebagai teks biasa yang rapi: <br>/<div>/<p>/
+// <li> jadi baris baru, tag lain dibuang, entity umum di-decode.
+function htmlToText(s: string): string {
+  if (!s) return '';
+  return String(s)
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\s*\/?\s*(div|p|li|tr)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;|&apos;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/^\s+|\s+$/g, '');
+}
+
 const TIER_OPTIONS = ['STANDAR', 'KLASIK', 'PRO'];
 
-type DeadlineRow = {
-  id: number; customer: string; qty: number;
-  detectedTier: string;   // '' kalau tidak terdeteksi
-  detectedDisplay: string;
-  manualTier: string;     // dari orders.deadline_paket_tier
-  bonus: string; ket: string; dl: string; monthKey: string;
+// Satu baris paket dalam sebuah order (1 order bisa >1 paket, mis. jersey
+// Classic + Standar). detected=false → tier belum kebaca, pakai manualTier.
+type PaketLine = { key: string; tier: string; display: string; qty: number; detected: boolean };
+type DeadlineOrder = {
+  id: number; customer: string;
+  lines: PaketLine[];      // ≥1 baris paket
+  manualTier: string;      // orders.deadline_paket_tier — utk baris undetected
+  bonus: string; ket: string; dl: string; monthKey: string; totalQty: number;
 };
 
-// Tier efektif + poin (derived) — auto kalau terdeteksi, kalau tidak pakai
-// pilihan manual. Belum ada tier → poin 0 (dikosongkan di UI).
-const effTierOf = (r: DeadlineRow) => r.detectedTier || r.manualTier;
-const rowPoint = (r: DeadlineRow) => {
-  const t = effTierOf(r);
-  return t ? Math.round(r.qty * tierRate(t) * 10) / 10 : 0;
+// Tier efektif tiap baris: auto kalau terdeteksi, kalau tidak pakai manual.
+const lineTier = (l: PaketLine, o: DeadlineOrder) => l.detected ? l.tier : o.manualTier;
+const linePoint = (l: PaketLine, o: DeadlineOrder) => {
+  const t = lineTier(l, o);
+  return t ? Math.round(l.qty * tierRate(t) * 10) / 10 : 0;
 };
+const orderPoint = (o: DeadlineOrder) => Math.round(o.lines.reduce((s, l) => s + linePoint(l, o), 0) * 10) / 10;
+// Baris yang masih butuh dipilih tier-nya (undetected + manual belum diisi).
+const orderNeedsPick = (o: DeadlineOrder) => o.lines.some(l => !lineTier(l, o));
 
 export default function LaporanDeadlineCsOrderPage() {
-  const [rowsAll, setRowsAll] = useState<DeadlineRow[]>([]);
+  const [rowsAll, setRowsAll] = useState<DeadlineOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   // Baris yang di-expand (klik) untuk menampilkan KET. null = tidak ada.
@@ -112,7 +136,9 @@ export default function LaporanDeadlineCsOrderPage() {
         if (nama) (bonusByOrder[String(op.order_id)] ||= []).push(nama);
       }
 
-      const out: DeadlineRow[] = [];
+      const isAks = (nm: string) => aksesorisSet.has(String(nm || '').trim().toLowerCase());
+
+      const out: DeadlineOrder[] = [];
       for (const o of orders as Row[]) {
         if (!isVisibleTanggalOrder(o.tanggal_order)) continue;
         // Buang lead yang masih di CS Selling (status SELLING) — belum jadi
@@ -132,20 +158,40 @@ export default function LaporanDeadlineCsOrderPage() {
         });
         if (!dl) continue; // hanya yang sudah punya Deadline Lock
 
-        const qty = sumQtyExcludingAksesoris(its, aksesorisSet);
-        const det = detectPaket(names);
+        // Split per paket: kelompokkan item non-aksesoris per tier+variant.
+        // 1 order bisa punya >1 paket (mis. Jersey Classic C + Standar A).
+        const detGroups = new Map<string, PaketLine>();
+        let undetQty = 0;
+        for (const it of its) {
+          const nm = String(it.paket_nama || '');
+          if (isAks(nm)) continue;                 // aksesoris tidak dihitung
+          const q = Number(it.qty) || 0;
+          const det = detectPaket([nm]);
+          if (det.tier) {
+            const g = detGroups.get(det.display);
+            if (g) g.qty += q;
+            else detGroups.set(det.display, { key: det.display, tier: det.tier, display: det.display, qty: q, detected: true });
+          } else {
+            undetQty += q;
+          }
+        }
+        const lines: PaketLine[] = Array.from(detGroups.values()).sort((a, b) => a.display.localeCompare(b.display));
+        // Item tanpa tier terdeteksi → satu baris manual (pakai dropdown tier).
+        // Kalau order sama sekali tak punya baris, tetap tampilkan 1 baris.
+        if (undetQty > 0 || lines.length === 0) {
+          lines.push({ key: '__manual__', tier: '', display: '', qty: undetQty, detected: false });
+        }
         const manualTier = String(o.deadline_paket_tier || '').toUpperCase();
         out.push({
           id: Number(o.id),
           customer: String(o.customer_nama || ''),
-          qty,
-          detectedTier: det.tier,
-          detectedDisplay: det.display,
+          lines,
           manualTier: TIER_OPTIONS.includes(manualTier) ? manualTier : '',
           bonus: (bonusByOrder[String(o.id)] || []).join(', '),
           ket: String(o.keterangan || ''),
           dl,
           monthKey: monthKeyOf(dl),
+          totalQty: lines.reduce((s, l) => s + l.qty, 0),
         });
       }
       setRowsAll(out);
@@ -175,12 +221,15 @@ export default function LaporanDeadlineCsOrderPage() {
   const monthRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     let rows = selectedMonth ? rowsAll.filter(r => r.monthKey === selectedMonth) : rowsAll;
-    if (q) rows = rows.filter(r => r.customer.toLowerCase().includes(q) || r.detectedDisplay.toLowerCase().includes(q) || r.bonus.toLowerCase().includes(q));
+    if (q) rows = rows.filter(r =>
+      r.customer.toLowerCase().includes(q) ||
+      r.lines.some(l => l.display.toLowerCase().includes(q)) ||
+      r.bonus.toLowerCase().includes(q));
     return rows;
   }, [rowsAll, selectedMonth, search]);
 
   const dateGroups = useMemo(() => {
-    const map = new Map<string, DeadlineRow[]>();
+    const map = new Map<string, DeadlineOrder[]>();
     for (const r of monthRows) {
       if (!map.has(r.dl)) map.set(r.dl, []);
       map.get(r.dl)!.push(r);
@@ -190,14 +239,14 @@ export default function LaporanDeadlineCsOrderPage() {
       .map(([dl, rows]) => ({
         dl,
         rows: rows.slice().sort((a, b) => a.customer.localeCompare(b.customer)),
-        qty: rows.reduce((s, r) => s + r.qty, 0),
-        point: Math.round(rows.reduce((s, r) => s + rowPoint(r), 0) * 10) / 10,
+        qty: rows.reduce((s, r) => s + r.totalQty, 0),
+        point: Math.round(rows.reduce((s, r) => s + orderPoint(r), 0) * 10) / 10,
       }));
   }, [monthRows]);
 
-  const totalQty = monthRows.reduce((s, r) => s + r.qty, 0);
-  const totalPoint = Math.round(monthRows.reduce((s, r) => s + rowPoint(r), 0) * 10) / 10;
-  const needPickCount = monthRows.filter(r => !effTierOf(r)).length;
+  const totalQty = monthRows.reduce((s, r) => s + r.totalQty, 0);
+  const totalPoint = Math.round(monthRows.reduce((s, r) => s + orderPoint(r), 0) * 10) / 10;
+  const needPickCount = monthRows.filter(orderNeedsPick).length;
   const monthLabelSel = selectedMonth ? monthLabel(selectedMonth) : 'Semua Bulan';
   const thisMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
 
@@ -267,46 +316,57 @@ export default function LaporanDeadlineCsOrderPage() {
                 </thead>
                 <tbody>
                   {g.rows.map((r, i) => {
-                    const eff = effTierOf(r);
-                    const pt = rowPoint(r);
                     const isOpen = expandedId === r.id;
+                    const L = r.lines.length;
+                    const rowCls = isOpen ? 'bg-sky-50' : 'bg-white hover:bg-slate-50';
+                    const ketText = htmlToText(r.ket);
                     return (
                       <Fragment key={r.id}>
-                        <tr
-                          onClick={() => setExpandedId(prev => (prev === r.id ? null : r.id))}
-                          className={`cursor-pointer transition-colors ${isOpen ? 'bg-sky-50' : 'bg-white hover:bg-slate-50'}`}
-                          title="Klik untuk lihat keterangan"
-                        >
-                          <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums text-slate-500">{i + 1}</td>
-                          <td className="border border-slate-300 px-2 py-1.5 font-semibold text-slate-800 break-words">{r.customer || '-'}</td>
-                          <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums font-semibold">{r.qty}</td>
-                          <td className="border border-slate-300 px-2 py-1.5">
-                            {r.detectedTier ? (
-                              <span className="uppercase text-[11px] font-semibold tracking-wide text-slate-700">{r.detectedDisplay}</span>
-                            ) : (
-                              <select
-                                value={r.manualTier}
-                                onClick={e => e.stopPropagation()}
-                                onChange={e => { e.stopPropagation(); pickTier(r.id, e.target.value); }}
-                                className={`bg-white border rounded-md px-1 py-0.5 text-[11px] focus:outline-none cursor-pointer w-full ${r.manualTier ? 'border-slate-300 text-slate-800' : 'border-amber-400 text-amber-700 bg-amber-50'}`}
-                              >
-                                <option value="">Pilih…</option>
-                                {TIER_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
-                              </select>
-                            )}
-                          </td>
-                          <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums font-bold text-slate-900">
-                            {eff ? pt.toLocaleString('id-ID') : <span className="text-slate-300">—</span>}
-                          </td>
-                          <td className="border border-slate-300 px-0.5 py-1.5 text-center text-slate-400">
-                            <svg className={`w-3 h-3 inline-block transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          </td>
-                        </tr>
+                        {r.lines.map((l, li) => {
+                          const eff = lineTier(l, r);
+                          return (
+                            <tr key={l.key}
+                              onClick={() => setExpandedId(prev => (prev === r.id ? null : r.id))}
+                              className={`cursor-pointer transition-colors ${rowCls}`}
+                              title="Klik untuk lihat keterangan">
+                              {li === 0 && (
+                                <td rowSpan={L} className="border border-slate-300 px-1 py-1.5 text-center tabular-nums text-slate-500 align-middle">{i + 1}</td>
+                              )}
+                              {li === 0 && (
+                                <td rowSpan={L} className="border border-slate-300 px-2 py-1.5 font-semibold text-slate-800 break-words align-middle">{r.customer || '-'}</td>
+                              )}
+                              <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums font-semibold">{l.qty}</td>
+                              <td className="border border-slate-300 px-2 py-1.5">
+                                {l.detected ? (
+                                  <span className="uppercase text-[11px] font-semibold tracking-wide text-slate-700">{l.display}</span>
+                                ) : (
+                                  <select
+                                    value={r.manualTier}
+                                    onClick={e => e.stopPropagation()}
+                                    onChange={e => { e.stopPropagation(); pickTier(r.id, e.target.value); }}
+                                    className={`bg-white border rounded-md px-1 py-0.5 text-[11px] focus:outline-none cursor-pointer w-full ${r.manualTier ? 'border-slate-300 text-slate-800' : 'border-amber-400 text-amber-700 bg-amber-50'}`}
+                                  >
+                                    <option value="">Pilih…</option>
+                                    {TIER_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                                  </select>
+                                )}
+                              </td>
+                              <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums font-bold text-slate-900">
+                                {eff ? linePoint(l, r).toLocaleString('id-ID') : <span className="text-slate-300">—</span>}
+                              </td>
+                              {li === 0 && (
+                                <td rowSpan={L} className="border border-slate-300 px-0.5 py-1.5 text-center text-slate-400 align-middle">
+                                  <svg className={`w-3 h-3 inline-block transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
                         {isOpen && (
                           <tr className="bg-sky-50/60">
                             <td className="border border-slate-300 px-2 py-2 text-[11px] text-slate-600 whitespace-pre-wrap break-words" colSpan={6}>
                               <span className="font-bold text-slate-700 uppercase tracking-wide mr-1">Keterangan:</span>
-                              {r.ket ? r.ket : <span className="text-slate-400 italic">— tidak ada keterangan —</span>}
+                              {ketText ? ketText : <span className="text-slate-400 italic">— tidak ada keterangan —</span>}
                             </td>
                           </tr>
                         )}
