@@ -146,6 +146,61 @@ export default function MasterPage() {
   // Pagination slice for current rows
   const paged = paginate(rows, page, pageSize);
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+  // Download PDF Barang CS: 2 tabel — (1) barang MASUK QTY, (2) barang TIDAK
+  // masuk qty (aksesoris). Pakai SEMUA rows (bukan cuma yang tampil di halaman).
+  async function downloadBarangCsPdf() {
+    setPdfBusy(true);
+    try {
+      const { jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const doc = new jsPDF() as any;
+      const fmtIdr = (n: number) => 'Rp ' + new Intl.NumberFormat('id-ID').format(n || 0);
+
+      const all = [...rows].sort((a, b) => String(a.nama || '').localeCompare(String(b.nama || ''), 'id'));
+      // hitung_qty: 1/undefined = masuk qty; 0 = aksesoris (tidak masuk qty).
+      const masukQtyOf = (r: Row) => (r.hitung_qty === undefined || r.hitung_qty === null) ? 1 : Number(r.hitung_qty);
+      const masuk = all.filter(r => masukQtyOf(r) === 1);
+      const aksesoris = all.filter(r => masukQtyOf(r) === 0);
+
+      const tgl = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      doc.setFontSize(15); doc.setFont('helvetica', 'bold');
+      doc.text('MASTER BARANG CS — AYRES', 14, 16);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(120);
+      doc.text(`Dicetak: ${tgl}  ·  Total ${all.length} barang  (${masuk.length} masuk qty, ${aksesoris.length} aksesoris)`, 14, 22);
+      doc.setTextColor(0);
+
+      const mkTable = (title: string, list: Row[], startY: number, head: [number, number, number]) => {
+        doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0);
+        doc.text(title, 14, startY);
+        autoTable(doc, {
+          startY: startY + 3,
+          head: [['No', 'Nama Barang', 'Harga']],
+          body: list.length
+            ? list.map((r, i) => [String(i + 1), String(r.nama || ''), fmtIdr(Number(r.harga))])
+            : [['', '— tidak ada data —', '']],
+          styles: { fontSize: 9, cellPadding: 2.5, lineColor: [210, 214, 220], lineWidth: 0.1, textColor: [30, 41, 59] },
+          headStyles: { fillColor: head, textColor: 255, fontStyle: 'bold', halign: 'left' },
+          columnStyles: { 0: { cellWidth: 14, halign: 'center' }, 2: { halign: 'right', cellWidth: 42 } },
+          alternateRowStyles: { fillColor: [245, 247, 250] },
+          margin: { left: 14, right: 14 },
+        });
+        return doc.lastAutoTable.finalY as number;
+      };
+
+      const y1 = mkTable(`1. Barang MASUK QTY  (${masuk.length})`, masuk, 32, [16, 122, 87]);
+      mkTable(`2. Barang TIDAK Masuk Qty / Aksesoris  (${aksesoris.length})`, aksesoris, y1 + 12, [180, 83, 9]);
+
+      doc.save('Master-Barang-CS.pdf');
+    } catch (e) {
+      console.error('PDF Barang CS gagal', e);
+      toast.error('Gagal Membuat PDF', String(e));
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   async function handleDelete(id: number) {
     const yes = await toast.confirm({ title: 'Hapus Data?', message: 'Data ini akan dihapus permanen.', type: 'danger', confirmText: 'Ya, Hapus' });
     if (!yes) return;
@@ -229,7 +284,16 @@ export default function MasterPage() {
             <p className="text-[13px] text-slate-300 mt-0.5">{cur.subtitle}</p>
           </div>
         </div>
-        {tab !== 'notes-cs-order' && <AddBtn label={cur.addLabel} onClick={() => { setEditingRow(null); setModal(true); }} />}
+        <div className="flex items-center gap-2 shrink-0">
+          {tab === 'barang-cs' && (
+            <button onClick={downloadBarangCsPdf} disabled={pdfBusy}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-50 px-4 py-2.5 rounded-lg shadow-lg shadow-rose-500/20 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12H9m6-3H9m1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+              {pdfBusy ? 'Membuat…' : 'Download PDF'}
+            </button>
+          )}
+          {tab !== 'notes-cs-order' && <AddBtn label={cur.addLabel} onClick={() => { setEditingRow(null); setModal(true); }} />}
+        </div>
       </div>
 
       {tab !== 'notes-cs-order' && <SearchBar value={search} onChange={setSearch} placeholder={cur.searchPlaceholder} />}
