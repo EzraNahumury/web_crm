@@ -102,6 +102,7 @@ const ADMIN_NAV: SideNavItem[] = [
     children: [
       { href: '/produksi', label: 'Produksi' },
       { href: '/produksi/history', label: 'History Produksi' },
+      { href: '/produksi/tracking-reject', label: 'Tracking Reject' },
     ],
   },
   {
@@ -200,7 +201,7 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'Approval Finance': ['/approval-finance', '/finance/pembelian-gudang', '/finance/laporan'],
   'CS Order': ['/orders', '/orders/bukti-pembayaran', '/orders/laporan', '/orders/laporan-deadline'],
   'Work Orders': ['/work-orders'],
-  'Produksi': ['/produksi', '/produksi/history'],
+  'Produksi': ['/produksi', '/produksi/history', '/produksi/tracking-reject'],
   'Monitoring Produksi': ['/monitoring-produksi', '/monitoring-produksi/history'],
   'Approval Gudang': ['/approval-gudang'],
   'CRM Deadline Lock': ['/crm-deadline-lock'],
