@@ -2,5 +2,6 @@
 import ProgressLinePage from '@/components/ProgressLinePage';
 
 export default function ProgressPressPage() {
-  return <ProgressLinePage table="progress_press" title="Progress Press" accent="fuchsia" pressTeam />;
+  return <ProgressLinePage table="progress_press" title="Progress Press" accent="fuchsia"
+    ops={{ mode: 'press', slaDays: 2, urgensi: true, pendingan: true }} />;
 }

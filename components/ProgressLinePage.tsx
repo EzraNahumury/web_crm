@@ -16,11 +16,31 @@ const BASE_RATE_POIN = 5000;
 export const PROGRESS_TARGET_PER_DAY = 340; // poin/hari, flat
 
 interface Paket { id: number; nama: string; kolom_prefix: string; urutan: number; rate_atasan: number; rate_celana: number; }
-interface PRow { id: number; tanggal: string; customer: string; keterangan: string; data: Record<string, number>; eksekusi: boolean; urgensi: string; }
+interface PRow { id: number; tanggal: string; customer: string; keterangan: string; data: Record<string, number>; eksekusi: boolean; urgensi: string; posisi: string; }
 interface CustomerLite { id: number; nama: string; no_hp: string; kabupaten_kota: string; }
 
-// Press SLA: gulungan yang keluar press wajib dieksekusi maks 2 hari.
-const PRESS_SLA_DAYS = 2;
+// Konfigurasi fitur operasional per halaman (press / print / cutting).
+//   slaDays  — ambang "tercecer / tertahan" dalam hari (press 2, print/cut 1)
+//   urgensi  — dropdown penanda Express/Urgent/Prioritas per baris (press)
+//   recap    — panel kapasitas Harian/Mingguan/Bulanan (print + cutting)
+//   pendingan— tabel catatan kendala operator (press)
+// Halaman lain (steam/finishing/shipment) memakai komponen tanpa ops.
+export type OpsMode = 'press' | 'print' | 'cutting';
+export interface OpsConfig {
+  mode: OpsMode;
+  slaDays: number;
+  urgensi?: boolean;
+  recap?: boolean;
+  pendingan?: boolean;
+}
+
+// Status posisi khusus Cutting.
+const CUTTING_POSISI = {
+  PROSES: 'PROSES',   // sudah cutting, masih menunggu melengkapi panel
+  SIAP: 'SIAP',       // panel komplit, siap jahit
+  LANJUT: 'LANJUT',   // sudah didorong ke proses jahit
+} as const;
+
 // Hitung umur baris (hari kalender) dari tanggal (YYYY-MM-DD) sampai hari ini.
 function ageInDays(iso: string): number {
   const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
@@ -28,6 +48,27 @@ function ageInDays(iso: string): number {
   const start = new Date(y, m - 1, d); start.setHours(0, 0, 0, 0);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   return Math.round((today.getTime() - start.getTime()) / 86400000);
+}
+
+// Nomor minggu ISO (untuk rekap mingguan) — pakai kunci "tahun-Wxx".
+function isoWeekKey(iso: string): string {
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const day = dt.getUTCDay() || 7;             // Senin=1 … Minggu=7
+  dt.setUTCDate(dt.getUTCDate() + 4 - day);      // ke Kamis minggu ini
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((dt.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${dt.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+// Jumlah hari kerja (Senin–Sabtu, tanpa Minggu) dalam satu bulan YYYY-MM.
+function workingDaysInMonth(ym: string): number {
+  const [y, m] = ym.split('-').map(Number);
+  if (!y || !m) return 0;
+  const days = new Date(y, m, 0).getDate();
+  let n = 0;
+  for (let d = 1; d <= days; d++) { if (new Date(y, m - 1, d).getDay() !== 0) n++; }
+  return n;
 }
 
 function currentYm(): string {
@@ -81,17 +122,27 @@ export const PROGRESS_ACCENTS: Record<string, ProgressAccent> = {
   indigo: { heroGrad: 'from-indigo-500/[0.14] via-violet-500/[0.06]', iconBg: 'from-indigo-500/25 to-indigo-500/5 border-indigo-500/25', iconText: 'text-indigo-300', addBtn: 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/20', ring: 'focus:border-indigo-500/40' },
 };
 
-export default function ProgressLinePage({ table, title, accent, pressTeam = false }: {
+export default function ProgressLinePage({ table, title, accent, ops }: {
   table: 'progress_printing' | 'progress_press' | 'progress_cutting' | 'progress_shipment' | 'progress_steam' | 'progress_finishing';
   title: string;
   accent: keyof typeof PROGRESS_ACCENTS;
-  // Kebutuhan team Press: aktifkan penanda urgensi + checkbox eksekusi per
-  // baris, banner SLA/urgensi, dan tabel Pendingan. Hanya dipakai di halaman
-  // Progress Press; halaman lain memakai komponen ini tanpa flag ini.
-  pressTeam?: boolean;
+  // Fitur operasional (press / print / cutting). Halaman lain tanpa ops.
+  ops?: OpsConfig;
 }) {
   const toast = useToast();
   const a = PROGRESS_ACCENTS[accent];
+  // Turunan flag ops — dipakai untuk gating UI supaya halaman non-ops
+  // (steam/finishing/shipment) tidak berubah sama sekali.
+  const opsMode = ops?.mode;
+  const isPress = opsMode === 'press';
+  const isCutting = opsMode === 'cutting';
+  const showUrgensi = !!ops?.urgensi;
+  const showRecap = !!ops?.recap;
+  const showPendingan = !!ops?.pendingan;
+  const slaDays = ops?.slaDays ?? 2;
+  // Baris punya penanda eksekusi (press = keluar press→dieksekusi; print =
+  // sudah ditarik/lanjut). Cutting pakai model posisi, bukan eksekusi.
+  const hasEksekusi = isPress || opsMode === 'print';
   const [month, setMonth] = useState(currentYm());
   const [rows, setRows] = useState<PRow[]>([]);
   const [paketList, setPaketList] = useState<Paket[]>([]);
@@ -135,7 +186,7 @@ export default function ProgressLinePage({ table, title, accent, pressTeam = fal
       setRows((all as Row[])
         .filter(r => String(r.tanggal || '').slice(0, 7) === month)
         .sort((x, y) => String(x.tanggal).localeCompare(String(y.tanggal)) || Number(x.id) - Number(y.id))
-        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), keterangan: String(r.keterangan || ''), data: parseData(r.realisasi_json), eksekusi: !!Number(r.sudah_eksekusi), urgensi: String(r.urgensi || '') })));
+        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), keterangan: String(r.keterangan || ''), data: parseData(r.realisasi_json), eksekusi: !!Number(r.sudah_eksekusi), urgensi: String(r.urgensi || ''), posisi: String(r.posisi || CUTTING_POSISI.PROSES) })));
     } catch { setRows([]); }
     setLoading(false);
   }, [table, month]);
@@ -214,26 +265,56 @@ export default function ProgressLinePage({ table, title, accent, pressTeam = fal
     catch (e) { toast.error('Gagal', String(e)); }
   }
 
-  // Press-only: update kolom sudah_eksekusi / urgensi tanpa menyentuh kolom
-  // lain (kolom ini hanya ada di progress_press). Optimistic + persist.
-  async function updatePressRow(row: PRow, patch: { eksekusi?: boolean; urgensi?: string }) {
+  // Ops-only: update kolom sudah_eksekusi / urgensi / posisi tanpa menyentuh
+  // kolom lain (kolom ini hanya ada di tabel yang relevan). Optimistic +
+  // persist.
+  async function updateOpsRow(row: PRow, patch: { eksekusi?: boolean; urgensi?: string; posisi?: string }) {
     const merged = { ...row, ...patch };
     setRows(prev => prev.map(r => r.id === row.id ? merged : r));
     const dbPatch: Record<string, unknown> = {};
     if (patch.eksekusi !== undefined) dbPatch.sudah_eksekusi = patch.eksekusi ? 1 : 0;
     if (patch.urgensi !== undefined) dbPatch.urgensi = patch.urgensi || null;
+    if (patch.posisi !== undefined) dbPatch.posisi = patch.posisi;
     try { await dbUpdate(table, row.id, dbPatch); }
     catch (e) { toast.error('Gagal Update', String(e)); fetchAll(); }
   }
 
-  // Press notif: baris belum dieksekusi & sudah lewat SLA (umur > 2 hari),
-  // dan baris urgensi (Express/Urgent/Prioritas) yang belum dieksekusi.
-  const pressNotif = useMemo(() => {
-    if (!pressTeam) return { slaOverdue: [] as PRow[], urgent: [] as PRow[] };
-    const slaOverdue = rows.filter(r => !r.eksekusi && ageInDays(r.tanggal) > PRESS_SLA_DAYS);
-    const urgent = rows.filter(r => !r.eksekusi && r.urgensi);
-    return { slaOverdue, urgent };
-  }, [rows, pressTeam]);
+  // Notif ops:
+  //   press/print → baris belum dieksekusi & lewat SLA + (press) baris urgensi.
+  //   cutting     → PROSES lewat SLA (menunggu panel) + SIAP tapi belum lanjut.
+  const opsNotif = useMemo(() => {
+    if (!ops) return { slaOverdue: [] as PRow[], urgent: [] as PRow[], cuttingHeld: [] as PRow[], cuttingReady: [] as PRow[] };
+    if (isCutting) {
+      const cuttingHeld = rows.filter(r => r.posisi === CUTTING_POSISI.PROSES && ageInDays(r.tanggal) > slaDays);
+      const cuttingReady = rows.filter(r => r.posisi === CUTTING_POSISI.SIAP);
+      return { slaOverdue: [], urgent: [], cuttingHeld, cuttingReady };
+    }
+    const slaOverdue = rows.filter(r => !r.eksekusi && ageInDays(r.tanggal) > slaDays);
+    const urgent = showUrgensi ? rows.filter(r => !r.eksekusi && r.urgensi) : [];
+    return { slaOverdue, urgent, cuttingHeld: [], cuttingReady: [] };
+  }, [rows, ops, isCutting, showUrgensi, slaDays]);
+
+  // Rekap kapasitas Harian / Mingguan / Bulanan (print + cutting). Realisasi
+  // poin vs kapasitas 340/hari untuk evaluasi. rows = bulan terpilih saja,
+  // jadi Harian = hari ini, Mingguan = minggu ISO ini, Bulanan = bulan ini.
+  const recap = useMemo(() => {
+    const todayIsoStr = todayIso();
+    const wkKey = isoWeekKey(todayIsoStr);
+    const qtyOf = (r: PRow) => paketList.reduce((s, p) => s + (Number(r.data[`${p.kolom_prefix}_atasan`]) || 0) + (Number(r.data[`${p.kolom_prefix}_celana`]) || 0), 0);
+    const agg = (list: PRow[]) => ({
+      real: list.reduce((s, r) => s + realisasiPoin(r.data, paketList), 0),
+      qty: list.reduce((s, r) => s + qtyOf(r), 0),
+    });
+    const daily = agg(rows.filter(r => r.tanggal === todayIsoStr));
+    const weekly = agg(rows.filter(r => isoWeekKey(r.tanggal) === wkKey));
+    const monthly = agg(rows);
+    const weekWorkDays = new Set(rows.filter(r => isoWeekKey(r.tanggal) === wkKey).map(r => r.tanggal)).size || 0;
+    return {
+      daily: { ...daily, target: PROGRESS_TARGET_PER_DAY },
+      weekly: { ...weekly, target: PROGRESS_TARGET_PER_DAY * Math.max(weekWorkDays, 6) },
+      monthly: { ...monthly, target: PROGRESS_TARGET_PER_DAY * workingDaysInMonth(month) },
+    };
+  }, [rows, paketList, month]);
 
   const bodyColCount = 6 + paketCount * 2;
 
@@ -267,18 +348,47 @@ export default function ProgressLinePage({ table, title, accent, pressTeam = fal
         </div>
       </div>
 
-      {/* Press: banner notif SLA lewat + urgensi belum dieksekusi */}
-      {pressTeam && (pressNotif.slaOverdue.length > 0 || pressNotif.urgent.length > 0) && (
+      {/* Rekap kapasitas Harian / Mingguan / Bulanan (print + cutting) */}
+      {showRecap && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {([['Harian', recap.daily, 'Hari ini'], ['Mingguan', recap.weekly, 'Minggu ini'], ['Bulanan', recap.monthly, monthLabel]] as const).map(([lbl, r, sub]) => {
+            const util = r.target > 0 ? Math.round((r.real / r.target) * 100) : 0;
+            const utilCls = util >= 100 ? 'text-emerald-400' : util >= 70 ? 'text-amber-400' : 'text-rose-400';
+            return (
+              <div key={lbl} className="rounded-2xl bg-[#111827] border border-white/[0.06] p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">{lbl}</p>
+                  <span className="text-[10px] text-slate-500">{sub}</span>
+                </div>
+                <div className="flex items-baseline gap-1.5 mt-1">
+                  <p className="text-2xl font-bold text-white tabular-nums">{fmtPoin(r.real)}</p>
+                  <span className="text-[11px] text-slate-500">/ {fmtPoin(r.target)} poin</span>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${util >= 100 ? 'bg-emerald-500' : util >= 70 ? 'bg-amber-500' : 'bg-rose-500'}`} style={{ width: `${Math.min(util, 100)}%` }} />
+                  </div>
+                  <span className={`text-[11px] font-semibold tabular-nums ${utilCls}`}>{util}%</span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1.5 tabular-nums">{r.qty} pcs (atasan+celana)</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Banner notif: press/print (SLA + urgensi) & cutting (tertahan + siap) */}
+      {ops && (opsNotif.slaOverdue.length > 0 || opsNotif.urgent.length > 0 || opsNotif.cuttingHeld.length > 0 || opsNotif.cuttingReady.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {pressNotif.slaOverdue.length > 0 && (
+          {opsNotif.slaOverdue.length > 0 && (
             <div className="rounded-2xl border border-red-500/25 bg-red-500/[0.08] p-4">
               <div className="flex items-center gap-2 mb-2">
                 <svg className="w-5 h-5 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.9}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-                <p className="text-sm font-semibold text-red-200">Lewat SLA {PRESS_SLA_DAYS} Hari <span className="tabular-nums">({pressNotif.slaOverdue.length})</span></p>
+                <p className="text-sm font-semibold text-red-200">Tercecer — Lewat SLA {slaDays} Hari <span className="tabular-nums">({opsNotif.slaOverdue.length})</span></p>
               </div>
-              <p className="text-[11px] text-red-300/70 mb-2">Gulungan sudah keluar press tapi belum dieksekusi &gt; {PRESS_SLA_DAYS} hari.</p>
+              <p className="text-[11px] text-red-300/70 mb-2">{isPress ? 'Gulungan keluar press' : 'Sudah diprint'} tapi belum dieksekusi &gt; {slaDays} hari.</p>
               <div className="flex flex-wrap gap-1.5">
-                {pressNotif.slaOverdue.slice(0, 30).map(r => (
+                {opsNotif.slaOverdue.slice(0, 30).map(r => (
                   <span key={r.id} className="text-[11px] px-2 py-1 rounded-lg border border-red-500/25 bg-red-500/10 text-red-200">
                     {r.customer || '(tanpa nama)'} · <span className="tabular-nums">{ageInDays(r.tanggal)}h</span>
                   </span>
@@ -286,17 +396,49 @@ export default function ProgressLinePage({ table, title, accent, pressTeam = fal
               </div>
             </div>
           )}
-          {pressNotif.urgent.length > 0 && (
+          {opsNotif.urgent.length > 0 && (
             <div className="rounded-2xl border border-orange-500/25 bg-orange-500/[0.08] p-4">
               <div className="flex items-center gap-2 mb-2">
                 <svg className="w-5 h-5 text-orange-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.9}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>
-                <p className="text-sm font-semibold text-orange-200">Prioritas / Express / Urgent <span className="tabular-nums">({pressNotif.urgent.length})</span></p>
+                <p className="text-sm font-semibold text-orange-200">Prioritas / Express / Urgent <span className="tabular-nums">({opsNotif.urgent.length})</span></p>
               </div>
               <p className="text-[11px] text-orange-300/70 mb-2">Belum dieksekusi — dahulukan.</p>
               <div className="flex flex-wrap gap-1.5">
-                {pressNotif.urgent.slice(0, 30).map(r => (
+                {opsNotif.urgent.slice(0, 30).map(r => (
                   <span key={r.id} className="text-[11px] px-2 py-1 rounded-lg border border-orange-500/25 bg-orange-500/10 text-orange-100">
                     {r.customer || '(tanpa nama)'} · {r.urgensi}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {opsNotif.cuttingHeld.length > 0 && (
+            <div className="rounded-2xl border border-red-500/25 bg-red-500/[0.08] p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-5 h-5 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.9}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                <p className="text-sm font-semibold text-red-200">Tertahan di Cutting — Lewat SLA {slaDays} Hari <span className="tabular-nums">({opsNotif.cuttingHeld.length})</span></p>
+              </div>
+              <p className="text-[11px] text-red-300/70 mb-2">Sudah cutting tapi masih menunggu melengkapi panel &gt; {slaDays} hari.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {opsNotif.cuttingHeld.slice(0, 30).map(r => (
+                  <span key={r.id} className="text-[11px] px-2 py-1 rounded-lg border border-red-500/25 bg-red-500/10 text-red-200">
+                    {r.customer || '(tanpa nama)'} · <span className="tabular-nums">{ageInDays(r.tanggal)}h</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {opsNotif.cuttingReady.length > 0 && (
+            <div className="rounded-2xl border border-amber-500/25 bg-amber-500/[0.08] p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.9}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
+                <p className="text-sm font-semibold text-amber-200">Siap Jahit, Belum Dilanjutkan <span className="tabular-nums">({opsNotif.cuttingReady.length})</span></p>
+              </div>
+              <p className="text-[11px] text-amber-300/70 mb-2">Cutting komplit tapi masih tertahan — dorong ke proses jahit.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {opsNotif.cuttingReady.slice(0, 30).map(r => (
+                  <span key={r.id} className="text-[11px] px-2 py-1 rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-100">
+                    {r.customer || '(tanpa nama)'}
                   </span>
                 ))}
               </div>
@@ -413,24 +555,45 @@ export default function ProgressLinePage({ table, title, accent, pressTeam = fal
                         onBlur={e => updateKeterangan(r, e.target.value)}
                         title="Keterangan — mis. dicetak di mesin apa"
                         className="w-full bg-transparent focus:bg-slate-50 focus:outline-none px-1 py-0.5 rounded text-[11px] text-slate-500 placeholder-slate-400 mt-0.5" />
-                      {pressTeam && (
-                        <div className="flex items-center gap-2 mt-1">
-                          <select value={r.urgensi} onChange={e => updatePressRow(r, { urgensi: e.target.value })}
-                            title="Penanda urgensi baris ini"
-                            className={`text-[10px] border rounded px-1 py-0.5 bg-white ${r.urgensi ? 'border-orange-400 text-orange-700 font-semibold' : 'border-slate-300 text-slate-600'}`}>
-                            <option value="">Normal</option>
-                            <option value="EXPRESS">Express</option>
-                            <option value="URGENT">Urgent</option>
-                            <option value="PRIORITAS">Prioritas</option>
-                          </select>
-                          <label className="flex items-center gap-1 text-[10px] text-slate-600 cursor-pointer select-none">
-                            <input type="checkbox" checked={r.eksekusi} onChange={e => updatePressRow(r, { eksekusi: e.target.checked })} className="accent-emerald-600" />
-                            Eksekusi
-                          </label>
-                          {!r.eksekusi && ageInDays(r.tanggal) > PRESS_SLA_DAYS && (
-                            <span className="text-[9px] font-bold text-red-600 bg-red-100 border border-red-300 rounded px-1" title={`Lewat SLA ${PRESS_SLA_DAYS} hari`}>SLA {ageInDays(r.tanggal)}h</span>
+                      {opsMode && (
+                        <div className="flex items-center flex-wrap gap-2 mt-1">
+                          {showUrgensi && (
+                            <select value={r.urgensi} onChange={e => updateOpsRow(r, { urgensi: e.target.value })}
+                              title="Penanda urgensi baris ini"
+                              className={`text-[10px] border rounded px-1 py-0.5 bg-white ${r.urgensi ? 'border-orange-400 text-orange-700 font-semibold' : 'border-slate-300 text-slate-600'}`}>
+                              <option value="">Normal</option>
+                              <option value="EXPRESS">Express</option>
+                              <option value="URGENT">Urgent</option>
+                              <option value="PRIORITAS">Prioritas</option>
+                            </select>
                           )}
-                          {r.eksekusi && <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 rounded px-1">✓ selesai</span>}
+                          {hasEksekusi && (
+                            <>
+                              <label className="flex items-center gap-1 text-[10px] text-slate-600 cursor-pointer select-none">
+                                <input type="checkbox" checked={r.eksekusi} onChange={e => updateOpsRow(r, { eksekusi: e.target.checked })} className="accent-emerald-600" />
+                                {isPress ? 'Eksekusi' : 'Dilanjut'}
+                              </label>
+                              {!r.eksekusi && ageInDays(r.tanggal) > slaDays && (
+                                <span className="text-[9px] font-bold text-red-600 bg-red-100 border border-red-300 rounded px-1" title={`Lewat SLA ${slaDays} hari`}>SLA {ageInDays(r.tanggal)}h</span>
+                              )}
+                              {r.eksekusi && <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 rounded px-1">✓ selesai</span>}
+                            </>
+                          )}
+                          {isCutting && (
+                            <>
+                              <select value={r.posisi} onChange={e => updateOpsRow(r, { posisi: e.target.value })}
+                                title="Posisi cutting"
+                                className={`text-[10px] border rounded px-1 py-0.5 bg-white ${r.posisi === CUTTING_POSISI.PROSES ? 'border-slate-300 text-slate-600' : r.posisi === CUTTING_POSISI.SIAP ? 'border-amber-400 text-amber-700 font-semibold' : 'border-emerald-400 text-emerald-700 font-semibold'}`}>
+                                <option value={CUTTING_POSISI.PROSES}>Proses (nunggu panel)</option>
+                                <option value={CUTTING_POSISI.SIAP}>Siap Jahit</option>
+                                <option value={CUTTING_POSISI.LANJUT}>Lanjut ke Jahit</option>
+                              </select>
+                              {r.posisi === CUTTING_POSISI.PROSES && ageInDays(r.tanggal) > slaDays && (
+                                <span className="text-[9px] font-bold text-red-600 bg-red-100 border border-red-300 rounded px-1" title={`Tertahan > SLA ${slaDays} hari`}>SLA {ageInDays(r.tanggal)}h</span>
+                              )}
+                              {r.posisi === CUTTING_POSISI.SIAP && <span className="text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-300 rounded px-1">dorong lanjut</span>}
+                            </>
+                          )}
                         </div>
                       )}
                     </td>
@@ -536,21 +699,41 @@ export default function ProgressLinePage({ table, title, accent, pressTeam = fal
                             className="w-full bg-transparent text-white font-semibold text-sm px-1 py-0.5 rounded focus:bg-white/[0.06] focus:outline-none" />
                           <input type="text" defaultValue={r.keterangan} placeholder="+ keterangan (mis. mesin)" onBlur={e => updateKeterangan(r, e.target.value)}
                             className="w-full bg-transparent text-slate-400 text-xs px-1 py-0.5 rounded focus:bg-white/[0.06] focus:outline-none placeholder-slate-600 mt-0.5" />
-                          {pressTeam && (
-                            <div className="flex items-center gap-2 mt-1.5 px-1">
-                              <select value={r.urgensi} onChange={e => updatePressRow(r, { urgensi: e.target.value })}
-                                className={`text-[11px] border rounded px-1.5 py-1 bg-[#0d1117] ${r.urgensi ? 'border-orange-500/40 text-orange-300 font-semibold' : 'border-white/10 text-slate-300'}`}>
-                                <option value="">Normal</option>
-                                <option value="EXPRESS">Express</option>
-                                <option value="URGENT">Urgent</option>
-                                <option value="PRIORITAS">Prioritas</option>
-                              </select>
-                              <label className="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer select-none">
-                                <input type="checkbox" checked={r.eksekusi} onChange={e => updatePressRow(r, { eksekusi: e.target.checked })} className="accent-emerald-500 w-3.5 h-3.5" />
-                                Eksekusi
-                              </label>
-                              {!r.eksekusi && ageInDays(r.tanggal) > PRESS_SLA_DAYS && (
-                                <span className="text-[9px] font-bold text-red-300 bg-red-500/15 border border-red-500/30 rounded px-1.5 py-0.5">SLA {ageInDays(r.tanggal)}h</span>
+                          {opsMode && (
+                            <div className="flex items-center flex-wrap gap-2 mt-1.5 px-1">
+                              {showUrgensi && (
+                                <select value={r.urgensi} onChange={e => updateOpsRow(r, { urgensi: e.target.value })}
+                                  className={`text-[11px] border rounded px-1.5 py-1 bg-[#0d1117] ${r.urgensi ? 'border-orange-500/40 text-orange-300 font-semibold' : 'border-white/10 text-slate-300'}`}>
+                                  <option value="">Normal</option>
+                                  <option value="EXPRESS">Express</option>
+                                  <option value="URGENT">Urgent</option>
+                                  <option value="PRIORITAS">Prioritas</option>
+                                </select>
+                              )}
+                              {hasEksekusi && (
+                                <>
+                                  <label className="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer select-none">
+                                    <input type="checkbox" checked={r.eksekusi} onChange={e => updateOpsRow(r, { eksekusi: e.target.checked })} className="accent-emerald-500 w-3.5 h-3.5" />
+                                    {isPress ? 'Eksekusi' : 'Dilanjut'}
+                                  </label>
+                                  {!r.eksekusi && ageInDays(r.tanggal) > slaDays && (
+                                    <span className="text-[9px] font-bold text-red-300 bg-red-500/15 border border-red-500/30 rounded px-1.5 py-0.5">SLA {ageInDays(r.tanggal)}h</span>
+                                  )}
+                                </>
+                              )}
+                              {isCutting && (
+                                <>
+                                  <select value={r.posisi} onChange={e => updateOpsRow(r, { posisi: e.target.value })}
+                                    className={`text-[11px] border rounded px-1.5 py-1 bg-[#0d1117] ${r.posisi === CUTTING_POSISI.PROSES ? 'border-white/10 text-slate-300' : r.posisi === CUTTING_POSISI.SIAP ? 'border-amber-500/40 text-amber-300 font-semibold' : 'border-emerald-500/40 text-emerald-300 font-semibold'}`}>
+                                    <option value={CUTTING_POSISI.PROSES}>Proses (nunggu panel)</option>
+                                    <option value={CUTTING_POSISI.SIAP}>Siap Jahit</option>
+                                    <option value={CUTTING_POSISI.LANJUT}>Lanjut ke Jahit</option>
+                                  </select>
+                                  {r.posisi === CUTTING_POSISI.PROSES && ageInDays(r.tanggal) > slaDays && (
+                                    <span className="text-[9px] font-bold text-red-300 bg-red-500/15 border border-red-500/30 rounded px-1.5 py-0.5">SLA {ageInDays(r.tanggal)}h</span>
+                                  )}
+                                  {r.posisi === CUTTING_POSISI.SIAP && <span className="text-[9px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded px-1.5 py-0.5">dorong lanjut</span>}
+                                </>
                               )}
                             </div>
                           )}
@@ -595,7 +778,7 @@ export default function ProgressLinePage({ table, title, accent, pressTeam = fal
       </>
       )}
 
-      {pressTeam && <PressPendinganSection accent={a} customers={customers} />}
+      {showPendingan && <PressPendinganSection accent={a} customers={customers} />}
 
       {editingRow && (
         <EditProgressModal row={editingRow} paketList={paketList} accent={a} customers={customers}

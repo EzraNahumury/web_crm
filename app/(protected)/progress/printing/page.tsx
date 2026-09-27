@@ -2,5 +2,6 @@
 import ProgressLinePage from '@/components/ProgressLinePage';
 
 export default function ProgressPrintingPage() {
-  return <ProgressLinePage table="progress_printing" title="Progress Printing" accent="sky" />;
+  return <ProgressLinePage table="progress_printing" title="Progress Printing" accent="sky"
+    ops={{ mode: 'print', slaDays: 1, recap: true }} />;
 }

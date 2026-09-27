@@ -1721,6 +1721,20 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Kebutuhan Print & QC Cutting:
+    //   • progress_printing.sudah_eksekusi — baris print yang sudah ditarik /
+    //     dilanjutkan. Belum & lewat SLA 1 hari = tercecer (notif).
+    //   • progress_cutting.posisi — PROSES (nunggu panel) → SIAP (komplit,
+    //     siap jahit) → LANJUT (sudah didorong ke jahit). PROSES lewat SLA 1
+    //     hari = tertahan; SIAP tapi belum LANJUT = dorong ke proses jahit.
+    // Idempotent: Duplicate column di-skip runner.
+    name: '088_print_cutting_ops',
+    up: [
+      "ALTER TABLE `progress_printing` ADD COLUMN `sudah_eksekusi` TINYINT NOT NULL DEFAULT 0",
+      "ALTER TABLE `progress_cutting` ADD COLUMN `posisi` VARCHAR(20) NOT NULL DEFAULT 'PROSES'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
