@@ -1735,6 +1735,36 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `progress_cutting` ADD COLUMN `posisi` VARCHAR(20) NOT NULL DEFAULT 'PROSES'",
     ],
   },
+  {
+    // Role PIC per proses produksi. Tiap role punya akses menu granular
+    // (hanya analisa/grafik proses yang dia pegang; lihat MENU_HREF_MAP +
+    // visibleChildren di layout). Akun user + password TIDAK dibuat di sini
+    // (kredensial tidak boleh masuk source) — admin membuat 4 user di
+    // Setting → Users lalu memilih role yang sesuai:
+    //   Vina   → role 'PIC Vina'   (Design/Proofing/Layout → Monitoring)
+    //   Erick  → role 'PIC Erick'  (Deadline, Printing, Press)
+    //   Amboss → role 'PIC Amboss' (Cutting, Sewing)
+    //   Intan  → role 'PIC Intan'  (Finishing, Shipment)
+    // Idempotent: INSERT ... WHERE NOT EXISTS.
+    name: '089_pic_roles',
+    up: (() => {
+      const PICS = [
+        { role: 'PIC Vina', desc: 'PIC SLA Design, Proofing, Layouting', menus: ['Dashboard', 'Monitoring Produksi'] },
+        { role: 'PIC Erick', desc: 'PIC Deadline, Printing, Press', menus: ['Dashboard', 'Analisa Printing', 'Analisa Press', 'Laporan Deadline'] },
+        { role: 'PIC Amboss', desc: 'PIC Cutting, Sewing', menus: ['Dashboard', 'Analisa Cutting', 'Analisa Sewing'] },
+        { role: 'PIC Intan', desc: 'PIC Finishing, Shipment', menus: ['Dashboard', 'Analisa Finishing', 'Analisa Shipment'] },
+      ];
+      const esc = (s: string) => s.replace(/'/g, "''");
+      const stmts: string[] = [];
+      for (const p of PICS) {
+        stmts.push(`INSERT INTO \`roles\` (\`nama\`,\`deskripsi\`,\`is_super_admin\`) SELECT '${esc(p.role)}','${esc(p.desc)}',0 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM \`roles\` WHERE \`nama\`='${esc(p.role)}')`);
+        for (const m of p.menus) {
+          stmts.push(`INSERT INTO \`role_menu_access\` (\`role_id\`,\`menu_name\`) SELECT r.id,'${esc(m)}' FROM \`roles\` r WHERE r.nama='${esc(p.role)}' AND NOT EXISTS (SELECT 1 FROM \`role_menu_access\` a WHERE a.role_id=r.id AND a.menu_name='${esc(m)}')`);
+        }
+      }
+      return stmts;
+    })(),
+  },
 ];
 
 async function runMigrations(): Promise<void> {

@@ -228,6 +228,16 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // 'Reseller' (sebelum login ulang) — asalkan punya akses 'Analisa'.
   'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/progress-printing', '/analisa/progress-press', '/analisa/progress-cutting', '/analisa/progress-steam', '/analisa/progress-finishing', '/analisa/progress-shipment', '/analisa/analisa-cs', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
   'Reseller': ['/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
+  // Key granular per-halaman — dipakai untuk akun PIC yang hanya boleh
+  // melihat analisa/grafik proses yang dia pegang (bukan seluruh menu
+  // Analisa). Butuh filter per-child di sidebar (lihat visibleChildren).
+  'Analisa Printing': ['/analisa/progress-printing'],
+  'Analisa Press': ['/analisa/progress-press'],
+  'Analisa Cutting': ['/analisa/progress-cutting'],
+  'Analisa Sewing': ['/analisa/line-jahit'],
+  'Analisa Finishing': ['/analisa/progress-finishing'],
+  'Analisa Shipment': ['/analisa/progress-shipment'],
+  'Laporan Deadline': ['/orders/laporan-deadline'],
 };
 
 function AdminLayout({ user, logout, children }: {
@@ -264,23 +274,28 @@ function AdminLayout({ user, logout, children }: {
 
   const handleLogout = async () => { await logout(); router.replace('/'); };
 
-  // Filter nav items based on menuAccess (undefined/empty = full access)
+  // Filter nav items based on menuAccess (undefined/empty = full access).
+  const fullAccess = !user.menuAccess || user.menuAccess.length === 0;
+  // Satu href boleh dilihat kalau ada menu_name di akses user yang memetakan
+  // ke href tsb (via MENU_HREF_MAP). Ini yang bikin akses PIC granular:
+  // key 'Analisa Cutting' cuma memetakan '/analisa/progress-cutting'.
+  const hasHrefAccess = (href: string): boolean => {
+    if (fullAccess) return true;
+    return Object.entries(MENU_HREF_MAP).some(([menu, hrefs]) =>
+      user.menuAccess!.includes(menu) && hrefs.includes(href)
+    );
+  };
   const hasMenuAccess = (item: SideNavItem): boolean => {
-    if (!user.menuAccess || user.menuAccess.length === 0) return true;
-    if (item.href) {
-      return Object.entries(MENU_HREF_MAP).some(([menu, hrefs]) =>
-        user.menuAccess!.includes(menu) && hrefs.includes(item.href!)
-      );
-    }
-    if (item.children) {
-      return item.children.some(child =>
-        Object.entries(MENU_HREF_MAP).some(([menu, hrefs]) =>
-          user.menuAccess!.includes(menu) && hrefs.includes(child.href)
-        )
-      );
-    }
+    if (fullAccess) return true;
+    if (item.href) return hasHrefAccess(item.href);
+    if (item.children) return item.children.some(c => hasHrefAccess(c.href));
     return false;
   };
+  // Anak menu yang boleh tampil — full access lihat semua, selain itu hanya
+  // href yang di-grant. Tanpa ini, punya akses 1 halaman Analisa akan
+  // menampilkan seluruh grafik Analisa.
+  const visibleChildren = (item: SideNavItem) =>
+    (fullAccess || !item.children) ? (item.children || []) : item.children.filter(c => hasHrefAccess(c.href));
 
   const filteredNav = ADMIN_NAV.filter(hasMenuAccess);
 
@@ -327,7 +342,7 @@ function AdminLayout({ user, logout, children }: {
                   </button>
                   {open && (
                     <div className="mt-0.5 ml-6 pl-3 border-l border-white/[0.06] space-y-0.5 py-0.5">
-                      {item.children.map(child => {
+                      {visibleChildren(item).map(child => {
                         const active = isActive(child.href);
                         return (
                           <Link key={child.href} href={child.href}

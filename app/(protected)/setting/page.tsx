@@ -53,6 +53,15 @@ const MENU_ITEMS = [
   'Master Data',
   'Analisa',
   'Reseller',
+  // Akses granular per-halaman (untuk akun PIC) — hanya grafik/analisa proses
+  // yang dia pegang. Dipetakan di MENU_HREF_MAP (layout) + difilter per-child.
+  'Analisa Printing',
+  'Analisa Press',
+  'Analisa Cutting',
+  'Analisa Sewing',
+  'Analisa Finishing',
+  'Analisa Shipment',
+  'Laporan Deadline',
 ];
 
 export default function SettingPage() {
