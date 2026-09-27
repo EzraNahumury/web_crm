@@ -60,6 +60,10 @@ export interface Order {
   // table filter to hide rows that are still waiting Finance re-review
   // after CS Order finished the Pembayaran.
   financeStatus?: string;
+  // Pelunasan (final payment) review verdict — 'PENDING' | 'APPROVED' |
+  // 'REJECTED' | ''. CS Order uses this alongside financeStatus to mark
+  // which customers have finished administrasi (DP vs Lunas).
+  pelunasanStatus?: string;
   // Raw tanggal_order (ISO). Dipakai oleh cutoff filter di CS Order,
   // Produksi, dan Work Orders untuk menyembunyikan data legacy tanpa
   // menghapusnya. Lihat lib/data-cutoff.ts.

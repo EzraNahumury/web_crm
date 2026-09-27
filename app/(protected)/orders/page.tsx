@@ -11,7 +11,7 @@ import { formatDate } from '@/lib/utils';
 import { Pagination } from '@/lib/pagination';
 import CreateOrderDrawer from './create-order-drawer';
 import PembayaranModal from './pembayaran-modal';
-import { dbUpdate } from '@/lib/api-db';
+import { dbUpdate, dbGet } from '@/lib/api-db';
 import { classifyLayanan } from '@/lib/business-days';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 
@@ -27,6 +27,36 @@ const RISK_STYLES_DARK: Record<string, string> = {
   HIGH: 'bg-red-500/10 text-red-400 border border-red-500/20',
   OVERDUE: 'bg-red-500/20 text-red-400 border border-red-500/30',
 };
+
+// Canonical production stage order — mirror produksi/page.tsx PROD_STAGES so
+// the per-customer flow stepper (CS#4) renders stages start→finish in order
+// and can locate the current stage from Order.currentStageName.
+const PROD_STAGES = [
+  'Waiting List', 'Proofing', 'Approval Design', 'Approval Pattern',
+  'Approval WO', 'Printing Layout', 'Approval Layout', 'Printing Process',
+  'Sublim Press', 'Fabric Cutting', 'QC Panel Process', 'Sewing',
+  'QC Jersey', 'Steam Jersey', 'Finishing', 'QC Final dan Packing',
+  'Shipment',
+];
+
+// Days from today (local midnight) to an ISO date. Negative = past deadline.
+// Used for the H-5 warning + overdue notif, measured from the EFFECTIVE
+// deadline lock (Order.tglSelesaiIso), not estimasi_deadline.
+function isoDaysLeft(iso: string | undefined | null): number | null {
+  if (!iso) return null;
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const target = new Date(y, m - 1, d); target.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
+// Service-tier rank for the "urut jenis paket" sort — Prioritas paling atas,
+// lalu Express, lalu Reguler, lalu sisanya.
+function tierRank(pilihanPaket: string | undefined): number {
+  const k = classifyLayanan(pilihanPaket);
+  return k === 'prioritas' ? 0 : k === 'express' ? 1 : k === 'reguler' ? 2 : 3;
+}
 
 async function generateOrderPDF(orders: Order[], type: 'weekly' | 'monthly', parseMonthKey: (s: string) => string) {
   const { default: jsPDF } = await import('jspdf');
@@ -143,6 +173,11 @@ export default function OrdersPage() {
   const [pembayaranOpen, setPembayaranOpen] = useState(false);
   const [pembayaranOrderId, setPembayaranOrderId] = useState<number | null>(null);
   const [pembayaranReadOnly, setPembayaranReadOnly] = useState(false);
+  // CS#6 — urutkan sesuai jenis paket / deadline. CS#4 — expand alur produksi
+  // per customer. prodStages = urutan tahap produksi (dari DB) untuk stepper.
+  const [sortBy, setSortBy] = useState<'default' | 'paket' | 'deadline'>('default');
+  const [prodStages, setProdStages] = useState<string[]>(PROD_STAGES);
+  const [expandedFlow, setExpandedFlow] = useState<Set<number>>(new Set());
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -150,6 +185,30 @@ export default function OrdersPage() {
   }, [searchParams]);
 
   useEffect(() => { fetchOrders(); }, []);
+
+  // Ambil daftar tahap produksi aktif (nama), urut sesuai PROD_STAGES, untuk
+  // stepper alur per customer. Fallback ke PROD_STAGES kalau gagal.
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await dbGet<{ nama: string; active?: number | boolean }>('production_stages').catch(() => []);
+        const names = (rows as { nama: string; active?: number | boolean }[])
+          .filter(s => s.active === undefined || s.active === 1 || s.active === true)
+          .map(s => String(s.nama))
+          .sort((a, b) => {
+            const ia = PROD_STAGES.indexOf(a), ib = PROD_STAGES.indexOf(b);
+            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+          });
+        if (names.length) setProdStages(names);
+      } catch { /* keep fallback */ }
+    })();
+  }, []);
+
+  const toggleFlow = (id: number) => setExpandedFlow(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   async function fetchOrders() {
     try {
@@ -209,7 +268,38 @@ export default function OrdersPage() {
     });
   }, [orders, search, statusFilter, riskFilter, monthFilter]);
 
-  useEffect(() => { setPage(1); }, [search, statusFilter, riskFilter, monthFilter]);
+  // CS#6 — urut hasil filter sesuai pilihan (default = urutan asli).
+  const sorted = useMemo(() => {
+    if (sortBy === 'default') return filtered;
+    const arr = [...filtered];
+    if (sortBy === 'paket') {
+      arr.sort((a, b) =>
+        tierRank(a.pilihanPaket) - tierRank(b.pilihanPaket) ||
+        (a.pilihanPaket || '').localeCompare(b.pilihanPaket || '') ||
+        a.customer.localeCompare(b.customer));
+    } else {
+      // deadline terdekat dulu (yang tanpa deadline ditaruh paling bawah).
+      const key = (o: Order) => { const d = isoDaysLeft(o.tglSelesaiIso); return d === null ? Number.POSITIVE_INFINITY : d; };
+      arr.sort((a, b) => key(a) - key(b) || a.customer.localeCompare(b.customer));
+    }
+    return arr;
+  }, [filtered, sortBy]);
+
+  // CS#2/#3 — hitung notif urgensi & H-5 dari deadline lock efektif, hanya
+  // untuk order yang masih aktif (belum selesai, bukan SELLING pending).
+  const notif = useMemo(() => {
+    let urgent = 0, h5 = 0, overdue = 0;
+    for (const o of visibleOrders) {
+      if (o.status === 'DONE' || o.rawStatus === 'SELLING') continue;
+      const k = classifyLayanan(o.pilihanPaket);
+      if (k === 'prioritas' || k === 'express') urgent++;
+      const dl = isoDaysLeft(o.tglSelesaiIso);
+      if (dl !== null) { if (dl < 0) overdue++; else if (dl <= 5) h5++; }
+    }
+    return { urgent, h5, overdue };
+  }, [visibleOrders]);
+
+  useEffect(() => { setPage(1); }, [search, statusFilter, riskFilter, monthFilter, sortBy]);
 
   // Sum qty per tanggal_acc_proofing across ALL orders (not just the paged
   // slice) — feeds the capacity indicator in the AccProofingCell picker.
@@ -223,8 +313,8 @@ export default function OrdersPage() {
     return m;
   }, [orders]);
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const paged = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   if (loading) return <TableSkeleton />;
   if (error) return (
@@ -315,6 +405,37 @@ export default function OrdersPage() {
         ))}
       </div>
 
+      {/* Notif strip — urgensi (Prioritas/Express), H-5 deadline, overdue.
+          Klik chip untuk langsung urut sesuai konteksnya. CS#2/#3. */}
+      {(notif.urgent > 0 || notif.h5 > 0 || notif.overdue > 0) && (
+        <div className="flex flex-wrap gap-2.5">
+          {notif.urgent > 0 && (
+            <button onClick={() => setSortBy('paket')}
+              title="Order Prioritas / Express yang masih aktif — klik untuk urut jenis paket"
+              className="flex items-center gap-2 rounded-xl border border-orange-500/25 bg-orange-500/10 text-orange-200 px-3.5 py-2 text-[13px] font-medium hover:bg-orange-500/15 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.9}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>
+              <span className="font-bold tabular-nums">{notif.urgent}</span> Prioritas / Express
+            </button>
+          )}
+          {notif.h5 > 0 && (
+            <button onClick={() => setSortBy('deadline')}
+              title="Order yang deadline lock-nya ≤ 5 hari lagi — klik untuk urut deadline terdekat"
+              className="flex items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-amber-200 px-3.5 py-2 text-[13px] font-medium hover:bg-amber-500/15 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.9}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <span className="font-bold tabular-nums">{notif.h5}</span> H-5 deadline
+            </button>
+          )}
+          {notif.overdue > 0 && (
+            <button onClick={() => setSortBy('deadline')}
+              title="Order yang sudah lewat deadline lock — klik untuk urut deadline terdekat"
+              className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 px-3.5 py-2 text-[13px] font-medium hover:bg-red-500/15 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.9}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+              <span className="font-bold tabular-nums">{notif.overdue}</span> lewat deadline
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Filter bar — search + status di kartu terpisah, actions di kanan */}
       <div className="flex flex-wrap gap-3 items-stretch">
         <div className="flex flex-wrap gap-2.5 flex-1 min-w-0">
@@ -337,6 +458,15 @@ export default function OrdersPage() {
             <option value="OPEN">Baru</option>
             <option value="IN_PROGRESS">Proses</option>
             <option value="DONE">Selesai</option>
+          </select>
+
+          {/* CS#6 — urutkan sesuai jenis paket / deadline terdekat */}
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'default' | 'paket' | 'deadline')}
+            title="Urutkan daftar order"
+            className="px-3.5 py-2.5 rounded-xl border border-white/[0.06] bg-[#111827] text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500/40 transition-all appearance-none cursor-pointer min-w-[150px]">
+            <option value="default">Urut: Default</option>
+            <option value="paket">Urut: Jenis Paket</option>
+            <option value="deadline">Urut: Deadline Terdekat</option>
           </select>
         </div>
 
@@ -424,7 +554,8 @@ export default function OrdersPage() {
                   kind === 'express'   ? 'bg-red-500/[0.10] hover:bg-red-500/[0.14]' :
                   'hover:bg-white/[0.02]';
                 return (
-                  <tr key={order.rowIndex}
+                  <React.Fragment key={order.rowIndex}>
+                  <tr
                     className={`border-b border-white/[0.03] transition-colors cursor-pointer group ${rowTint}`}
                     onClick={() => { setPembayaranOrderId(order.rowIndex); setPembayaranReadOnly(true); setPembayaranOpen(true); }}>
                     <td className="px-4 py-3.5 text-slate-500 tabular-nums text-[12px]">{order.no}</td>
@@ -440,6 +571,23 @@ export default function OrdersPage() {
                         <div className="min-w-0">
                           <div className="font-semibold text-white truncate max-w-[220px]" title={order.customer}>{order.customer}</div>
                           {order.noWorkOrder && <div className="text-[11px] text-slate-500 mt-0.5 font-mono">{order.noWorkOrder}</div>}
+                          {(() => {
+                            // Badge urgensi (CS#3), H-5/overdue (CS#2) + administrasi (CS#5).
+                            const notDone = order.status !== 'DONE';
+                            const dl = isoDaysLeft(order.tglSelesaiIso);
+                            const fs = String(order.financeStatus || '').toUpperCase();
+                            const ps = String(order.pelunasanStatus || '').toUpperCase();
+                            const badges: React.ReactNode[] = [];
+                            if (kind === 'prioritas') badges.push(<span key="u" className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-orange-500/30 text-orange-200 bg-orange-500/15">PRIORITAS</span>);
+                            else if (kind === 'express') badges.push(<span key="u" className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-red-500/30 text-red-200 bg-red-500/15">EXPRESS</span>);
+                            if (notDone && dl !== null) {
+                              if (dl < 0) badges.push(<span key="d" className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-red-500/40 text-red-300 bg-red-500/15">Lewat DL {Math.abs(dl)}h</span>);
+                              else if (dl <= 5) badges.push(<span key="d" className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-amber-500/30 text-amber-200 bg-amber-500/15">{dl === 0 ? 'Hari-H' : `H-${dl}`}</span>);
+                            }
+                            if (ps === 'APPROVED') badges.push(<span key="a" title="Pelunasan disetujui Finance" className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/15">Lunas ✓</span>);
+                            else if (fs === 'APPROVED') badges.push(<span key="a" title="DP + bukti disetujui Finance" className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-cyan-500/30 text-cyan-200 bg-cyan-500/15">DP ✓</span>);
+                            return badges.length ? <div className="flex flex-wrap items-center gap-1 mt-1">{badges}</div> : null;
+                          })()}
                         </div>
                       </div>
                     </td>
@@ -501,7 +649,15 @@ export default function OrdersPage() {
                         </div>
                         <span className="text-[11px] text-white/30 w-7 shrink-0 tabular-nums">{pct}%</span>
                       </div>
-                      <div className="text-[11px] text-white/20 mt-0.5">{order.currentStageName || 'Belum mulai'}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[11px] text-white/25 truncate max-w-[120px]">{order.currentStageName || 'Belum mulai'}</span>
+                        <button onClick={e => { e.stopPropagation(); toggleFlow(order.rowIndex); }}
+                          title="Lihat alur produksi dari awal sampai finish"
+                          className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium text-indigo-300/70 hover:text-indigo-300 transition-colors">
+                          Alur
+                          <svg className={`w-3 h-3 transition-transform ${expandedFlow.has(order.rowIndex) ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                        </button>
+                      </div>
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -572,6 +728,19 @@ export default function OrdersPage() {
                       </div>
                     </td>
                   </tr>
+                  {expandedFlow.has(order.rowIndex) && (
+                    <tr className="border-b border-white/[0.03] bg-[#0d1117]/60">
+                      <td colSpan={8} className="px-4 py-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Alur Produksi</span>
+                          <span className="text-[11px] text-slate-400">{order.customer}</span>
+                          <span className="text-[11px] text-indigo-300/70 tabular-nums">· {pct}%</span>
+                        </div>
+                        <FlowStepper stages={prodStages} currentStageName={order.currentStageName} percent={pct} />
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
               {filtered.length === 0 && (
@@ -590,7 +759,7 @@ export default function OrdersPage() {
         <Pagination
           current={page}
           total={totalPages}
-          count={filtered.length}
+          count={sorted.length}
           pageSize={PAGE_SIZE}
           onChange={setPage}
           onPageSizeChange={size => { setPageSize(size); setPage(1); }}
@@ -605,6 +774,40 @@ export default function OrdersPage() {
         seedOrderId={pembayaranOrderId}
         readOnly={pembayaranReadOnly}
       />
+    </div>
+  );
+}
+
+// CS#4 — alur produksi awal→finish per customer. Menandai tahap yang sudah
+// selesai (✓), tahap yang sedang berjalan (▸), dan sisanya. Status diturunkan
+// dari Order.currentStageName + progressPercent (tanpa query tambahan).
+function FlowStepper({ stages, currentStageName, percent }: {
+  stages: string[]; currentStageName?: string; percent?: number;
+}) {
+  const done100 = (percent ?? 0) >= 100 || currentStageName === 'Selesai';
+  const raw = String(currentStageName || '');
+  const isDoneLabel = raw.endsWith('(done)');
+  const activeName = isDoneLabel ? raw.replace(/\s*\(done\)$/, '') : raw;
+  const idx = stages.findIndex(s => s === activeName);
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {stages.map((s, i) => {
+        let state: 'done' | 'active' | 'pending';
+        if (done100) state = 'done';
+        else if (idx === -1) state = 'pending';          // Belum mulai / nama tak dikenal
+        else if (isDoneLabel) state = i <= idx ? 'done' : 'pending';
+        else state = i < idx ? 'done' : i === idx ? 'active' : 'pending';
+        const cls = state === 'done'
+          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25'
+          : state === 'active'
+            ? 'bg-indigo-500/20 text-indigo-100 border-indigo-500/40 font-semibold'
+            : 'bg-white/[0.02] text-white/25 border-white/[0.06]';
+        return (
+          <span key={s} className={`text-[10px] px-2 py-0.5 rounded-md border whitespace-nowrap ${cls}`}>
+            {state === 'done' ? '✓ ' : state === 'active' ? '▸ ' : ''}{s}
+          </span>
+        );
+      })}
     </div>
   );
 }
