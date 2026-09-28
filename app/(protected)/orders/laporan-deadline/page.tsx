@@ -11,8 +11,9 @@ type Row = Record<string, any>;
 const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
 // Poin per unit sesuai tier paket (patokan atasan):
-//   Standar = 1, Klasik = 1.4, Pro = 1.7.
+//   Standar = 1, Klasik = 1.4, Pro = 1.7, Warrior = 2.0 (tier tertinggi).
 function tierRate(tier: string): number {
+  if (tier === 'WARRIOR') return 2.0;
   if (tier === 'PRO') return 1.7;
   if (tier === 'KLASIK') return 1.4;
   if (tier === 'STANDAR') return 1;
@@ -25,7 +26,8 @@ function detectPaket(names: string[]): { tier: string; display: string } {
   for (const raw of names) {
     const s = String(raw || '').toUpperCase();
     let tier = '';
-    if (/\bPRO\b/.test(s)) tier = 'PRO';
+    if (/WARRIOR|WARIOR/.test(s)) tier = 'WARRIOR';
+    else if (/\bPRO\b/.test(s)) tier = 'PRO';
     else if (/KLASIK|CLASSIC/.test(s)) tier = 'KLASIK';
     else if (/STANDAR|STANDARD/.test(s)) tier = 'STANDAR';
     if (tier) {
@@ -71,7 +73,7 @@ function htmlToText(s: string): string {
     .replace(/^\s+|\s+$/g, '');
 }
 
-const TIER_OPTIONS = ['STANDAR', 'KLASIK', 'PRO'];
+const TIER_OPTIONS = ['STANDAR', 'KLASIK', 'PRO', 'WARRIOR'];
 
 // Satu baris paket dalam sebuah order (1 order bisa >1 paket, mis. jersey
 // Classic + Standar). detected=false → tier belum kebaca, pakai manualTier.
