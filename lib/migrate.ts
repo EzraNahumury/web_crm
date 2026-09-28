@@ -1765,6 +1765,28 @@ const MIGRATIONS: Migration[] = [
       return stmts;
     })(),
   },
+  {
+    // Tambahan akses untuk role 'PIC Vina' (permintaan): Antrian Design (spt
+    // designer), Produksi, dan Work Orders. Plus stage access Waiting List
+    // sampai Approval Layout — jadi Vina hanya bisa approve/lanjutkan tahap
+    // design/proofing/layouting, tidak sampai akhir. Idempotent.
+    name: '090_pic_vina_extra_access',
+    up: (() => {
+      const menus = ['Antrian Design', 'Produksi', 'Work Orders'];
+      const stages = ['Waiting List', 'Proofing', 'Approval Design', 'Approval Pattern', 'Approval WO', 'Printing Layout', 'Approval Layout'];
+      const esc = (s: string) => s.replace(/'/g, "''");
+      const stmts: string[] = [
+        // Pastikan tabel role_stage_access ada (dibuat lazy oleh /api/roles).
+        "CREATE TABLE IF NOT EXISTS `role_stage_access` (`id` INT UNSIGNED NOT NULL AUTO_INCREMENT, `role_id` INT UNSIGNED NOT NULL, `stage_id` INT UNSIGNED NOT NULL, PRIMARY KEY (`id`), KEY `fk_rsa_role` (`role_id`), KEY `fk_rsa_stage` (`stage_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      ];
+      for (const m of menus) {
+        stmts.push(`INSERT INTO \`role_menu_access\` (\`role_id\`,\`menu_name\`) SELECT r.id,'${esc(m)}' FROM \`roles\` r WHERE r.nama='PIC Vina' AND NOT EXISTS (SELECT 1 FROM \`role_menu_access\` a WHERE a.role_id=r.id AND a.menu_name='${esc(m)}')`);
+      }
+      const inList = stages.map(s => `'${esc(s)}'`).join(',');
+      stmts.push(`INSERT INTO \`role_stage_access\` (\`role_id\`,\`stage_id\`) SELECT r.id, s.id FROM \`roles\` r JOIN \`production_stages\` s ON s.nama IN (${inList}) WHERE r.nama='PIC Vina' AND NOT EXISTS (SELECT 1 FROM \`role_stage_access\` a WHERE a.role_id=r.id AND a.stage_id=s.id)`);
+      return stmts;
+    })(),
+  },
 ];
 
 async function runMigrations(): Promise<void> {
