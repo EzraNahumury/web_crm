@@ -1787,6 +1787,17 @@ const MIGRATIONS: Migration[] = [
       return stmts;
     })(),
   },
+  {
+    // Koreksi data 1 order (ORD932 — Muhammad Haarits Afiiq). tanggal_order-nya
+    // salah keset ke Juni sehingga ke-hide oleh cutoff (HIDE_ORDERS_BEFORE =
+    // 2026-07-13) dan tidak bisa diedit via UI. Set tanggal_order +
+    // deadline_lock ke 2026-09-29 (permintaan) supaya order muncul kembali di
+    // CS Order / Laporan Deadline dengan deadline yang benar. UPDATE idempotent.
+    name: '091_fix_ord932_deadline',
+    up: [
+      "UPDATE `orders` SET `deadline_lock` = '2026-09-29', `tanggal_order` = '2026-09-29' WHERE `no_order` = 'ORD932'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
