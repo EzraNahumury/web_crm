@@ -165,12 +165,7 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/analisa/grafik-cs', label: 'Grafik CS' },
       { href: '/analisa/grafik-leads', label: 'Grafik Leads' },
       { href: '/analisa/line-jahit', label: 'Line Jahit' },
-      { href: '/analisa/progress-printing', label: 'Progress Printing' },
-      { href: '/analisa/progress-press', label: 'Progress Press' },
-      { href: '/analisa/progress-cutting', label: 'Progress Cutting' },
-      { href: '/analisa/progress-steam', label: 'Progress Steam' },
-      { href: '/analisa/progress-finishing', label: 'Progress Finishing' },
-      { href: '/analisa/progress-shipment', label: 'Progress Shipment' },
+      { href: '/analisa/progress-produksi', label: 'Progress Produksi' },
       { href: '/analisa/analisa-cs', label: 'Analisa CS' },
     ],
   },
@@ -226,17 +221,20 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // Reseller hrefs juga dipetakan di bawah 'Analisa' supaya menu Reseller
   // tetap tampil untuk akun yang cookie session-nya belum punya key
   // 'Reseller' (sebelum login ulang) — asalkan punya akses 'Analisa'.
-  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/progress-printing', '/analisa/progress-press', '/analisa/progress-cutting', '/analisa/progress-steam', '/analisa/progress-finishing', '/analisa/progress-shipment', '/analisa/analisa-cs', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
+  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/progress-produksi', '/analisa/progress-printing', '/analisa/progress-press', '/analisa/progress-cutting', '/analisa/progress-steam', '/analisa/progress-finishing', '/analisa/progress-shipment', '/analisa/analisa-cs', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
   'Reseller': ['/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
   // Key granular per-halaman — dipakai untuk akun PIC yang hanya boleh
   // melihat analisa/grafik proses yang dia pegang (bukan seluruh menu
   // Analisa). Butuh filter per-child di sidebar (lihat visibleChildren).
-  'Analisa Printing': ['/analisa/progress-printing'],
-  'Analisa Press': ['/analisa/progress-press'],
-  'Analisa Cutting': ['/analisa/progress-cutting'],
+  // 6 halaman analisa progress digabung jadi satu '/analisa/progress-produksi'
+  // yang otomatis membatasi bagian sesuai key ini; href lama tetap dipetakan
+  // agar URL lama masih bisa dibuka. 'Analisa Sewing' tetap ke Line Jahit.
+  'Analisa Printing': ['/analisa/progress-produksi', '/analisa/progress-printing'],
+  'Analisa Press': ['/analisa/progress-produksi', '/analisa/progress-press'],
+  'Analisa Cutting': ['/analisa/progress-produksi', '/analisa/progress-cutting'],
   'Analisa Sewing': ['/analisa/line-jahit'],
-  'Analisa Finishing': ['/analisa/progress-finishing'],
-  'Analisa Shipment': ['/analisa/progress-shipment'],
+  'Analisa Finishing': ['/analisa/progress-produksi', '/analisa/progress-finishing'],
+  'Analisa Shipment': ['/analisa/progress-produksi', '/analisa/progress-shipment'],
   'Laporan Deadline': ['/orders/laporan-deadline'],
 };
 
