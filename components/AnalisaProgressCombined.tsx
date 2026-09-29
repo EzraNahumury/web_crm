@@ -92,6 +92,7 @@ export default function AnalisaProgressCombined() {
   const [paketList, setPaketList] = useState<Paket[]>([]);
   const [dataByBagian, setDataByBagian] = useState<Record<string, PRow[]>>({});
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<'tabel' | 'grafik'>('tabel');
 
   // Bagian yang boleh dilihat user. Admin / punya 'Analisa' → semua. PIC →
   // hanya bagian yang key menunya ada di menuAccess.
@@ -200,6 +201,16 @@ export default function AnalisaProgressCombined() {
         </div>
       ) : (
         <>
+          {/* Tabs — Tabel / Grafik (grafik di sub-tab terpisah, bukan di bawah) */}
+          <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#111827] border border-white/[0.06]">
+            {(['tabel', 'grafik'] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${tab === t ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'}`}>{t}</button>
+            ))}
+          </div>
+
+          {tab === 'tabel' && (
+          <>
           {/* Tabel ringkas gabungan */}
           <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-x-auto">
             <div className="px-4 py-2 bg-white text-slate-800 border-b border-slate-200 font-bold text-sm tracking-wide">
@@ -273,12 +284,16 @@ export default function AnalisaProgressCombined() {
             </table>
           </div>
 
-          {/* Grafik per bagian — discroll ke bawah */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {accessibleBagian.map(b => (
-              <BagianChart key={b.key} bagian={b} rows={dataByBagian[b.key] || []} paketList={paketList} month={month} />
-            ))}
-          </div>
+          </>
+          )}
+
+          {tab === 'grafik' && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {accessibleBagian.map(b => (
+                <BagianChart key={b.key} bagian={b} rows={dataByBagian[b.key] || []} paketList={paketList} month={month} />
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
