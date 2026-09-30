@@ -1822,7 +1822,7 @@ const MIGRATIONS: Migration[] = [
     name: '093_add_acc_proofing_revisi',
     up: (() => {
       const ORDER = [
-        'Waiting List', 'Proofing', 'ACC Proofing', 'Revisi', 'Approval Design', 'Approval Pattern',
+        'Waiting List', 'Proofing', 'Approval Proofing', 'Revisi', 'Approval Design', 'Approval Pattern',
         'Approval WO', 'Printing Layout', 'Approval Layout', 'Printing Process', 'Sublim Press',
         'Fabric Cutting', 'QC Panel Process', 'Sewing', 'QC Jersey', 'Steam Jersey', 'Finishing',
         'QC Final dan Packing', 'Shipment',
@@ -1830,7 +1830,7 @@ const MIGRATIONS: Migration[] = [
       const esc = (s: string) => s.replace(/'/g, "''");
       const stmts: string[] = [];
       // Insert 2 stage baru (idempotent, pola sama migrasi 016).
-      for (const nm of ['ACC Proofing', 'Revisi']) {
+      for (const nm of ['Approval Proofing', 'Revisi']) {
         const u = ORDER.indexOf(nm) + 1;
         stmts.push(`INSERT INTO \`production_stages\` (\`nama\`,\`urutan\`,\`active\`) SELECT '${esc(nm)}', ${u}, 1 WHERE NOT EXISTS (SELECT 1 FROM (SELECT * FROM \`production_stages\`) p WHERE p.\`nama\` = '${esc(nm)}')`);
       }
@@ -1839,12 +1839,22 @@ const MIGRATIONS: Migration[] = [
         stmts.push(`UPDATE \`production_stages\` SET \`urutan\` = ${i + 1}, \`active\` = 1 WHERE \`nama\` = '${esc(nm)}'`);
       });
       // Beri akses 2 stage baru ke role PIC Vina (sudah punya Waiting List..
-      // Approval Layout; ACC Proofing + Revisi masuk cakupan design/proofing).
-      for (const nm of ['ACC Proofing', 'Revisi']) {
+      // Approval Layout; Approval Proofing + Revisi masuk cakupan design/proofing).
+      for (const nm of ['Approval Proofing', 'Revisi']) {
         stmts.push(`INSERT INTO \`role_stage_access\` (\`role_id\`,\`stage_id\`) SELECT r.id, s.id FROM \`roles\` r JOIN \`production_stages\` s ON s.nama = '${esc(nm)}' WHERE r.nama = 'PIC Vina' AND NOT EXISTS (SELECT 1 FROM \`role_stage_access\` a WHERE a.role_id = r.id AND a.stage_id = s.id)`);
       }
       return stmts;
     })(),
+  },
+  {
+    // Rename tahap 'ACC Proofing' → 'Approval Proofing' (permintaan). Untuk DB
+    // yang sudah menjalankan 093 dengan nama lama; id stage tidak berubah jadi
+    // role_stage_access + wo_progress tetap valid. Idempotent (kalau sudah
+    // bernama Approval Proofing, UPDATE 0 baris).
+    name: '094_rename_acc_to_approval_proofing',
+    up: [
+      "UPDATE `production_stages` SET `nama` = 'Approval Proofing' WHERE `nama` = 'ACC Proofing'",
+    ],
   },
 ];
 
