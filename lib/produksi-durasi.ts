@@ -17,6 +17,8 @@ export const STAGE_DURATIONS: Record<string, number> = {
   'Approval Design': 0,        // baseline — hari H
   'Approval Pattern': 1,
   'Proofing': 1,
+  'ACC Proofing': 0,           // ACC customer — hari yang sama dgn Proofing
+  'Revisi': 1,                 // revisi design — +1 hari kerja
   'Approval WO': 1,
   'Printing Layout': 1,        // ← start of production SLA proper
   'Approval Layout': 1,
@@ -129,6 +131,8 @@ export const STAGE_CAPACITY: Record<string, StageCapacity | null> = {
   'Approval Design': null,
   'Approval Pattern': null,
   'Proofing': { limit: 15, unit: 'wo' },
+  'ACC Proofing': null,
+  'Revisi': null,
   'Approval WO': null,
   'Printing Layout': { limit: 300, unit: 'pcs' },
   'Approval Layout': null,

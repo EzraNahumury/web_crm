@@ -1812,6 +1812,40 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `work_orders` ADD COLUMN `finished_full_at` DATE NULL",
     ],
   },
+  {
+    // Tambah 2 tahap produksi setelah Proofing: 'ACC Proofing' lalu 'Revisi'
+    // (linear: Proofing → ACC Proofing → Revisi → Approval Design). Sekaligus
+    // menyelaraskan kolom urutan production_stages dengan urutan tab
+    // (PROD_STAGES) supaya api.ts (yang sort by urutan) konsisten. Idempotent:
+    // INSERT ... WHERE NOT EXISTS + UPDATE ke nilai tetap. Stage yang di-retire
+    // (mis. QC Cutting active=0, tidak ada di daftar) tidak disentuh.
+    name: '093_add_acc_proofing_revisi',
+    up: (() => {
+      const ORDER = [
+        'Waiting List', 'Proofing', 'ACC Proofing', 'Revisi', 'Approval Design', 'Approval Pattern',
+        'Approval WO', 'Printing Layout', 'Approval Layout', 'Printing Process', 'Sublim Press',
+        'Fabric Cutting', 'QC Panel Process', 'Sewing', 'QC Jersey', 'Steam Jersey', 'Finishing',
+        'QC Final dan Packing', 'Shipment',
+      ];
+      const esc = (s: string) => s.replace(/'/g, "''");
+      const stmts: string[] = [];
+      // Insert 2 stage baru (idempotent, pola sama migrasi 016).
+      for (const nm of ['ACC Proofing', 'Revisi']) {
+        const u = ORDER.indexOf(nm) + 1;
+        stmts.push(`INSERT INTO \`production_stages\` (\`nama\`,\`urutan\`,\`active\`) SELECT '${esc(nm)}', ${u}, 1 WHERE NOT EXISTS (SELECT 1 FROM (SELECT * FROM \`production_stages\`) p WHERE p.\`nama\` = '${esc(nm)}')`);
+      }
+      // Selaraskan urutan semua tahap aktif dengan urutan tab.
+      ORDER.forEach((nm, i) => {
+        stmts.push(`UPDATE \`production_stages\` SET \`urutan\` = ${i + 1}, \`active\` = 1 WHERE \`nama\` = '${esc(nm)}'`);
+      });
+      // Beri akses 2 stage baru ke role PIC Vina (sudah punya Waiting List..
+      // Approval Layout; ACC Proofing + Revisi masuk cakupan design/proofing).
+      for (const nm of ['ACC Proofing', 'Revisi']) {
+        stmts.push(`INSERT INTO \`role_stage_access\` (\`role_id\`,\`stage_id\`) SELECT r.id, s.id FROM \`roles\` r JOIN \`production_stages\` s ON s.nama = '${esc(nm)}' WHERE r.nama = 'PIC Vina' AND NOT EXISTS (SELECT 1 FROM \`role_stage_access\` a WHERE a.role_id = r.id AND a.stage_id = s.id)`);
+      }
+      return stmts;
+    })(),
+  },
 ];
 
 async function runMigrations(): Promise<void> {
