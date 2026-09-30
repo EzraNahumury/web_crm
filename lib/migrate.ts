@@ -1873,6 +1873,44 @@ const MIGRATIONS: Migration[] = [
         "AND (UPPER(w.status) = 'SELESAI' OR (cs.urutan IS NOT NULL AND cs.urutan > rs.urutan))",
     ],
   },
+  {
+    // Tambahan halaman Progress Produksi:
+    //   progress_layouting — sama seperti Printing/Press (paket qty + poin,
+    //     disimpan sebagai realisasi_json).
+    //   progress_proofing & progress_design — sederhana: hanya tanggal,
+    //     customer, qty (tanpa poin / breakdown paket).
+    name: '096_progress_layouting_proofing_design',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `progress_layouting` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`customer` VARCHAR(200) NOT NULL DEFAULT ''," +
+        "`realisasi_json` TEXT NULL," +
+        "`keterangan` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_layouting_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "CREATE TABLE IF NOT EXISTS `progress_proofing` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`customer` VARCHAR(200) NOT NULL DEFAULT ''," +
+        "`qty` INT NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_proofing_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "CREATE TABLE IF NOT EXISTS `progress_design` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`customer` VARCHAR(200) NOT NULL DEFAULT ''," +
+        "`qty` INT NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_design_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

@@ -123,7 +123,7 @@ export const PROGRESS_ACCENTS: Record<string, ProgressAccent> = {
 };
 
 export default function ProgressLinePage({ table, title, accent, ops }: {
-  table: 'progress_printing' | 'progress_press' | 'progress_cutting' | 'progress_shipment' | 'progress_steam' | 'progress_finishing';
+  table: 'progress_printing' | 'progress_press' | 'progress_cutting' | 'progress_shipment' | 'progress_steam' | 'progress_finishing' | 'progress_layouting';
   title: string;
   accent: keyof typeof PROGRESS_ACCENTS;
   // Fitur operasional (press / print / cutting). Halaman lain tanpa ops.
