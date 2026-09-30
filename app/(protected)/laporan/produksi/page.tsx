@@ -361,6 +361,41 @@ export default function LaporanProduksiPage() {
     } catch {}
   }
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+  async function downloadPdf() {
+    if (visibleRows.length === 0) return;
+    setPdfBusy(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const autoTable = (await import('jspdf-autotable')).default;
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      doc.setFontSize(13); doc.setFont('helvetica', 'bold');
+      doc.text(`LAPORAN PRODUKSI — ${monthLabelSel}`, pageW / 2, 14, { align: 'center' });
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text(`${visibleRows.length} WO · ${totalQty} pcs`, pageW / 2, 20, { align: 'center' });
+      autoTable(doc, {
+        startY: 25,
+        margin: { left: 8, right: 8 },
+        head: [['No', 'Customer', 'No WO', 'Qty', 'Paket', 'Ket', 'Deadline', 'Note']],
+        body: visibleRows.map((r, i) => [
+          i + 1, r.customer || '-', r.no_wo || '-', r.qty, r.paket || '-',
+          r.ket || '-', r.dlDisplay || '-', r.note || '-',
+        ]),
+        styles: { fontSize: 8, cellPadding: 1.5, overflow: 'linebreak', valign: 'middle' },
+        headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold', halign: 'center', fontSize: 8 },
+        columnStyles: {
+          0: { cellWidth: 9, halign: 'center' }, 1: { cellWidth: 48 }, 2: { cellWidth: 24 },
+          3: { cellWidth: 13, halign: 'center' }, 4: { cellWidth: 66 }, 6: { cellWidth: 28, halign: 'center' },
+          7: { cellWidth: 30 },
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+      });
+      doc.save(`Laporan-Produksi-${selectedMonth || 'semua'}.pdf`);
+    } catch (e) { console.error('PDF gagal', e); }
+    setPdfBusy(false);
+  }
+
   const totalWo = visibleRows.length;
   const totalQty = visibleRows.reduce((s, r) => s + r.qty, 0);
   const monthLabelSel = selectedMonth ? monthLabel(selectedMonth) : 'Semua Bulan';
@@ -400,6 +435,12 @@ export default function LaporanProduksiPage() {
               <button onClick={() => setSelectedMonth(thisMonth)}
                 className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors shrink-0">
                 Bulan Ini
+              </button>
+              <button onClick={downloadPdf} disabled={pdfBusy || visibleRows.length === 0}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-300 border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/15 disabled:opacity-40 px-3 py-2 rounded-lg transition-colors shrink-0"
+                title="Download PDF laporan bulan ini">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                {pdfBusy ? 'Membuat...' : 'Download PDF'}
               </button>
             </div>
             <div className="relative flex-1 min-w-[200px]">

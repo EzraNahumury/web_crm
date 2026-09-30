@@ -252,6 +252,72 @@ export default function LaporanDeadlineCsOrderPage() {
   const monthLabelSel = selectedMonth ? monthLabel(selectedMonth) : 'Semua Bulan';
   const thisMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+  async function downloadPdf() {
+    if (dateGroups.length === 0) return;
+    setPdfBusy(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const autoTable = (await import('jspdf-autotable')).default;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      doc.setFontSize(13); doc.setFont('helvetica', 'bold');
+      doc.text(`LAPORAN DEADLINE CS ORDER — ${monthLabelSel}`, pageW / 2, 14, { align: 'center' });
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text(`${monthRows.length} order · ${totalQty} pcs · ${totalPoint.toLocaleString('id-ID')} poin`, pageW / 2, 20, { align: 'center' });
+      let y = 26;
+      for (const g of dateGroups) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const body: any[] = [];
+        g.rows.forEach((o, oi) => {
+          o.lines.forEach((l, li) => {
+            const tier = lineTier(l, o);
+            body.push([
+              li === 0 ? String(oi + 1) : '',
+              li === 0 ? (o.customer || '-') : '',
+              String(l.qty),
+              l.detected ? l.display : (o.manualTier || '-'),
+              tier ? linePoint(l, o).toLocaleString('id-ID') : '-',
+            ]);
+          });
+        });
+        body.push([
+          { content: 'TOTAL', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: [241, 245, 249] } },
+          { content: String(g.qty), styles: { halign: 'center', fontStyle: 'bold', fillColor: [187, 247, 208] } },
+          { content: '', styles: { fillColor: [241, 245, 249] } },
+          { content: g.point.toLocaleString('id-ID'), styles: { halign: 'right', fontStyle: 'bold', fillColor: [254, 202, 202] } },
+        ]);
+        if (y > pageH - 30) { doc.addPage(); y = 15; }
+        autoTable(doc, {
+          startY: y,
+          margin: { left: 8, right: 8 },
+          head: [
+            [{ content: fmtDL(g.dl), colSpan: 5, styles: { halign: 'left', fillColor: [251, 191, 36], textColor: 20, fontStyle: 'bold', fontSize: 10 } }],
+            [
+              { content: 'No', styles: { halign: 'center' } }, 'Customer',
+              { content: 'Qty', styles: { halign: 'center' } }, 'Paket',
+              { content: 'Point', styles: { halign: 'right' } },
+            ],
+          ],
+          body,
+          styles: { fontSize: 8, cellPadding: 1.3, overflow: 'linebreak', valign: 'middle', lineColor: [203, 213, 225], lineWidth: 0.1 },
+          headStyles: { fillColor: [186, 230, 253], textColor: 20, fontStyle: 'bold', fontSize: 8 },
+          columnStyles: {
+            0: { cellWidth: 11, halign: 'center' }, 1: { cellWidth: 'auto' },
+            2: { cellWidth: 16, halign: 'center' }, 3: { cellWidth: 34 }, 4: { cellWidth: 24, halign: 'right' },
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          didDrawPage: (d: any) => { y = d.cursor.y; },
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        y = (doc as any).lastAutoTable.finalY + 5;
+      }
+      doc.save(`Laporan-Deadline-${selectedMonth || 'semua'}.pdf`);
+    } catch (e) { console.error('PDF gagal', e); }
+    setPdfBusy(false);
+  }
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -277,6 +343,12 @@ export default function LaporanDeadlineCsOrderPage() {
                 className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500/40 date-input" />
               <button onClick={() => setSelectedMonth(thisMonth)}
                 className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors shrink-0">Bulan Ini</button>
+              <button onClick={downloadPdf} disabled={pdfBusy || dateGroups.length === 0}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-300 border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/15 disabled:opacity-40 px-3 py-2 rounded-lg transition-colors shrink-0"
+                title="Download PDF laporan deadline bulan ini">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                {pdfBusy ? 'Membuat...' : 'Download PDF'}
+              </button>
             </div>
             <div className="relative flex-1 min-w-[200px]">
               <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
