@@ -54,7 +54,12 @@ function tipeLabel(t: string): string {
   return String(t).toUpperCase() === 'WITH_BAHAN' ? 'Butuh Bahan' : 'Perbaiki di Tempat';
 }
 
-type Filter = 'ALL' | 'PENDING' | 'APPROVED' | 'GUDANG_REJECTED' | 'RETURNED' | 'CANCELLED';
+// Tab filter = STEP produksi yang punya reject (bukan status). Sinkron dengan
+// REJECT_STAGES di produksi/page.tsx.
+const REJECT_STAGE_TABS = ['QC Panel Process', 'Sewing', 'QC Jersey', 'QC Final dan Packing'];
+// Reject yang sudah selesai (revisi kelar) atau dibatalkan tidak ditampilkan.
+const HIDDEN_STATUSES = new Set(['RESOLVED', 'CANCELLED']);
+type Filter = string; // 'ALL' | salah satu REJECT_STAGE_TABS
 
 export default function TrackingRejectPage() {
   const [loading, setLoading] = useState(true);
@@ -109,18 +114,25 @@ export default function TrackingRejectPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const counts = useMemo(() => {
-    const c: Record<Filter, number> = { ALL: views.length, PENDING: 0, APPROVED: 0, GUDANG_REJECTED: 0, RETURNED: 0, CANCELLED: 0 };
-    for (const v of views) if (v.status in c) c[v.status as Filter]++;
-    return c;
-  }, [views]);
+  // Hanya reject yang masih aktif (belum selesai revisi / belum dibatalkan).
+  // Begitu WO lanjut dari stage-nya, reject di-set RESOLVED di Produksi →
+  // otomatis hilang dari sini.
+  const activeViews = useMemo(() => views.filter(v => !HIDDEN_STATUSES.has(v.status)), [views]);
 
-  // Apply status filter + free-text search (customer or no WO), then group
-  // by customer so each customer becomes one collapsible dropdown.
+  // Jumlah reject aktif per tab step. Tab yang tampil = REJECT_STAGE_TABS.
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { ALL: activeViews.length };
+    for (const s of REJECT_STAGE_TABS) c[s] = 0;
+    for (const v of activeViews) if (v.stage in c) c[v.stage]++;
+    return c;
+  }, [activeViews]);
+
+  // Filter per STEP produksi + pencarian (customer / No WO), lalu kelompokkan
+  // per customer jadi dropdown.
   const groups = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = views.filter(v => {
-      if (filter !== 'ALL' && v.status !== filter) return false;
+    const filtered = activeViews.filter(v => {
+      if (filter !== 'ALL' && v.stage !== filter) return false;
       if (q && !(`${v.customer} ${v.noWo}`.toLowerCase().includes(q))) return false;
       return true;
     });
@@ -136,7 +148,7 @@ export default function TrackingRejectPage() {
     // Customer dengan permintaan pending naik ke atas, lalu terbanyak reject.
     out.sort((a, b) => (b.pending - a.pending) || (b.rejects.length - a.rejects.length) || a.customer.localeCompare(b.customer));
     return out;
-  }, [views, filter, search]);
+  }, [activeViews, filter, search]);
 
   const toggle = (cust: string) => setExpanded(prev => {
     const next = new Set(prev);
@@ -144,13 +156,9 @@ export default function TrackingRejectPage() {
     return next;
   });
 
-  const chips: { key: Filter; label: string; cls: string }[] = [
-    { key: 'ALL', label: 'Semua', cls: 'text-slate-300' },
-    { key: 'PENDING', label: 'Menunggu Gudang', cls: 'text-amber-400' },
-    { key: 'APPROVED', label: 'Bahan Disetujui', cls: 'text-emerald-400' },
-    { key: 'GUDANG_REJECTED', label: 'Ditolak Gudang', cls: 'text-rose-400' },
-    { key: 'RETURNED', label: 'Perbaiki di Tempat', cls: 'text-sky-400' },
-    { key: 'CANCELLED', label: 'Dibatalkan', cls: 'text-slate-500' },
+  const chips: { key: Filter; label: string }[] = [
+    { key: 'ALL', label: 'Semua' },
+    ...REJECT_STAGE_TABS.map(s => ({ key: s, label: s })),
   ];
 
   if (loading) return (
@@ -176,8 +184,9 @@ export default function TrackingRejectPage() {
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Tracking Reject</h1>
             <p className="text-[13px] text-slate-300 mt-0.5 max-w-2xl">
-              Semua permintaan reject bahan dari produksi (QC Panel Process, Sewing, QC Final dan Packing),
-              dikelompokkan per customer. Klik nama customer untuk lihat detail rejectnya.
+              Permintaan reject bahan dari produksi, dikelompokkan per step (QC Panel Process,
+              Sewing, QC Jersey, QC Final dan Packing) lalu per customer. Reject yang sudah
+              selesai revisi otomatis hilang dari sini.
             </p>
           </div>
         </div>
@@ -199,7 +208,7 @@ export default function TrackingRejectPage() {
                 {t.label}
                 {n > 0 && (
                   <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full ${
-                    active ? 'bg-white/20 text-white' : `bg-white/[0.06] ${t.cls}`
+                    active ? 'bg-white/20 text-white' : 'bg-white/[0.06] text-rose-300'
                   }`}>{n}</span>
                 )}
               </button>

@@ -1856,6 +1856,23 @@ const MIGRATIONS: Migration[] = [
       "UPDATE `production_stages` SET `nama` = 'Approval Proofing' WHERE `nama` = 'ACC Proofing'",
     ],
   },
+  {
+    // Backfill: reject lama yang WO-nya sudah maju melewati stage reject (atau
+    // WO sudah SELESAI) dianggap revisinya sudah kelar → set RESOLVED supaya
+    // hilang dari Tracking Reject. Ke depan, resolve dilakukan otomatis saat
+    // WO klik Selesai & Lanjut dari stage-nya (produksi/page.tsx). Idempotent
+    // (row RESOLVED/CANCELLED di-skip).
+    name: '095_resolve_stale_rejects',
+    up: [
+      "UPDATE `stage_rejects` sr " +
+        "JOIN `work_orders` w ON w.id = sr.work_order_id " +
+        "JOIN `production_stages` rs ON rs.id = sr.stage_id " +
+        "LEFT JOIN `production_stages` cs ON cs.id = w.current_stage_id " +
+        "SET sr.status = 'RESOLVED', sr.resolved_at = COALESCE(sr.resolved_at, NOW()) " +
+        "WHERE sr.status NOT IN ('RESOLVED','CANCELLED') " +
+        "AND (UPPER(w.status) = 'SELESAI' OR (cs.urutan IS NOT NULL AND cs.urutan > rs.urutan))",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

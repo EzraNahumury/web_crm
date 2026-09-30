@@ -38,7 +38,7 @@ const PROD_STAGES = [
 
 // Stages that offer the Reject flow. QC Panel Process, Sewing, and
 // QC Final dan Packing semua branch pada pass/fail decision.
-const REJECT_STAGES = new Set(['QC Panel Process', 'Sewing', 'QC Final dan Packing']);
+const REJECT_STAGES = new Set(['QC Panel Process', 'Sewing', 'QC Jersey', 'QC Final dan Packing']);
 
 // Format ISO YYYY-MM-DD → "12 Sep 2026" untuk label short.
 function fmtDateLabel(iso: string): string {
@@ -799,6 +799,21 @@ export default function ProduksiPage() {
           }
         } catch (e) { console.error('Deduct stok failed', e); }
       }
+
+      // Revisi selesai: begitu WO lanjut dari stage ini, tandai semua reject di
+      // stage ini RESOLVED supaya hilang dari Tracking Reject. (Reject selalu
+      // dibuat di stage tempat WO berada, jadi resolve saat advance dari stage
+      // itu = revisi/rework-nya sudah kelar.)
+      try {
+        const nowTs = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const toResolve = rejects.filter((rj: Row) =>
+          Number(rj.work_order_id) === Number(progressRow.work_order_id) &&
+          Number(rj.stage_id) === Number(progressRow.stage_id) &&
+          !['RESOLVED', 'CANCELLED'].includes(String(rj.status || '').toUpperCase()));
+        for (const rj of toResolve) {
+          await dbUpdate('stage_rejects', Number(rj.id), { status: 'RESOLVED', resolved_at: nowTs });
+        }
+      } catch (err) { console.warn('resolve reject on advance failed:', err); }
 
       const currentStageIdx = stages.findIndex((s: Row) => s.id === progressRow.stage_id);
       if (currentStageIdx < stages.length - 1) {
