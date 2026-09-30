@@ -1798,6 +1798,20 @@ const MIGRATIONS: Migration[] = [
       "UPDATE `orders` SET `deadline_lock` = '2026-09-29', `tanggal_order` = '2026-09-29' WHERE `no_order` = 'ORD932'",
     ],
   },
+  {
+    // Shipment: penanda selesai + tanggalnya.
+    //   finished_partial_at — di-set saat operator klik "Partial Finished" di
+    //     Shipment; WO dikembalikan ke QC Final dan Packing. Deadline berhenti.
+    //   finished_full_at    — di-set saat klik "Full Finished"; WO tetap di
+    //     Shipment. Deadline berhenti.
+    // Kalau salah satu terisi, warning "Lewat Deadline Final" tidak lagi
+    // tampil (deadline dibekukan). Idempotent (Duplicate column di-skip).
+    name: '092_wo_finished_shipment',
+    up: [
+      "ALTER TABLE `work_orders` ADD COLUMN `finished_partial_at` DATE NULL",
+      "ALTER TABLE `work_orders` ADD COLUMN `finished_full_at` DATE NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

@@ -574,6 +574,8 @@ export default function ProduksiPage() {
     if (!wo) return acc;
     const info = woTargets[Number(wo.id)];
     if (!info) return acc;
+    // WO yang sudah Partial/Full Finished → deadline beku, tidak dihitung telat.
+    if (wo.finished_partial_at || wo.finished_full_at) return acc;
     const stageT = info.targets?.[activeStage];
     const finalT = info.targetSelesai;
     const stageLate = stageT ? classifyLate(stageT, todayISO) === 'terlambat' : false;
@@ -854,6 +856,48 @@ export default function ProduksiPage() {
     } catch (e) { toast.error('Gagal', String(e)); }
   }
 
+  // Shipment "Partial Finished": tandai WO finished sebagian + kembalikan ke
+  // QC Final dan Packing. Deadline dibekukan (warning lewat deadline final
+  // berhenti tampil). Tanggal finished = hari klik.
+  async function handlePartialFinished(item: Row) {
+    const qcStage = stages.find((s: Row) => String(s.nama) === 'QC Final dan Packing');
+    if (!qcStage) { toast.error('Gagal', 'Stage QC Final dan Packing tidak ditemukan.'); return; }
+    const yes = await toast.confirm({
+      title: 'Partial Finished?',
+      message: `WO ${item.wo?.no_wo || ''} ditandai Partial Finished dan dikembalikan ke QC Final dan Packing. Deadline berhenti berjalan.`,
+      type: 'warning',
+      confirmText: 'Ya, Partial Finished',
+    });
+    if (!yes) return;
+    try {
+      // Shipment (stage sekarang) → BELUM; QC Final → TERSEDIA (buat kalau belum ada).
+      await dbUpdate('wo_progress', item.id, { status: 'BELUM', started_at: null, completed_at: null });
+      const qcProg = progress.find((p: Row) => p.work_order_id === item.work_order_id && p.stage_id === qcStage.id);
+      if (qcProg) await dbUpdate('wo_progress', qcProg.id, { status: 'TERSEDIA', completed_at: null });
+      else await dbCreate('wo_progress', { work_order_id: item.work_order_id, stage_id: qcStage.id, status: 'TERSEDIA' });
+      await dbUpdate('work_orders', item.work_order_id, { current_stage_id: qcStage.id, finished_partial_at: todayISO, status: 'PROSES_PRODUKSI' });
+      toast.success('Partial Finished', `WO kembali ke QC Final dan Packing. Tgl finished partial: ${fmtDateLabel(todayISO)}.`);
+      await fetchData();
+    } catch (e) { toast.error('Gagal', String(e)); }
+  }
+
+  // Shipment "Full Finished": tandai WO selesai penuh, TETAP di Shipment.
+  // Deadline dibekukan. Tanggal finished = hari klik.
+  async function handleFullFinished(item: Row) {
+    const yes = await toast.confirm({
+      title: 'Full Finished?',
+      message: `WO ${item.wo?.no_wo || ''} ditandai Full Finished. Tetap di Shipment, deadline berhenti berjalan.`,
+      type: 'info',
+      confirmText: 'Ya, Full Finished',
+    });
+    if (!yes) return;
+    try {
+      await dbUpdate('work_orders', item.work_order_id, { finished_full_at: todayISO });
+      toast.success('Full Finished', `WO ditandai Full Finished. Tgl finished full: ${fmtDateLabel(todayISO)}.`);
+      await fetchData();
+    } catch (e) { toast.error('Gagal', String(e)); }
+  }
+
   if (loading) return (
     <div className="space-y-4">
       <div className="h-12 bg-white/[0.03] rounded-lg animate-pulse" />
@@ -872,10 +916,21 @@ export default function ProduksiPage() {
     const targetInfo = woTargets[Number(wo.id)];
     const targetSelesaiStage = targetInfo?.targets?.[activeStage] || '';
     const targetSelesaiFinal = targetInfo?.targetSelesai || '';
+    // Penanda Shipment Partial/Full Finished. Kalau salah satu terisi, deadline
+    // DIBEKUKAN — warning lewat deadline tidak lagi dihitung/ditampilkan.
+    const normDate = (v: unknown): string => {
+      if (!v) return '';
+      const m = String(v instanceof Date ? v.toISOString() : v).match(/(\d{4})-(\d{2})-(\d{2})/);
+      return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+    };
+    const finishedPartial = normDate(wo.finished_partial_at);
+    const finishedFull = normDate(wo.finished_full_at);
+    const isFinished = !!(finishedPartial || finishedFull);
     // Status telat untuk stage aktif: kalau hari ini > target stage ini,
     // artinya sudah lewat SLA yang dijanjikan untuk lanjut ke stage berikut.
-    const lateStatus = targetSelesaiStage ? classifyLate(targetSelesaiStage, todayISO) : 'aman';
-    const finalLateStatus = targetSelesaiFinal ? classifyLate(targetSelesaiFinal, todayISO) : 'aman';
+    // Kalau WO sudah finished (partial/full), deadline berhenti → selalu 'aman'.
+    const lateStatus = (!isFinished && targetSelesaiStage) ? classifyLate(targetSelesaiStage, todayISO) : 'aman';
+    const finalLateStatus = (!isFinished && targetSelesaiFinal) ? classifyLate(targetSelesaiFinal, todayISO) : 'aman';
     // Danger level: terlambat final (lewat QC Final target) lebih parah
     // dari terlambat stage. Kalau salah satu terlambat, styling card
     // seluruh row berubah jadi merah gelap dengan strip kiri agar
@@ -954,12 +1009,26 @@ export default function ProduksiPage() {
                   Menunggu Review Finance
                 </span>
               )}
+              {finishedFull && (
+                <span title={`Full Finished ${fmtDateLabel(finishedFull)} — deadline berhenti`}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-500/40 text-emerald-300 bg-emerald-500/15 whitespace-nowrap">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                  Full Finished
+                </span>
+              )}
+              {!finishedFull && finishedPartial && (
+                <span title={`Partial Finished ${fmtDateLabel(finishedPartial)} — deadline berhenti`}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-sky-500/40 text-sky-300 bg-sky-500/15 whitespace-nowrap">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                  Partial Finished
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 mt-1.5 text-xs">
               <span className="text-slate-300 font-medium">{wo.paket}</span>
               <span className="text-slate-600">|</span>
               <span className="text-slate-400">{wo.jumlah} pcs</span>
-              {targetSelesaiFinal && (
+              {targetSelesaiFinal && !isFinished && (
                 <>
                   <span className="text-slate-600">|</span>
                   <span className={`inline-flex items-center gap-1 ${finalLateStatus === 'terlambat' ? 'text-red-300' : finalLateStatus === 'warning' ? 'text-amber-300' : 'text-slate-400'}`}>
@@ -969,6 +1038,19 @@ export default function ProduksiPage() {
                 </>
               )}
             </div>
+            {isFinished && (
+              <div className={`mt-1.5 text-[11px] leading-snug max-w-2xl rounded-lg px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 border ${finishedFull ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-100' : 'bg-sky-500/10 border-sky-500/25 text-sky-100'}`}>
+                <span className="inline-flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+                  Tgl Deadline Lock: <strong className="font-semibold">{targetSelesaiFinal ? fmtDateLabel(targetSelesaiFinal) : '—'}</strong>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  {finishedFull ? 'Tgl Finished Full' : 'Tgl Finished Partial'}: <strong className="font-semibold">{fmtDateLabel(finishedFull || finishedPartial)}</strong>
+                </span>
+                <span className="opacity-70 italic">Deadline berhenti</span>
+              </div>
+            )}
             {finalLateStatus === 'terlambat' && (
               <div className="mt-1.5 text-[11px] leading-snug max-w-2xl bg-red-500/20 border border-red-500/40 text-red-100 rounded-lg px-3 py-2 flex items-start gap-2">
                 <svg className="w-4 h-4 shrink-0 mt-0.5 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
@@ -1385,6 +1467,22 @@ export default function ProduksiPage() {
                         className="text-xs font-medium text-rose-400 border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 rounded-lg hover:bg-rose-500/20 transition-colors">
                         Reject
                       </button>
+                    )}
+                    {/* Shipment: Partial / Full Finished. Sembunyikan kalau
+                        WO sudah Full Finished (biar tidak diklik ganda). */}
+                    {isShipmentStage && !item.wo?.finished_full_at && (
+                      <>
+                        <button onClick={() => handlePartialFinished(item)}
+                          className="text-xs font-medium text-sky-300 border border-sky-500/20 bg-sky-500/10 px-3 py-1.5 rounded-lg hover:bg-sky-500/20 transition-colors"
+                          title="Tandai selesai sebagian → kembali ke QC Final dan Packing, deadline berhenti">
+                          Partial Finished
+                        </button>
+                        <button onClick={() => handleFullFinished(item)}
+                          className="text-xs font-medium text-emerald-300 border border-emerald-500/25 bg-emerald-500/15 px-3 py-1.5 rounded-lg hover:bg-emerald-500/25 transition-colors"
+                          title="Tandai selesai penuh → tetap di Shipment, deadline berhenti">
+                          Full Finished
+                        </button>
+                      </>
                     )}
                     <button onClick={() => handleSelesai(item)}
                       disabled={gated}
