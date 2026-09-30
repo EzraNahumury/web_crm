@@ -336,21 +336,19 @@ export default function LaporanDeadlineCsOrderPage() {
               </p>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row items-stretch gap-2">
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs text-slate-500 uppercase tracking-wider hidden sm:inline">Bulan</span>
-              <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
-                className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500/40 date-input" />
-              <button onClick={() => setSelectedMonth(thisMonth)}
-                className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors shrink-0">Bulan Ini</button>
-              <button onClick={downloadPdf} disabled={pdfBusy || dateGroups.length === 0}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-300 border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/15 disabled:opacity-40 px-3 py-2 rounded-lg transition-colors shrink-0"
-                title="Download PDF laporan deadline bulan ini">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                {pdfBusy ? 'Membuat...' : 'Download PDF'}
-              </button>
-            </div>
-            <div className="relative flex-1 min-w-[200px]">
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto lg:max-w-[560px] lg:justify-end">
+            <span className="text-xs text-slate-500 uppercase tracking-wider hidden sm:inline shrink-0">Bulan</span>
+            <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+              className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500/40 date-input shrink-0" />
+            <button onClick={() => setSelectedMonth(thisMonth)}
+              className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-white/10 hover:bg-white/[0.04] transition-colors shrink-0">Bulan Ini</button>
+            <button onClick={downloadPdf} disabled={pdfBusy || dateGroups.length === 0}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-300 border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/15 disabled:opacity-40 px-3 py-2 rounded-lg transition-colors shrink-0"
+              title="Download PDF laporan deadline bulan ini">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              {pdfBusy ? 'Membuat...' : 'Download PDF'}
+            </button>
+            <div className="relative flex-1 basis-full sm:basis-[220px] min-w-[180px]">
               <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari customer, paket, bonus..."
                 className="w-full bg-white/[0.03] border border-white/10 text-white text-sm rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-amber-500/40" />
