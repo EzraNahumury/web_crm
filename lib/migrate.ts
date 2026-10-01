@@ -1936,6 +1936,39 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `progress_design` ADD COLUMN `keterangan` VARCHAR(50) NULL",
     ],
   },
+  {
+    // Role akun baru (permintaan). Akun user + password dibuat admin di
+    // Setting -> Users (kredensial tidak boleh masuk source); pilih role yang
+    // sesuai. Idempotent. Role_stage_access membatasi stage yang bisa
+    // di-approve di board Produksi.
+    //   Layouter      : Produksi (Printing Layout + Approval Layout), Work
+    //                   Orders, Progress Produksi  -> 3 user
+    //   Proofing      : Produksi (Proofing), Progress Produksi            -> 1 user
+    //   Designer Solo : Antrian Design, Progress Produksi                 -> 1 user
+    name: '099_roles_layouter_proofing_designer',
+    up: (() => {
+      const ROLES = [
+        { role: 'Layouter', desc: 'Produksi (Printing Layout, Approval Layout), Work Orders, Progress Produksi', menus: ['Dashboard', 'Produksi', 'Work Orders', 'Progress Produksi'], stages: ['Printing Layout', 'Approval Layout'] },
+        { role: 'Proofing', desc: 'Produksi (Proofing), Progress Produksi', menus: ['Dashboard', 'Produksi', 'Progress Produksi'], stages: ['Proofing'] },
+        { role: 'Designer Solo', desc: 'Antrian Design, Progress Produksi', menus: ['Dashboard', 'Antrian Design', 'Progress Produksi'], stages: [] as string[] },
+      ];
+      const esc = (s: string) => s.replace(/'/g, "''");
+      const stmts: string[] = [
+        "CREATE TABLE IF NOT EXISTS `role_stage_access` (`id` INT UNSIGNED NOT NULL AUTO_INCREMENT, `role_id` INT UNSIGNED NOT NULL, `stage_id` INT UNSIGNED NOT NULL, PRIMARY KEY (`id`), KEY `fk_rsa_role` (`role_id`), KEY `fk_rsa_stage` (`stage_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      ];
+      for (const r of ROLES) {
+        stmts.push(`INSERT INTO \`roles\` (\`nama\`,\`deskripsi\`,\`is_super_admin\`) SELECT '${esc(r.role)}','${esc(r.desc)}',0 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM \`roles\` WHERE \`nama\`='${esc(r.role)}')`);
+        for (const m of r.menus) {
+          stmts.push(`INSERT INTO \`role_menu_access\` (\`role_id\`,\`menu_name\`) SELECT ro.id,'${esc(m)}' FROM \`roles\` ro WHERE ro.nama='${esc(r.role)}' AND NOT EXISTS (SELECT 1 FROM \`role_menu_access\` a WHERE a.role_id=ro.id AND a.menu_name='${esc(m)}')`);
+        }
+        if (r.stages.length) {
+          const inList = r.stages.map(s => `'${esc(s)}'`).join(',');
+          stmts.push(`INSERT INTO \`role_stage_access\` (\`role_id\`,\`stage_id\`) SELECT ro.id, s.id FROM \`roles\` ro JOIN \`production_stages\` s ON s.nama IN (${inList}) WHERE ro.nama='${esc(r.role)}' AND NOT EXISTS (SELECT 1 FROM \`role_stage_access\` a WHERE a.role_id=ro.id AND a.stage_id=s.id)`);
+        }
+      }
+      return stmts;
+    })(),
+  },
 ];
 
 async function runMigrations(): Promise<void> {
