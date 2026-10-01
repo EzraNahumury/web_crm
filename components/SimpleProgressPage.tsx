@@ -24,14 +24,17 @@ function fmtDayShort(iso: string): string {
   return `${d} ${['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'][m - 1]}`;
 }
 
-interface SRow { id: number; tanggal: string; customer: string; qty: number; }
+interface SRow { id: number; tanggal: string; customer: string; qty: number; keterangan: string; }
 interface CustomerLite { id: number; nama: string; no_hp: string; kabupaten_kota: string; }
 
-export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
+export default function SimpleProgressPage({ table, title, accent = 'sky', ketOptions }: {
   table: string; title: string; accent?: keyof typeof PROGRESS_ACCENTS;
+  // Kalau diisi, muncul kolom + dropdown "Keterangan" (mis. status revisi).
+  ketOptions?: string[];
 }) {
   const toast = useToast();
   const a = PROGRESS_ACCENTS[accent] || PROGRESS_ACCENTS.sky;
+  const hasKet = !!(ketOptions && ketOptions.length);
   const [month, setMonth] = useState(currentYm());
   const [rows, setRows] = useState<SRow[]>([]);
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
@@ -39,6 +42,7 @@ export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
   const [newTanggal, setNewTanggal] = useState('');
   const [newCustomer, setNewCustomer] = useState('');
   const [newQty, setNewQty] = useState('');
+  const [newKeterangan, setNewKeterangan] = useState('');
   const [saving, setSaving] = useState(false);
 
   const monthLabel = useMemo(() => { const [y, m] = month.split('-').map(Number); return `${BULAN_ID[(m || 1) - 1]?.toUpperCase() || ''} ${y || ''}`; }, [month]);
@@ -57,7 +61,7 @@ export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
       setRows((all as Row[])
         .filter(r => String(r.tanggal || '').slice(0, 7) === month)
         .sort((x, y) => String(x.tanggal).localeCompare(String(y.tanggal)) || Number(x.id) - Number(y.id))
-        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), qty: Number(r.qty) || 0 })));
+        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), qty: Number(r.qty) || 0, keterangan: String(r.keterangan || '') })));
     } catch { setRows([]); }
     setLoading(false);
   }, [table, month]);
@@ -76,8 +80,8 @@ export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
     if (!newCustomer.trim()) { toast.warning('Validasi', 'Isi nama customer.'); return; }
     setSaving(true);
     try {
-      await dbCreate(table, { tanggal: newTanggal, customer: newCustomer.trim(), qty: Number(newQty) || 0 });
-      setNewCustomer(''); setNewQty('');
+      await dbCreate(table, { tanggal: newTanggal, customer: newCustomer.trim(), qty: Number(newQty) || 0, ...(hasKet ? { keterangan: newKeterangan || null } : {}) });
+      setNewCustomer(''); setNewQty(''); setNewKeterangan('');
       await fetchAll();
       toast.success('Ditambahkan', `${newCustomer.trim()} tanggal ${fmtDayShort(newTanggal)}.`);
     } catch (e) { toast.error('Gagal', String(e)); }
@@ -87,7 +91,7 @@ export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
   async function persist(row: SRow, patch: Partial<SRow>) {
     const merged = { ...row, ...patch };
     setRows(prev => prev.map(r => r.id === row.id ? merged : r));
-    try { await dbUpdate(table, row.id, { tanggal: merged.tanggal, customer: merged.customer, qty: merged.qty }); }
+    try { await dbUpdate(table, row.id, { tanggal: merged.tanggal, customer: merged.customer, qty: merged.qty, ...(hasKet ? { keterangan: merged.keterangan || null } : {}) }); }
     catch (e) { toast.error('Gagal Update', String(e)); fetchAll(); }
   }
   async function updateCustomer(row: SRow, val: string) {
@@ -98,6 +102,10 @@ export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
   async function updateQty(row: SRow, val: number) {
     if (val === row.qty) return;
     await persist(row, { qty: val });
+  }
+  async function updateKeterangan(row: SRow, val: string) {
+    if (val === row.keterangan) return;
+    await persist(row, { keterangan: val });
   }
   async function deleteRow(id: number, customer: string) {
     const yes = await toast.confirm({ title: 'Hapus Baris?', message: `Baris ${customer || ''} akan dihapus permanen.`, type: 'danger', confirmText: 'Ya, Hapus' });
@@ -142,24 +150,34 @@ export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
           </div>
           <p className="text-sm font-semibold text-white">Tambah Baris Baru</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-[180px_1fr_140px_auto] gap-3 items-end">
-          <div>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="w-full sm:w-[170px]">
             <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tanggal *</label>
             <input type="date" value={newTanggal} onChange={e => setNewTanggal(e.target.value)} min={`${month}-01`} max={`${month}-31`}
               className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none ${a.ring} date-input`} />
           </div>
-          <div>
+          <div className="flex-1 min-w-[180px]">
             <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Customer *</label>
             <CustomerNameInput value={newCustomer} onChange={setNewCustomer} customers={customers} ringCls={a.ring} />
           </div>
-          <div>
+          {hasKet && (
+            <div className="w-full sm:w-[160px]">
+              <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Keterangan</label>
+              <select value={newKeterangan} onChange={e => setNewKeterangan(e.target.value)}
+                className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none ${a.ring}`}>
+                <option value="">—</option>
+                {ketOptions!.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="w-full sm:w-[120px]">
             <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Qty</label>
             <input type="text" inputMode="numeric" value={newQty} onChange={e => setNewQty(e.target.value.replace(/\D/g, ''))}
               onKeyDown={e => { if (e.key === 'Enter') addRow(); }} placeholder="0"
               className={`w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none ${a.ring} tabular-nums`} />
           </div>
           <button onClick={addRow} disabled={saving}
-            className={`inline-flex items-center justify-center gap-2 ${a.addBtn} disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg`}>
+            className={`inline-flex items-center justify-center gap-2 ${a.addBtn} disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg h-[38px]`}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.25}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
             {saving ? '...' : 'Tambah'}
           </button>
@@ -174,13 +192,14 @@ export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
             <tr className="text-slate-800">
               <th className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-28">TANGGAL</th>
               <th className="bg-rose-100 border border-slate-300 px-2 py-2 text-left font-bold">CUSTOMER</th>
+              {hasKet && <th className="bg-amber-100 border border-slate-300 px-2 py-2 text-center font-bold w-36">KETERANGAN</th>}
               <th className="bg-sky-100 border border-slate-300 px-2 py-2 text-center font-bold w-24">QTY</th>
               <th className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-14"></th>
             </tr>
           </thead>
           <tbody>
             {Object.keys(groupedByDate).length === 0 ? (
-              <tr><td colSpan={4} className="border border-slate-300 px-3 py-8 text-center text-sm text-slate-500 bg-white">Belum ada data untuk bulan ini. Tambah baris di atas.</td></tr>
+              <tr><td colSpan={hasKet ? 5 : 4} className="border border-slate-300 px-3 py-8 text-center text-sm text-slate-500 bg-white">Belum ada data untuk bulan ini. Tambah baris di atas.</td></tr>
             ) : (
               Object.entries(groupedByDate).map(([date, group]) => (
                 group.map((r, i) => (
@@ -190,6 +209,15 @@ export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
                       <input type="text" defaultValue={r.customer} onBlur={e => updateCustomer(r, e.target.value)}
                         className="w-full bg-transparent focus:bg-slate-50 focus:outline-none px-1 py-0.5 rounded font-medium" />
                     </td>
+                    {hasKet && (
+                      <td className="border border-slate-300 px-1 py-1">
+                        <select value={r.keterangan} onChange={e => updateKeterangan(r, e.target.value)}
+                          className={`w-full bg-transparent text-xs px-1 py-0.5 rounded focus:outline-none focus:bg-slate-50 ${r.keterangan ? 'text-slate-800 font-medium' : 'text-slate-400'}`}>
+                          <option value="">—</option>
+                          {ketOptions!.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </td>
+                    )}
                     <td className="border border-slate-300 px-1 py-1 text-center">
                       <QtyCell value={r.qty} onCommit={val => updateQty(r, val)} />
                     </td>
@@ -206,7 +234,7 @@ export default function SimpleProgressPage({ table, title, accent = 'sky' }: {
           {rows.length > 0 && (
             <tfoot>
               <tr className="bg-slate-100 text-slate-900 font-bold text-sm">
-                <td className="border border-slate-300 px-2 py-2 text-center" colSpan={2}>TOTAL</td>
+                <td className="border border-slate-300 px-2 py-2 text-center" colSpan={hasKet ? 3 : 2}>TOTAL</td>
                 <td className="border border-slate-300 px-2 py-2 text-center tabular-nums text-sky-700">{totalQty}</td>
                 <td className="border border-slate-300" />
               </tr>

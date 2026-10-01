@@ -1927,6 +1927,15 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Kolom keterangan (dropdown status revisi) untuk Progress Design &
+    // Proofing: Desain Awal / Revisi 1-3 / Revisi Tambahan. Idempotent.
+    name: '098_progress_design_proofing_keterangan',
+    up: [
+      "ALTER TABLE `progress_proofing` ADD COLUMN `keterangan` VARCHAR(50) NULL",
+      "ALTER TABLE `progress_design` ADD COLUMN `keterangan` VARCHAR(50) NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

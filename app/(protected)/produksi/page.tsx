@@ -816,8 +816,15 @@ export default function ProduksiPage() {
       } catch (err) { console.warn('resolve reject on advance failed:', err); }
 
       const currentStageIdx = stages.findIndex((s: Row) => s.id === progressRow.stage_id);
-      if (currentStageIdx < stages.length - 1) {
-        const nextStage = stages[currentStageIdx + 1];
+      // Approval Proofing: "Selesai & Lanjut" MELEWATI Revisi → langsung ke
+      // Approval Design. Revisi hanya dimasuki lewat tombol Revisi khusus.
+      let nextStageIdx = currentStageIdx + 1;
+      if (currentStage?.nama === 'Approval Proofing') {
+        const adIdx = stages.findIndex((s: Row) => String(s.nama) === 'Approval Design');
+        if (adIdx >= 0) nextStageIdx = adIdx;
+      }
+      if (nextStageIdx <= stages.length - 1) {
+        const nextStage = stages[nextStageIdx];
         const nextProgress = progress.find((p: Row) => p.work_order_id === progressRow.work_order_id && p.stage_id === nextStage.id);
         if (nextProgress) {
           await dbUpdate('wo_progress', nextProgress.id, { status: 'TERSEDIA' });
@@ -840,6 +847,31 @@ export default function ProduksiPage() {
         await dbUpdate('work_orders', progressRow.work_order_id, { status: 'SELESAI' });
         toast.success('Selesai', 'Work Order telah selesai semua tahap.');
       }
+      await fetchData();
+    } catch (e) { toast.error('Gagal', String(e)); }
+  }
+
+  // Approval Proofing → tombol "Revisi": pindahkan WO ke tahap Revisi (bukan
+  // Approval Design). Dari Revisi, Selesai & Lanjut lanjut normal ke Approval
+  // Design.
+  async function handleRevisi(item: Row) {
+    const revisiStage = stages.find((s: Row) => String(s.nama) === 'Revisi');
+    if (!revisiStage) { toast.error('Gagal', 'Tahap Revisi tidak ditemukan.'); return; }
+    const yes = await toast.confirm({
+      title: 'Masukkan ke Revisi?',
+      message: `WO ${item.wo?.no_wo || ''} akan dipindahkan ke tahap Revisi.`,
+      type: 'warning',
+      confirmText: 'Ya, Revisi',
+    });
+    if (!yes) return;
+    try {
+      const now = new Date().toISOString();
+      await dbUpdate('wo_progress', item.id, { status: 'SELESAI', started_at: item.started_at || now, completed_at: now });
+      const rp = progress.find((p: Row) => p.work_order_id === item.work_order_id && p.stage_id === revisiStage.id);
+      if (rp) await dbUpdate('wo_progress', rp.id, { status: 'TERSEDIA' });
+      else await dbCreate('wo_progress', { work_order_id: item.work_order_id, stage_id: revisiStage.id, status: 'TERSEDIA' });
+      await dbUpdate('work_orders', item.work_order_id, { current_stage_id: revisiStage.id });
+      toast.success('Masuk Revisi', 'WO dipindahkan ke tahap Revisi.');
       await fetchData();
     } catch (e) { toast.error('Gagal', String(e)); }
   }
@@ -1475,6 +1507,14 @@ export default function ProduksiPage() {
                         title="Kembalikan ke tahap sebelumnya">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
                         Kembalikan
+                      </button>
+                    )}
+                    {activeStage === 'Approval Proofing' && (
+                      <button onClick={() => handleRevisi(item)}
+                        className="text-xs font-medium text-amber-300 border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 rounded-lg hover:bg-amber-500/20 transition-colors flex items-center gap-1.5"
+                        title="Masukkan WO ke tahap Revisi">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                        Revisi
                       </button>
                     )}
                     {REJECT_STAGES.has(activeStage) && (
