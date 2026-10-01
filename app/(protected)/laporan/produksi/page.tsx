@@ -361,6 +361,23 @@ export default function LaporanProduksiPage() {
     } catch {}
   }
 
+  // Rows untuk export: diurut per DEADLINE lalu dikelompokkan per tanggal
+  // supaya tiap ganti tanggal bisa dikasih pemisah (penanda).
+  function buildExportGroups(): { date: string; rows: WoRowExpanded[] }[] {
+    const sorted = [...visibleRows].sort((a, b) => {
+      const da = a.dl || '9999-99-99', db = b.dl || '9999-99-99';
+      return da < db ? -1 : da > db ? 1 : a.customer.localeCompare(b.customer);
+    });
+    const groups: { date: string; rows: WoRowExpanded[] }[] = [];
+    for (const r of sorted) {
+      const d = r.dlDisplay || 'Tanpa Deadline';
+      const last = groups[groups.length - 1];
+      if (last && last.date === d) last.rows.push(r);
+      else groups.push({ date: d, rows: [r] });
+    }
+    return groups;
+  }
+
   const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPdf() {
     if (visibleRows.length === 0) return;
@@ -374,14 +391,21 @@ export default function LaporanProduksiPage() {
       doc.text(`LAPORAN PRODUKSI — ${monthLabelSel}`, pageW / 2, 14, { align: 'center' });
       doc.setFontSize(9); doc.setFont('helvetica', 'normal');
       doc.text(`${visibleRows.length} WO · ${totalQty} pcs`, pageW / 2, 20, { align: 'center' });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body: any[] = [];
+      let no = 0;
+      for (const g of buildExportGroups()) {
+        body.push([{ content: `Deadline ${g.date}`, colSpan: 8, styles: { fillColor: [226, 232, 240], textColor: [30, 41, 59], fontStyle: 'bold', halign: 'left' } }]);
+        for (const r of g.rows) {
+          no++;
+          body.push([no, r.customer || '-', r.no_wo || '-', r.qty, r.paket || '-', r.ket || '-', r.dlDisplay || '-', r.note || '-']);
+        }
+      }
       autoTable(doc, {
         startY: 25,
         margin: { left: 8, right: 8 },
         head: [['No', 'Customer', 'No WO', 'Qty', 'Paket', 'Ket', 'Deadline', 'Note']],
-        body: visibleRows.map((r, i) => [
-          i + 1, r.customer || '-', r.no_wo || '-', r.qty, r.paket || '-',
-          r.ket || '-', r.dlDisplay || '-', r.note || '-',
-        ]),
+        body,
         styles: { fontSize: 8, cellPadding: 1.5, overflow: 'linebreak', valign: 'middle' },
         headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold', halign: 'center', fontSize: 8 },
         columnStyles: {
@@ -389,11 +413,58 @@ export default function LaporanProduksiPage() {
           3: { cellWidth: 13, halign: 'center' }, 4: { cellWidth: 66 }, 6: { cellWidth: 28, halign: 'center' },
           7: { cellWidth: 30 },
         },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
       });
       doc.save(`Laporan-Produksi-${selectedMonth || 'semua'}.pdf`);
     } catch (e) { console.error('PDF gagal', e); }
     setPdfBusy(false);
+  }
+
+  const [excelBusy, setExcelBusy] = useState(false);
+  async function downloadExcel() {
+    if (visibleRows.length === 0) return;
+    setExcelBusy(true);
+    try {
+      const ExcelJSmod = await import('exceljs');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ExcelJS: any = (ExcelJSmod as any).default || ExcelJSmod;
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Laporan Produksi');
+      ws.columns = [
+        { header: 'No', width: 6 }, { header: 'Customer', width: 32 }, { header: 'No WO', width: 14 },
+        { header: 'Qty', width: 8 }, { header: 'Paket', width: 44 }, { header: 'Ket', width: 20 },
+        { header: 'Deadline', width: 18 }, { header: 'Note', width: 20 },
+      ];
+      const head = ws.getRow(1);
+      head.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      head.alignment = { vertical: 'middle', horizontal: 'center' };
+      for (let c = 1; c <= 8; c++) head.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+      let no = 0;
+      for (const g of buildExportGroups()) {
+        // Baris pemisah per tanggal (merge 8 kolom) + border tebal di atas.
+        const dr = ws.addRow([`Deadline ${g.date}`]);
+        ws.mergeCells(dr.number, 1, dr.number, 8);
+        dr.font = { bold: true };
+        for (let c = 1; c <= 8; c++) {
+          dr.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+          dr.getCell(c).border = { top: { style: 'medium' } };
+        }
+        for (const r of g.rows) {
+          no++;
+          const row = ws.addRow([no, r.customer || '-', r.no_wo || '-', r.qty, r.paket || '-', r.ket || '-', r.dlDisplay || '-', r.note || '-']);
+          row.getCell(1).alignment = { horizontal: 'center' };
+          row.getCell(4).alignment = { horizontal: 'center' };
+          row.getCell(5).alignment = { wrapText: true, vertical: 'top' };
+        }
+      }
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = `Laporan-Produksi-${selectedMonth || 'semua'}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error('Excel gagal', e); }
+    setExcelBusy(false);
   }
 
   const totalWo = visibleRows.length;
@@ -440,6 +511,12 @@ export default function LaporanProduksiPage() {
               title="Download PDF laporan bulan ini">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               {pdfBusy ? 'Membuat...' : 'Download PDF'}
+            </button>
+            <button onClick={downloadExcel} disabled={excelBusy || visibleRows.length === 0}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-300 border border-teal-500/25 bg-teal-500/10 hover:bg-teal-500/15 disabled:opacity-40 px-3 py-2 rounded-lg transition-colors shrink-0"
+              title="Download Excel laporan bulan ini (ada pemisah per tanggal)">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m-6-8h6M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+              {excelBusy ? 'Membuat...' : 'Download Excel'}
             </button>
             <div className="relative flex-1 basis-full sm:basis-[220px] min-w-[180px]">
               <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>

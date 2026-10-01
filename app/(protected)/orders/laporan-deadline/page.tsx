@@ -332,6 +332,9 @@ export default function LaporanDeadlineCsOrderPage() {
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Laporan Deadline CS Order</h1>
               <p className="text-[13px] text-slate-300 mt-0.5">
                 Per tanggal Deadline Lock · <span className="text-white font-medium">{monthLabelSel} · {monthRows.length} order · {totalQty} pcs · {totalPoint} poin</span>
+                {dateGroups.length > 0 && (
+                  <span className="text-emerald-300"> · ⌀ {(Math.round((totalPoint / dateGroups.length) * 10) / 10).toLocaleString('id-ID')} poin/hari ({dateGroups.length} hari)</span>
+                )}
                 {needPickCount > 0 && <span className="text-amber-300"> · {needPickCount} paket perlu dipilih tier-nya</span>}
               </p>
             </div>

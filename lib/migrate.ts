@@ -1911,6 +1911,22 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Progress Materi Finishing — sederhana (tanggal/customer/qty), sama
+    // seperti Proofing/Design. Ditempatkan di atas Progress Finishing.
+    name: '097_progress_materi_finishing',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `progress_materi_finishing` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`tanggal` DATE NOT NULL," +
+        "`customer` VARCHAR(200) NOT NULL DEFAULT ''," +
+        "`qty` INT NOT NULL DEFAULT 0," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_materi_finishing_tanggal` (`tanggal`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
