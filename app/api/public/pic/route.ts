@@ -15,13 +15,16 @@ const TARGET_POIN_HARIAN = 340;
 interface PaketRate { prefix: string; ra: number; rc: number }
 
 // source:
-//   'json'    — tabel progress_* dengan kolom realisasi_json
-//   'columns' — tabel line_jahit (qty paket di kolom langsung ${prefix}_atasan/celana)
-interface ProcCfg { table: string; label: string; source: 'json' | 'columns' }
+//   'json'    — tabel progress_* dengan kolom realisasi_json → poin
+//   'columns' — tabel line_jahit (qty paket di kolom ${prefix}_atasan/celana) → poin
+//   'qty'     — tabel sederhana (progress_design/proofing) dengan kolom qty → qty saja
+type Source = 'json' | 'columns' | 'qty';
+interface ProcCfg { table: string; label: string; source: Source }
 const PIC_CONFIG: Record<string, { label: string; processes: ProcCfg[] }> = {
   erick: { label: 'Erick', processes: [{ table: 'progress_printing', label: 'Printing', source: 'json' }, { table: 'progress_press', label: 'Press', source: 'json' }] },
   amboss: { label: 'Amboss', processes: [{ table: 'progress_cutting', label: 'Cutting', source: 'json' }, { table: 'line_jahit', label: 'Sewing', source: 'columns' }] },
   intan: { label: 'Intan', processes: [{ table: 'progress_finishing', label: 'Finishing', source: 'json' }, { table: 'progress_shipment', label: 'Shipment', source: 'json' }] },
+  vina: { label: 'Vina', processes: [{ table: 'progress_design', label: 'Design', source: 'qty' }, { table: 'progress_proofing', label: 'Proofing', source: 'qty' }, { table: 'progress_layouting', label: 'Layouting', source: 'json' }] },
 };
 
 function parseData(raw: unknown): Record<string, number> {
@@ -51,29 +54,32 @@ function monthLabel(ym: string): string { const [y, m] = ym.split('-').map(Numbe
 
 type DayAgg = { date: string; real: number; pcs: number };
 
-// Ambil data poin dari satu baris sesuai sumber-nya.
-function rowData(r: Record<string, unknown>, rates: PaketRate[], source: 'json' | 'columns'): Record<string, number> {
+// Nilai (real) + pcs dari satu baris sesuai sumber. 'qty' → real=qty.
+function rowValue(r: Record<string, unknown>, rates: PaketRate[], source: Source): { val: number; pcs: number } {
+  if (source === 'qty') { const q = Number(r.qty) || 0; return { val: q, pcs: q }; }
+  const data: Record<string, number> = {};
   if (source === 'columns') {
-    const data: Record<string, number> = {};
     for (const rt of rates) {
       data[`${rt.prefix}_atasan`] = Number(r[`${rt.prefix}_atasan`]) || 0;
       data[`${rt.prefix}_celana`] = Number(r[`${rt.prefix}_celana`]) || 0;
     }
-    return data;
+  } else {
+    Object.assign(data, parseData(r.realisasi_json));
   }
-  return parseData(r.realisasi_json);
+  const { poin, pcs } = poinOf(data, rates);
+  return { val: poin, pcs };
 }
 
 // Agregasi per-hari (hanya hari dengan data) untuk rentang tanggal.
-function aggregateByDay(rows: Record<string, unknown>[], rates: PaketRate[], ymFilter: string, source: 'json' | 'columns'): DayAgg[] {
+function aggregateByDay(rows: Record<string, unknown>[], rates: PaketRate[], ymFilter: string, source: Source): DayAgg[] {
   const map = new Map<string, { real: number; pcs: number }>();
   for (const r of rows) {
     const t = r.tanggal;
     const iso = String(t instanceof Date ? t.toISOString() : t).slice(0, 10);
     if (iso.slice(0, 7) !== ymFilter) continue;
-    const { poin, pcs } = poinOf(rowData(r, rates, source), rates);
+    const { val, pcs } = rowValue(r, rates, source);
     const cur = map.get(iso) || { real: 0, pcs: 0 };
-    cur.real += poin; cur.pcs += pcs;
+    cur.real += val; cur.pcs += pcs;
     map.set(iso, cur);
   }
   return Array.from(map.entries())
@@ -106,12 +112,15 @@ export async function GET(req: NextRequest) {
       try {
         const sql = proc.source === 'columns'
           ? `SELECT * FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`
-          : `SELECT tanggal, realisasi_json FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`;
+          : proc.source === 'qty'
+            ? `SELECT tanggal, qty FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`
+            : `SELECT tanggal, realisasi_json FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`;
         rows = await query<Record<string, unknown>>(sql, [winStart, winEnd]);
       } catch { rows = []; }
       return {
         key: proc.table.replace('progress_', ''),
         label: proc.label,
+        metric: proc.source === 'qty' ? 'qty' : 'poin',
         days: aggregateByDay(rows, rates, curYm, proc.source),
         prevDays: aggregateByDay(rows, rates, prevYm, proc.source),
       };

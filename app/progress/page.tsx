@@ -72,6 +72,9 @@ export default function ProgressHubPage() {
           <a href={`/progress/pic-intan${demo}`} className="inline-flex items-center gap-[0.4vw] rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 font-bold hover:bg-indigo-100 transition-colors px-[1vw] py-[0.6vh]" style={{ fontSize: 'clamp(11px,0.95vw,17px)' }}>
             Intan · Finishing &amp; Shipment <span>→</span>
           </a>
+          <a href={`/progress/pic-vina${demo}`} className="inline-flex items-center gap-[0.4vw] rounded-full border border-rose-200 bg-rose-50 text-rose-700 font-bold hover:bg-rose-100 transition-colors px-[1vw] py-[0.6vh]" style={{ fontSize: 'clamp(11px,0.95vw,17px)' }}>
+            Vina · Design, Proofing &amp; Layouting <span>→</span>
+          </a>
         </div>
       </div>
 
