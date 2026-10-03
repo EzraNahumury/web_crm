@@ -66,6 +66,9 @@ export default function ProgressHubPage() {
           <a href={`/progress/pic-erick${demo}`} className="inline-flex items-center gap-[0.4vw] rounded-full border border-sky-200 bg-sky-50 text-sky-700 font-bold hover:bg-sky-100 transition-colors px-[1vw] py-[0.6vh]" style={{ fontSize: 'clamp(11px,0.95vw,17px)' }}>
             Erick · Printing &amp; Press <span>→</span>
           </a>
+          <a href={`/progress/pic-amboss${demo}`} className="inline-flex items-center gap-[0.4vw] rounded-full border border-orange-200 bg-orange-50 text-orange-700 font-bold hover:bg-orange-100 transition-colors px-[1vw] py-[0.6vh]" style={{ fontSize: 'clamp(11px,0.95vw,17px)' }}>
+            Amboss · Cutting &amp; Sewing <span>→</span>
+          </a>
         </div>
       </div>
 

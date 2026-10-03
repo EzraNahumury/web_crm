@@ -14,9 +14,13 @@ const TARGET_POIN_HARIAN = 340;
 
 interface PaketRate { prefix: string; ra: number; rc: number }
 
-// PIC → daftar proses (tabel progress_* berbasis poin). PIC lain menyusul.
-const PIC_CONFIG: Record<string, { label: string; processes: { table: string; label: string }[] }> = {
-  erick: { label: 'Erick', processes: [{ table: 'progress_printing', label: 'Printing' }, { table: 'progress_press', label: 'Press' }] },
+// source:
+//   'json'    — tabel progress_* dengan kolom realisasi_json
+//   'columns' — tabel line_jahit (qty paket di kolom langsung ${prefix}_atasan/celana)
+interface ProcCfg { table: string; label: string; source: 'json' | 'columns' }
+const PIC_CONFIG: Record<string, { label: string; processes: ProcCfg[] }> = {
+  erick: { label: 'Erick', processes: [{ table: 'progress_printing', label: 'Printing', source: 'json' }, { table: 'progress_press', label: 'Press', source: 'json' }] },
+  amboss: { label: 'Amboss', processes: [{ table: 'progress_cutting', label: 'Cutting', source: 'json' }, { table: 'line_jahit', label: 'Sewing', source: 'columns' }] },
 };
 
 function parseData(raw: unknown): Record<string, number> {
@@ -44,16 +48,29 @@ function isoDate(d: Date): string {
 const MON_FULL = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 function monthLabel(ym: string): string { const [y, m] = ym.split('-').map(Number); return `${MON_FULL[(m || 1) - 1]} ${y}`; }
 
-type ProgRow = { tanggal: unknown; realisasi_json: unknown };
 type DayAgg = { date: string; real: number; pcs: number };
 
+// Ambil data poin dari satu baris sesuai sumber-nya.
+function rowData(r: Record<string, unknown>, rates: PaketRate[], source: 'json' | 'columns'): Record<string, number> {
+  if (source === 'columns') {
+    const data: Record<string, number> = {};
+    for (const rt of rates) {
+      data[`${rt.prefix}_atasan`] = Number(r[`${rt.prefix}_atasan`]) || 0;
+      data[`${rt.prefix}_celana`] = Number(r[`${rt.prefix}_celana`]) || 0;
+    }
+    return data;
+  }
+  return parseData(r.realisasi_json);
+}
+
 // Agregasi per-hari (hanya hari dengan data) untuk rentang tanggal.
-function aggregateByDay(rows: ProgRow[], rates: PaketRate[], ymFilter: string): DayAgg[] {
+function aggregateByDay(rows: Record<string, unknown>[], rates: PaketRate[], ymFilter: string, source: 'json' | 'columns'): DayAgg[] {
   const map = new Map<string, { real: number; pcs: number }>();
   for (const r of rows) {
-    const iso = String(r.tanggal instanceof Date ? r.tanggal.toISOString() : r.tanggal).slice(0, 10);
+    const t = r.tanggal;
+    const iso = String(t instanceof Date ? t.toISOString() : t).slice(0, 10);
     if (iso.slice(0, 7) !== ymFilter) continue;
-    const { poin, pcs } = poinOf(parseData(r.realisasi_json), rates);
+    const { poin, pcs } = poinOf(rowData(r, rates, source), rates);
     const cur = map.get(iso) || { real: 0, pcs: 0 };
     cur.real += poin; cur.pcs += pcs;
     map.set(iso, cur);
@@ -84,18 +101,18 @@ export async function GET(req: NextRequest) {
     }));
 
     const processes = await Promise.all(config.processes.map(async proc => {
-      let rows: ProgRow[] = [];
+      let rows: Record<string, unknown>[] = [];
       try {
-        rows = await query<ProgRow>(
-          `SELECT tanggal, realisasi_json FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`,
-          [winStart, winEnd]
-        );
+        const sql = proc.source === 'columns'
+          ? `SELECT * FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`
+          : `SELECT tanggal, realisasi_json FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`;
+        rows = await query<Record<string, unknown>>(sql, [winStart, winEnd]);
       } catch { rows = []; }
       return {
         key: proc.table.replace('progress_', ''),
         label: proc.label,
-        days: aggregateByDay(rows, rates, curYm),
-        prevDays: aggregateByDay(rows, rates, prevYm),
+        days: aggregateByDay(rows, rates, curYm, proc.source),
+        prevDays: aggregateByDay(rows, rates, prevYm, proc.source),
       };
     }));
 
