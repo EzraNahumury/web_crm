@@ -61,6 +61,12 @@ export default function ProgressHubPage() {
       <div className="relative px-[3vw] mt-[2vh]">
         <h1 className="font-black tracking-tight text-slate-900" style={{ fontSize: 'clamp(26px,2.6vw,54px)' }}>Papan Progress Produksi</h1>
         <p className="text-slate-500 font-medium mt-[0.8vh]" style={{ fontSize: 'clamp(12px,1vw,20px)' }}>Pilih report untuk ditampilkan di layar. Semua update otomatis.</p>
+        <div className="flex items-center gap-[0.8vw] flex-wrap mt-[1.4vh]">
+          <span className="text-slate-400 font-bold uppercase tracking-wider" style={{ fontSize: 'clamp(10px,0.8vw,15px)' }}>Laporan PIC:</span>
+          <a href={`/progress/pic-erick${demo}`} className="inline-flex items-center gap-[0.4vw] rounded-full border border-sky-200 bg-sky-50 text-sky-700 font-bold hover:bg-sky-100 transition-colors px-[1vw] py-[0.6vh]" style={{ fontSize: 'clamp(11px,0.95vw,17px)' }}>
+            Erick · Printing &amp; Press <span>→</span>
+          </a>
+        </div>
       </div>
 
       {/* Cards */}
