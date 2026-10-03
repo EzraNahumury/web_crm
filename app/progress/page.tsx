@@ -69,6 +69,9 @@ export default function ProgressHubPage() {
           <a href={`/progress/pic-amboss${demo}`} className="inline-flex items-center gap-[0.4vw] rounded-full border border-orange-200 bg-orange-50 text-orange-700 font-bold hover:bg-orange-100 transition-colors px-[1vw] py-[0.6vh]" style={{ fontSize: 'clamp(11px,0.95vw,17px)' }}>
             Amboss · Cutting &amp; Sewing <span>→</span>
           </a>
+          <a href={`/progress/pic-intan${demo}`} className="inline-flex items-center gap-[0.4vw] rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 font-bold hover:bg-indigo-100 transition-colors px-[1vw] py-[0.6vh]" style={{ fontSize: 'clamp(11px,0.95vw,17px)' }}>
+            Intan · Finishing &amp; Shipment <span>→</span>
+          </a>
         </div>
       </div>
 

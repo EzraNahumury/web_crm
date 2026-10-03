@@ -21,6 +21,7 @@ interface ProcCfg { table: string; label: string; source: 'json' | 'columns' }
 const PIC_CONFIG: Record<string, { label: string; processes: ProcCfg[] }> = {
   erick: { label: 'Erick', processes: [{ table: 'progress_printing', label: 'Printing', source: 'json' }, { table: 'progress_press', label: 'Press', source: 'json' }] },
   amboss: { label: 'Amboss', processes: [{ table: 'progress_cutting', label: 'Cutting', source: 'json' }, { table: 'line_jahit', label: 'Sewing', source: 'columns' }] },
+  intan: { label: 'Intan', processes: [{ table: 'progress_finishing', label: 'Finishing', source: 'json' }, { table: 'progress_shipment', label: 'Shipment', source: 'json' }] },
 };
 
 function parseData(raw: unknown): Record<string, number> {
