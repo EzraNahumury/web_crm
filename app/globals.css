@@ -130,6 +130,20 @@ select option {
 [data-theme="light"] .text-orange-100 { color: #7c2d12 !important; }
 [data-theme="light"] .text-orange-200 { color: #9a3412 !important; }
 [data-theme="light"] .text-orange-300 { color: #c2410c !important; }
+/* Warna paket di header QtyBlock (yellow/blue/pink/violet) — shade terang
+   (100-300) tidak terbaca di bg pastel light mode, inversikan ke shade gelap. */
+[data-theme="light"] .text-yellow-100 { color: #713f12 !important; }
+[data-theme="light"] .text-yellow-200 { color: #854d0e !important; }
+[data-theme="light"] .text-yellow-300 { color: #a16207 !important; }
+[data-theme="light"] .text-blue-100 { color: #1e3a8a !important; }
+[data-theme="light"] .text-blue-200 { color: #1e40af !important; }
+[data-theme="light"] .text-blue-300 { color: #1d4ed8 !important; }
+[data-theme="light"] .text-pink-100 { color: #831843 !important; }
+[data-theme="light"] .text-pink-200 { color: #9d174d !important; }
+[data-theme="light"] .text-pink-300 { color: #be185d !important; }
+[data-theme="light"] .text-violet-100 { color: #4c1d95 !important; }
+[data-theme="light"] .text-violet-200 { color: #5b21b6 !important; }
+[data-theme="light"] .text-violet-300 { color: #6d28d9 !important; }
 [data-theme="light"] .text-blue-100 { color: #1e3a8a !important; }
 [data-theme="light"] .text-blue-200 { color: #1e40af !important; }
 [data-theme="light"] .text-blue-300 { color: #1d4ed8 !important; }
