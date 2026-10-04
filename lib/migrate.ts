@@ -1969,6 +1969,33 @@ const MIGRATIONS: Migration[] = [
       return stmts;
     })(),
   },
+  {
+    // Kolom input_by — nama/akun yang menginput baris (diisi otomatis saat
+    // tambah baris). Dipakai terutama di Progress Design & Layouting, tapi
+    // ditambahkan ke semua tabel progress biar seragam & tidak gagal insert.
+    // Idempotent (Duplicate column di-skip runner).
+    name: '100_progress_input_by',
+    up: [
+      'progress_printing', 'progress_press', 'progress_cutting', 'progress_steam',
+      'progress_finishing', 'progress_shipment', 'progress_layouting',
+      'progress_design', 'progress_proofing', 'progress_materi_finishing',
+    ].map(t => `ALTER TABLE \`${t}\` ADD COLUMN \`input_by\` VARCHAR(100) NULL`),
+  },
+  {
+    // WO view-only untuk role Layouter: boleh lihat + Download, tidak boleh
+    // membuat/edit/hapus. Pakai penanda NEGATIF ('Work Orders View Only') yang
+    // hanya diberikan ke role 'Layouter' — supaya role editor lain tidak
+    // ter-regress jadi read-only hanya karena session lama belum punya flag
+    // baru. UI: canEditWO = isSuperAdmin || !menuAccess.includes('Work Orders
+    // View Only'). Idempotent.
+    name: '101_wo_view_only_layouter',
+    up: [
+      "INSERT INTO `role_menu_access` (`role_id`,`menu_name`) " +
+        "SELECT r.id, 'Work Orders View Only' FROM `roles` r " +
+        "WHERE r.nama = 'Layouter' " +
+        "AND NOT EXISTS (SELECT 1 FROM `role_menu_access` x WHERE x.role_id = r.id AND x.menu_name = 'Work Orders View Only')",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

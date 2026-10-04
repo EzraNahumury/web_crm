@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
+import { useAuth } from '@/lib/auth-context';
 import { PROGRESS_ACCENTS } from './ProgressLinePage';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,7 +25,7 @@ function fmtDayShort(iso: string): string {
   return `${d} ${['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'][m - 1]}`;
 }
 
-interface SRow { id: number; tanggal: string; customer: string; qty: number; keterangan: string; }
+interface SRow { id: number; tanggal: string; customer: string; qty: number; keterangan: string; inputBy: string; }
 interface CustomerLite { id: number; nama: string; no_hp: string; kabupaten_kota: string; }
 
 export default function SimpleProgressPage({ table, title, accent = 'sky', ketOptions }: {
@@ -33,6 +34,8 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
   ketOptions?: string[];
 }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const myName = user?.nama || user?.username || '';
   const a = PROGRESS_ACCENTS[accent] || PROGRESS_ACCENTS.sky;
   const hasKet = !!(ketOptions && ketOptions.length);
   const [month, setMonth] = useState(currentYm());
@@ -61,7 +64,7 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
       setRows((all as Row[])
         .filter(r => String(r.tanggal || '').slice(0, 7) === month)
         .sort((x, y) => String(x.tanggal).localeCompare(String(y.tanggal)) || Number(x.id) - Number(y.id))
-        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), qty: Number(r.qty) || 0, keterangan: String(r.keterangan || '') })));
+        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), qty: Number(r.qty) || 0, keterangan: String(r.keterangan || ''), inputBy: String(r.input_by || '') })));
     } catch { setRows([]); }
     setLoading(false);
   }, [table, month]);
@@ -80,7 +83,7 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
     if (!newCustomer.trim()) { toast.warning('Validasi', 'Isi nama customer.'); return; }
     setSaving(true);
     try {
-      await dbCreate(table, { tanggal: newTanggal, customer: newCustomer.trim(), qty: Number(newQty) || 0, ...(hasKet ? { keterangan: newKeterangan || null } : {}) });
+      await dbCreate(table, { tanggal: newTanggal, customer: newCustomer.trim(), qty: Number(newQty) || 0, input_by: myName || null, ...(hasKet ? { keterangan: newKeterangan || null } : {}) });
       setNewCustomer(''); setNewQty(''); setNewKeterangan('');
       await fetchAll();
       toast.success('Ditambahkan', `${newCustomer.trim()} tanggal ${fmtDayShort(newTanggal)}.`);
@@ -194,12 +197,13 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
               <th className="bg-rose-100 border border-slate-300 px-2 py-2 text-left font-bold">CUSTOMER</th>
               {hasKet && <th className="bg-amber-100 border border-slate-300 px-2 py-2 text-center font-bold w-36">KETERANGAN</th>}
               <th className="bg-sky-100 border border-slate-300 px-2 py-2 text-center font-bold w-24">QTY</th>
+              <th className="bg-slate-100 border border-slate-300 px-2 py-2 text-center font-bold w-32">INPUT</th>
               <th className="bg-rose-100 border border-slate-300 px-2 py-2 text-center font-bold w-14"></th>
             </tr>
           </thead>
           <tbody>
             {Object.keys(groupedByDate).length === 0 ? (
-              <tr><td colSpan={hasKet ? 5 : 4} className="border border-slate-300 px-3 py-8 text-center text-sm text-slate-500 bg-white">Belum ada data untuk bulan ini. Tambah baris di atas.</td></tr>
+              <tr><td colSpan={hasKet ? 6 : 5} className="border border-slate-300 px-3 py-8 text-center text-sm text-slate-500 bg-white">Belum ada data untuk bulan ini. Tambah baris di atas.</td></tr>
             ) : (
               Object.entries(groupedByDate).map(([date, group]) => (
                 group.map((r, i) => (
@@ -221,6 +225,7 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
                     <td className="border border-slate-300 px-1 py-1 text-center">
                       <QtyCell value={r.qty} onCommit={val => updateQty(r, val)} />
                     </td>
+                    <td className="border border-slate-300 px-2 py-1 text-center text-xs text-slate-500" title="Akun yang menginput baris ini">{r.inputBy || <span className="text-slate-300">—</span>}</td>
                     <td className="border border-slate-300 px-1 py-1 text-center">
                       <button onClick={() => deleteRow(r.id, r.customer)} className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50" title="Hapus baris">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166M18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165" /></svg>
@@ -236,6 +241,7 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
               <tr className="bg-slate-100 text-slate-900 font-bold text-sm">
                 <td className="border border-slate-300 px-2 py-2 text-center" colSpan={hasKet ? 3 : 2}>TOTAL</td>
                 <td className="border border-slate-300 px-2 py-2 text-center tabular-nums text-sky-700">{totalQty}</td>
+                <td className="border border-slate-300" />
                 <td className="border border-slate-300" />
               </tr>
             </tfoot>

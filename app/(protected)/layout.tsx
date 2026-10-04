@@ -168,6 +168,12 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/analisa/line-jahit', label: 'Line Jahit' },
       { href: '/analisa/progress-produksi', label: 'Progress Produksi' },
       { href: '/analisa/analisa-cs', label: 'Analisa CS' },
+      // Laporan visual per proses (halaman publik /progress/pic-*). Dinamai
+      // per proses (bukan PIC) sesuai permintaan.
+      { href: '/progress/pic-erick', label: 'Lap. Printing & Press' },
+      { href: '/progress/pic-amboss', label: 'Lap. Cutting & Sewing' },
+      { href: '/progress/pic-intan', label: 'Lap. Finishing & Shipment' },
+      { href: '/progress/pic-vina', label: 'Lap. Design & Layouting' },
     ],
   },
   {
@@ -222,7 +228,7 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // Reseller hrefs juga dipetakan di bawah 'Analisa' supaya menu Reseller
   // tetap tampil untuk akun yang cookie session-nya belum punya key
   // 'Reseller' (sebelum login ulang) — asalkan punya akses 'Analisa'.
-  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/progress-produksi', '/analisa/progress-printing', '/analisa/progress-press', '/analisa/progress-cutting', '/analisa/progress-steam', '/analisa/progress-finishing', '/analisa/progress-shipment', '/analisa/analisa-cs', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
+  'Analisa': ['/analisa/grafik', '/analisa/grafik-cs', '/analisa/grafik-leads', '/analisa/line-jahit', '/analisa/progress-produksi', '/analisa/progress-printing', '/analisa/progress-press', '/analisa/progress-cutting', '/analisa/progress-steam', '/analisa/progress-finishing', '/analisa/progress-shipment', '/analisa/analisa-cs', '/progress/pic-erick', '/progress/pic-amboss', '/progress/pic-intan', '/progress/pic-vina', '/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
   'Reseller': ['/analisa/all-customer', '/analisa/data-reseller', '/analisa/reseller-order', '/analisa/grafik-reseller'],
   // Key granular per-halaman — dipakai untuk akun PIC yang hanya boleh
   // melihat analisa/grafik proses yang dia pegang (bukan seluruh menu

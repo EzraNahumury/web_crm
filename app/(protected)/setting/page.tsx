@@ -40,6 +40,7 @@ const MENU_ITEMS = [
   'CS Order',
   'Produksi',
   'Work Orders',
+  'Work Orders View Only',
   'Admin Produksi',
   'Monitoring Produksi',
   'Approval Gudang',

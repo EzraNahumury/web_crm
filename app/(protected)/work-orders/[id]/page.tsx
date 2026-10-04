@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
+import { useAuth } from '@/lib/auth-context';
 import { normBagian } from '@/lib/utils';
 import {
   WO4_BODY_PARTS_ORDER, WO4_ACCESSORIES, WO4_SIZES,
@@ -1282,6 +1283,11 @@ type Tab = 'detail'|'wo1'|'wo2'|'wo3'|'wo4';
 
 export default function WorkOrderDetailPage() {
   const router = useRouter();
+  const { user } = useAuth();
+  // View-only (role ditandai 'Work Orders View Only', mis. Layouter): boleh
+  // lihat + Download, tapi konten WO dikunci (inert) supaya tidak bisa edit /
+  // menekan tombol "+" tidak sengaja. Super admin selalu bisa edit.
+  const canEditWO = !!user && (user.isSuperAdmin || !(user.menuAccess || []).includes('Work Orders View Only'));
   const params = useParams();
   // Deep-link support: ?tab=wo4 opens langsung ke tab WO4.
   // Dipakai dari Forecasting Bahan → button mata.
@@ -1967,17 +1973,26 @@ export default function WorkOrderDetailPage() {
               {downloadingAll ? 'Menyiapkan...' : 'Download All'}
             </button>
           )}
-          <button
-            onClick={handleDeleteAllImports}
-            disabled={deletingAll}
-            title="Hapus semua data & file di WO 1 – WO 4"
-            className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/30 bg-red-500/10 px-3 py-1.5 rounded-full hover:bg-red-500/20 disabled:opacity-50 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-            {deletingAll ? 'Menghapus...' : 'Delete All'}
-          </button>
+          {canEditWO && (
+            <button
+              onClick={handleDeleteAllImports}
+              disabled={deletingAll}
+              title="Hapus semua data & file di WO 1 – WO 4"
+              className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/30 bg-red-500/10 px-3 py-1.5 rounded-full hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+              {deletingAll ? 'Menghapus...' : 'Delete All'}
+            </button>
+          )}
         </div>
       </div>
+
+      {!canEditWO && (
+        <div className="mb-5 flex items-center gap-2 text-sm rounded-xl border border-amber-500/25 bg-amber-500/10 text-amber-200 px-4 py-2.5">
+          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+          <span><strong>Mode Lihat Saja.</strong> Akun ini hanya bisa melihat &amp; <strong>Download All</strong> — WO tidak bisa diedit.</span>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-white/[0.06] mb-6">
@@ -1991,12 +2006,15 @@ export default function WorkOrderDetailPage() {
         </div>
       </div>
 
-      {/* Tab Content */}
-      {tab === 'detail' && <TabDetail wo={woData} />}
-      {tab === 'wo1' && <TabWO1 wo={woData} specs={specs} specBahan={specBahan} />}
-      {tab === 'wo2' && <TabWO2 wo={woData} gudangItems={gudangItems} specs={specs} specBahan={specBahan} />}
-      {tab === 'wo3' && <TabWO3 wo={woData} detailItems={detailItems} specs={specs} specBahan={specBahan} />}
-      {tab === 'wo4' && <TabWO4 wo={woData} detailItems={detailItems} specs={specs} specBahan={specBahan} />}
+      {/* Tab Content — dikunci (inert) untuk akun view-only supaya tidak bisa
+          edit / tekan "+" tidak sengaja. Header (Download All) tetap aktif. */}
+      <div inert={!canEditWO || undefined} className={!canEditWO ? 'opacity-95' : ''}>
+        {tab === 'detail' && <TabDetail wo={woData} />}
+        {tab === 'wo1' && <TabWO1 wo={woData} specs={specs} specBahan={specBahan} />}
+        {tab === 'wo2' && <TabWO2 wo={woData} gudangItems={gudangItems} specs={specs} specBahan={specBahan} />}
+        {tab === 'wo3' && <TabWO3 wo={woData} detailItems={detailItems} specs={specs} specBahan={specBahan} />}
+        {tab === 'wo4' && <TabWO4 wo={woData} detailItems={detailItems} specs={specs} specBahan={specBahan} />}
+      </div>
     </div>
   );
 }

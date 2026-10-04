@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
+import { useAuth } from '@/lib/auth-context';
 
 // Halaman Progress (Printing / Press / Cutting). Struktur sama seperti Line
 // Jahit (form input qty per paket + tabel target/realisasi/selisih dalam POIN)
@@ -16,7 +17,7 @@ const BASE_RATE_POIN = 5000;
 export const PROGRESS_TARGET_PER_DAY = 340; // poin/hari, flat
 
 interface Paket { id: number; nama: string; kolom_prefix: string; urutan: number; rate_atasan: number; rate_celana: number; }
-interface PRow { id: number; tanggal: string; customer: string; keterangan: string; data: Record<string, number>; eksekusi: boolean; urgensi: string; posisi: string; }
+interface PRow { id: number; tanggal: string; customer: string; keterangan: string; data: Record<string, number>; eksekusi: boolean; urgensi: string; posisi: string; inputBy: string; }
 interface CustomerLite { id: number; nama: string; no_hp: string; kabupaten_kota: string; }
 
 // Konfigurasi fitur operasional per halaman (press / print / cutting).
@@ -130,6 +131,8 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
   ops?: OpsConfig;
 }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const myName = user?.nama || user?.username || '';
   const a = PROGRESS_ACCENTS[accent];
   // Turunan flag ops — dipakai untuk gating UI supaya halaman non-ops
   // (steam/finishing/shipment) tidak berubah sama sekali.
@@ -186,7 +189,7 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
       setRows((all as Row[])
         .filter(r => String(r.tanggal || '').slice(0, 7) === month)
         .sort((x, y) => String(x.tanggal).localeCompare(String(y.tanggal)) || Number(x.id) - Number(y.id))
-        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), keterangan: String(r.keterangan || ''), data: parseData(r.realisasi_json), eksekusi: !!Number(r.sudah_eksekusi), urgensi: String(r.urgensi || ''), posisi: String(r.posisi || CUTTING_POSISI.PROSES) })));
+        .map(r => ({ id: Number(r.id), tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), keterangan: String(r.keterangan || ''), data: parseData(r.realisasi_json), eksekusi: !!Number(r.sudah_eksekusi), urgensi: String(r.urgensi || ''), posisi: String(r.posisi || CUTTING_POSISI.PROSES), inputBy: String(r.input_by || '') })));
     } catch { setRows([]); }
     setLoading(false);
   }, [table, month]);
@@ -227,7 +230,7 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
         data[`${p.kolom_prefix}_atasan`] = Number(newQty[`${p.kolom_prefix}_atasan`]) || 0;
         data[`${p.kolom_prefix}_celana`] = Number(newQty[`${p.kolom_prefix}_celana`]) || 0;
       }
-      await dbCreate(table, { tanggal: newTanggal, customer: newCustomer.trim(), keterangan: newKeterangan.trim(), realisasi_json: JSON.stringify(data) });
+      await dbCreate(table, { tanggal: newTanggal, customer: newCustomer.trim(), keterangan: newKeterangan.trim(), realisasi_json: JSON.stringify(data), input_by: myName || null });
       setNewCustomer(''); setNewKeterangan(''); setNewQty({});
       await fetchAll();
       toast.success('Row Ditambahkan', `${newCustomer.trim()} tanggal ${fmtDayShort(newTanggal)}.`);
@@ -555,6 +558,9 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
                         onBlur={e => updateKeterangan(r, e.target.value)}
                         title="Keterangan — mis. dicetak di mesin apa"
                         className="w-full bg-transparent focus:bg-slate-50 focus:outline-none px-1 py-0.5 rounded text-[11px] text-slate-500 placeholder-slate-400 mt-0.5" />
+                      {r.inputBy && (
+                        <div className="px-1 mt-0.5 text-[10px] text-slate-400" title="Akun yang menginput baris ini">input: <span className="text-slate-500 font-medium">{r.inputBy}</span></div>
+                      )}
                       {opsMode && (
                         <div className="flex items-center flex-wrap gap-2 mt-1">
                           {showUrgensi && (
@@ -699,6 +705,7 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
                             className="w-full bg-transparent text-white font-semibold text-sm px-1 py-0.5 rounded focus:bg-white/[0.06] focus:outline-none" />
                           <input type="text" defaultValue={r.keterangan} placeholder="+ keterangan (mis. mesin)" onBlur={e => updateKeterangan(r, e.target.value)}
                             className="w-full bg-transparent text-slate-400 text-xs px-1 py-0.5 rounded focus:bg-white/[0.06] focus:outline-none placeholder-slate-600 mt-0.5" />
+                          {r.inputBy && <div className="px-1 mt-0.5 text-[10px] text-slate-500" title="Akun yang menginput">input: <span className="text-slate-300 font-medium">{r.inputBy}</span></div>}
                           {opsMode && (
                             <div className="flex items-center flex-wrap gap-2 mt-1.5 px-1">
                               {showUrgensi && (
