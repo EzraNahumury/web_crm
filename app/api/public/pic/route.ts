@@ -25,6 +25,22 @@ const PIC_CONFIG: Record<string, { label: string; processes: ProcCfg[] }> = {
   amboss: { label: 'Amboss', processes: [{ table: 'progress_cutting', label: 'Cutting', source: 'json' }, { table: 'line_jahit', label: 'Sewing', source: 'columns' }] },
   intan: { label: 'Intan', processes: [{ table: 'progress_finishing', label: 'Finishing', source: 'json' }, { table: 'progress_shipment', label: 'Shipment', source: 'json' }] },
   vina: { label: 'Vina', processes: [{ table: 'progress_design', label: 'Design', source: 'qty' }, { table: 'progress_proofing', label: 'Proofing', source: 'qty' }, { table: 'progress_layouting', label: 'Layouting', source: 'json' }] },
+  // Gabungan semua proses (dipakai di /progress/all), urut sesuai alur.
+  all: {
+    label: 'Semua Proses', processes: [
+      { table: 'progress_design', label: 'Design', source: 'qty' },
+      { table: 'progress_proofing', label: 'Proofing', source: 'qty' },
+      { table: 'progress_layouting', label: 'Layouting', source: 'json' },
+      { table: 'progress_printing', label: 'Printing', source: 'json' },
+      { table: 'progress_press', label: 'Press', source: 'json' },
+      { table: 'progress_cutting', label: 'Cutting', source: 'json' },
+      { table: 'line_jahit', label: 'Sewing', source: 'columns' },
+      { table: 'progress_steam', label: 'Steam', source: 'json' },
+      { table: 'progress_materi_finishing', label: 'Materi Finishing', source: 'qty' },
+      { table: 'progress_finishing', label: 'Finishing', source: 'json' },
+      { table: 'progress_shipment', label: 'Shipment', source: 'json' },
+    ],
+  },
 };
 
 function parseData(raw: unknown): Record<string, number> {

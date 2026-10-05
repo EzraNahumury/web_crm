@@ -66,7 +66,7 @@ export default function PicVisual({ pic }: { pic: string }) {
       <div className="px-6 sm:px-10 mt-4">
         <div className="flex items-center gap-3 flex-wrap">
           <a href="/progress" className="text-xs font-semibold text-slate-500 hover:text-slate-800 border border-slate-300 bg-white rounded-lg px-3 py-1.5">← Papan Progress</a>
-          <h1 className="font-black tracking-tight text-slate-900 text-2xl sm:text-3xl">Laporan {feed ? feed.processes.map(p => p.label).join(' & ') : ''}</h1>
+          <h1 className="font-black tracking-tight text-slate-900 text-2xl sm:text-3xl">Laporan {feed ? (feed.processes.length > 3 ? feed.picLabel : feed.processes.map(p => p.label).join(' & ')) : ''}</h1>
           <span className="text-slate-500 font-medium">{feed ? feed.monthLabel : ''}</span>
         </div>
       </div>

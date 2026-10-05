@@ -1,10 +1,17 @@
 'use client';
 
-// Analisa Progress Produksi — GABUNGAN 6 bagian (Printing/Press/Cutting/Steam/
-// Finishing/Shipment) dalam SATU halaman. Satu tabel ringkas per (tanggal,
+// Analisa Progress Produksi — GABUNGAN semua bagian dalam SATU halaman, urut
+// alur: Design → Proofing → Layouting → Printing → Press → Cutting → Steam →
+// Materi Finishing → Finishing → Shipment. Satu tabel ringkas per (tanggal,
 // bagian) — qty per paket diagregasi (bukan per customer) + target/realisasi/
-// selisih — lalu 6 grafik di bawahnya (satu per bagian) supaya bisa langsung
+// selisih — lalu grafik di bawahnya (satu per bagian) supaya bisa langsung
 // discroll. Read-only.
+//
+// Dua jenis metrik:
+//   poin — Layouting/Printing/Press/Cutting/Steam/Finishing/Shipment (punya
+//          realisasi_json per paket → poin, target 340/hari).
+//   qty  — Design/Proofing/Materi Finishing (hanya kolom qty, tanpa paket/
+//          target/selisih; kolom REALISASI menampilkan qty).
 //
 // Akses PIC tetap dibatasi: bagian yang tampil ditentukan dari menuAccess user
 // (mis. 'Analisa Cutting' → hanya Cutting). Admin / punya 'Analisa' → semua.
@@ -21,20 +28,26 @@ const BULAN_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli'
 const BASE_RATE_POIN = 5000;
 const TARGET_PER_DAY = 340; // flat per bagian per hari
 
-// Definisi 6 bagian + tabel sumber + key menu (untuk filter akses PIC) + warna
-// garis realisasi di grafik.
+// Definisi bagian + tabel sumber + key menu (untuk filter akses PIC) + warna
+// garis realisasi di grafik + metric ('poin' atau 'qty'). Bagian qty (Design/
+// Proofing/Materi Finishing) & yang belum punya menu Analisa khusus pakai
+// menuKey null → hanya tampil untuk akun full-access (Admin / 'Analisa').
 const BAGIAN = [
-  { key: 'printing', table: 'progress_printing', label: 'Printing', menuKey: 'Analisa Printing', color: '#38bdf8' },
-  { key: 'press', table: 'progress_press', label: 'Press', menuKey: 'Analisa Press', color: '#e879f9' },
-  { key: 'cutting', table: 'progress_cutting', label: 'Cutting', menuKey: 'Analisa Cutting', color: '#fb923c' },
-  { key: 'steam', table: 'progress_steam', label: 'Steam', menuKey: null as string | null, color: '#2dd4bf' },
-  { key: 'finishing', table: 'progress_finishing', label: 'Finishing', menuKey: 'Analisa Finishing', color: '#818cf8' },
-  { key: 'shipment', table: 'progress_shipment', label: 'Shipment', menuKey: 'Analisa Shipment', color: '#f472b6' },
+  { key: 'design', table: 'progress_design', label: 'Design', menuKey: null as string | null, color: '#f59e0b', metric: 'qty' as 'poin' | 'qty' },
+  { key: 'proofing', table: 'progress_proofing', label: 'Proofing', menuKey: null as string | null, color: '#a3e635', metric: 'qty' as 'poin' | 'qty' },
+  { key: 'layouting', table: 'progress_layouting', label: 'Layouting', menuKey: null as string | null, color: '#22d3ee', metric: 'poin' as 'poin' | 'qty' },
+  { key: 'printing', table: 'progress_printing', label: 'Printing', menuKey: 'Analisa Printing' as string | null, color: '#38bdf8', metric: 'poin' as 'poin' | 'qty' },
+  { key: 'press', table: 'progress_press', label: 'Press', menuKey: 'Analisa Press' as string | null, color: '#e879f9', metric: 'poin' as 'poin' | 'qty' },
+  { key: 'cutting', table: 'progress_cutting', label: 'Cutting', menuKey: 'Analisa Cutting' as string | null, color: '#fb923c', metric: 'poin' as 'poin' | 'qty' },
+  { key: 'steam', table: 'progress_steam', label: 'Steam', menuKey: null as string | null, color: '#2dd4bf', metric: 'poin' as 'poin' | 'qty' },
+  { key: 'materi-finishing', table: 'progress_materi_finishing', label: 'Materi Finishing', menuKey: null as string | null, color: '#f97316', metric: 'qty' as 'poin' | 'qty' },
+  { key: 'finishing', table: 'progress_finishing', label: 'Finishing', menuKey: 'Analisa Finishing' as string | null, color: '#818cf8', metric: 'poin' as 'poin' | 'qty' },
+  { key: 'shipment', table: 'progress_shipment', label: 'Shipment', menuKey: 'Analisa Shipment' as string | null, color: '#f472b6', metric: 'poin' as 'poin' | 'qty' },
 ] as const;
 type Bagian = typeof BAGIAN[number];
 
 interface Paket { id: number; nama: string; kolom_prefix: string; urutan: number; rate_atasan: number; rate_celana: number; }
-interface PRow { tanggal: string; data: Record<string, number>; }
+interface PRow { tanggal: string; data: Record<string, number>; qty: number; }
 
 function currentYm(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
 function fmtDayShort(iso: string): string {
@@ -78,6 +91,10 @@ function paketColor(urutan: number) { const i = ((urutan || 1) - 1) % PAKET_PALE
 
 // Warna pill bagian di kolom BAGIAN.
 const BAGIAN_PILL: Record<string, string> = {
+  design: 'text-amber-700 bg-amber-100 border-amber-300',
+  proofing: 'text-lime-700 bg-lime-100 border-lime-300',
+  layouting: 'text-cyan-700 bg-cyan-100 border-cyan-300',
+  'materi-finishing': 'text-orange-700 bg-orange-100 border-orange-300',
   printing: 'text-sky-700 bg-sky-100 border-sky-300',
   press: 'text-fuchsia-700 bg-fuchsia-100 border-fuchsia-300',
   cutting: 'text-orange-700 bg-orange-100 border-orange-300',
@@ -112,9 +129,14 @@ export default function AnalisaProgressCombined() {
       );
       const map: Record<string, PRow[]> = {};
       accessibleBagian.forEach((b, i) => {
+        const isQty = b.metric === 'qty';
         map[b.key] = (results[i] as Row[])
           .filter(r => String(r.tanggal || '').slice(0, 7) === month)
-          .map(r => ({ tanggal: String(r.tanggal).slice(0, 10), data: parseData(r.realisasi_json) }));
+          .map(r => ({
+            tanggal: String(r.tanggal).slice(0, 10),
+            data: isQty ? {} : parseData(r.realisasi_json),
+            qty: isQty ? (Number(r.qty) || 0) : 0,
+          }));
       });
       setDataByBagian(map);
     } catch { setDataByBagian({}); }
@@ -127,8 +149,9 @@ export default function AnalisaProgressCombined() {
 
   // Agregasi per (tanggal, bagian): jumlah atasan/celana per paket + realisasi.
   const tableGroups = useMemo(() => {
-    const byDate = new Map<string, Array<{ bagian: Bagian; per: Record<number, { a: number; c: number }>; realisasi: number }>>();
+    const byDate = new Map<string, Array<{ bagian: Bagian; metric: 'poin' | 'qty'; per: Record<number, { a: number; c: number }>; realisasi: number; qty: number }>>();
     for (const b of accessibleBagian) {
+      const isQty = b.metric === 'qty';
       const rows = dataByBagian[b.key] || [];
       const rowsByDate = new Map<string, PRow[]>();
       for (const r of rows) {
@@ -137,14 +160,17 @@ export default function AnalisaProgressCombined() {
       }
       for (const [date, rs] of rowsByDate) {
         const per: Record<number, { a: number; c: number }> = {};
-        for (const p of paketList) {
-          let a = 0, c = 0;
-          for (const r of rs) { a += Number(r.data[`${p.kolom_prefix}_atasan`]) || 0; c += Number(r.data[`${p.kolom_prefix}_celana`]) || 0; }
-          per[p.id] = { a, c };
+        if (!isQty) {
+          for (const p of paketList) {
+            let a = 0, c = 0;
+            for (const r of rs) { a += Number(r.data[`${p.kolom_prefix}_atasan`]) || 0; c += Number(r.data[`${p.kolom_prefix}_celana`]) || 0; }
+            per[p.id] = { a, c };
+          }
         }
-        const realisasi = rs.reduce((s, r) => s + realisasiPoin(r.data, paketList), 0);
+        const realisasi = isQty ? 0 : rs.reduce((s, r) => s + realisasiPoin(r.data, paketList), 0);
+        const qty = isQty ? rs.reduce((s, r) => s + (r.qty || 0), 0) : 0;
         if (!byDate.has(date)) byDate.set(date, []);
-        byDate.get(date)!.push({ bagian: b, per, realisasi });
+        byDate.get(date)!.push({ bagian: b, metric: b.metric, per, realisasi, qty });
       }
     }
     const bagIndex = (b: Bagian) => BAGIAN.findIndex(x => x.key === b.key);
@@ -155,9 +181,12 @@ export default function AnalisaProgressCombined() {
   }, [dataByBagian, accessibleBagian, paketList]);
 
   const totals = useMemo(() => {
-    let target = 0, realisasi = 0;
-    for (const g of tableGroups) for (const r of g.rows) { target += TARGET_PER_DAY; realisasi += r.realisasi; }
-    return { target, realisasi, selisih: realisasi - target, barisCount: tableGroups.reduce((s, g) => s + g.rows.length, 0) };
+    let target = 0, realisasi = 0, qty = 0;
+    for (const g of tableGroups) for (const r of g.rows) {
+      if (r.metric === 'qty') { qty += r.qty; continue; } // qty tak punya target poin
+      target += TARGET_PER_DAY; realisasi += r.realisasi;
+    }
+    return { target, realisasi, qty, selisih: realisasi - target, barisCount: tableGroups.reduce((s, g) => s + g.rows.length, 0) };
   }, [tableGroups]);
 
   const bodyColCount = 2 + paketCount * 2 + 3;
@@ -182,8 +211,8 @@ export default function AnalisaProgressCombined() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Analisa · Progress Produksi · {monthLabel}</h1>
               <p className="text-[13px] text-slate-300 mt-0.5">
-                Ringkasan realisasi vs target semua bagian dalam satu tabel + grafik per bagian.
-                Target <span className="text-white font-semibold">{TARGET_PER_DAY} poin/hari</span> per bagian. Read-only.
+                Ringkasan realisasi vs target semua bagian (Design → Shipment) dalam satu tabel + grafik per bagian.
+                Target <span className="text-white font-semibold">{TARGET_PER_DAY} poin/hari</span> per bagian berbasis poin; Design/Proofing/Materi Finishing ditampilkan sebagai <span className="text-white font-semibold">qty</span>. Read-only.
               </p>
             </div>
           </div>
@@ -247,6 +276,7 @@ export default function AnalisaProgressCombined() {
                 ) : (
                   tableGroups.map(g => (
                     g.rows.map((r, i) => {
+                      const isQty = r.metric === 'qty';
                       const diff = r.realisasi - TARGET_PER_DAY;
                       const pos = diff >= 0;
                       return (
@@ -255,16 +285,22 @@ export default function AnalisaProgressCombined() {
                           <td className="border border-slate-300 px-2 py-1.5">
                             <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full border ${BAGIAN_PILL[r.bagian.key] || 'text-slate-700 bg-slate-100 border-slate-300'}`}>{r.bagian.label}</span>
                           </td>
-                          {paketList.flatMap(p => {
+                          {isQty ? (
+                            <td colSpan={paketCount * 2} className="border border-slate-300 px-2 py-1 text-center text-[11px] text-slate-400 italic bg-slate-50/60">tanpa rincian paket (qty)</td>
+                          ) : paketList.flatMap(p => {
                             const v = r.per[p.id] || { a: 0, c: 0 };
                             return [
                               <td key={`${p.id}-a`} className="border border-slate-300 px-1 py-1 text-center tabular-nums">{v.a > 0 ? v.a : <span className="text-slate-300">—</span>}</td>,
                               <td key={`${p.id}-c`} className="border border-slate-300 px-1 py-1 text-center tabular-nums">{v.c > 0 ? v.c : <span className="text-slate-300">—</span>}</td>,
                             ];
                           })}
-                          <td className="border border-slate-300 px-2 py-1 text-center tabular-nums font-semibold text-emerald-700 bg-emerald-50/40">{fmtPoin(TARGET_PER_DAY)}</td>
-                          <td className="border border-slate-300 px-2 py-1 text-center tabular-nums font-semibold text-sky-700 bg-sky-50/40">{r.realisasi > 0 ? fmtPoin(r.realisasi) : <span className="text-slate-300 font-normal">—</span>}</td>
-                          <td className={`border border-slate-300 px-2 py-1 text-center tabular-nums font-bold ${pos ? 'bg-emerald-50/60 text-emerald-700' : 'bg-rose-50/60 text-rose-700'}`}>{pos ? '+' : '−'}{fmtPoin(Math.abs(diff))}</td>
+                          <td className="border border-slate-300 px-2 py-1 text-center tabular-nums font-semibold text-emerald-700 bg-emerald-50/40">{isQty ? <span className="text-slate-300 font-normal">—</span> : fmtPoin(TARGET_PER_DAY)}</td>
+                          <td className="border border-slate-300 px-2 py-1 text-center tabular-nums font-semibold text-sky-700 bg-sky-50/40">
+                            {isQty
+                              ? (r.qty > 0 ? <>{fmtPoin(r.qty)} <span className="text-[9px] font-semibold text-slate-400 uppercase">qty</span></> : <span className="text-slate-300 font-normal">—</span>)
+                              : (r.realisasi > 0 ? fmtPoin(r.realisasi) : <span className="text-slate-300 font-normal">—</span>)}
+                          </td>
+                          <td className={`border border-slate-300 px-2 py-1 text-center tabular-nums font-bold ${isQty ? 'text-slate-300 font-normal' : pos ? 'bg-emerald-50/60 text-emerald-700' : 'bg-rose-50/60 text-rose-700'}`}>{isQty ? '—' : `${pos ? '+' : '−'}${fmtPoin(Math.abs(diff))}`}</td>
                         </tr>
                       );
                     })
@@ -274,7 +310,7 @@ export default function AnalisaProgressCombined() {
               {totals.barisCount > 0 && (
                 <tfoot>
                   <tr className="bg-yellow-200 text-slate-900 text-sm font-bold">
-                    <td colSpan={2 + paketCount * 2} className="border border-slate-400 px-3 py-2 text-center uppercase tracking-wide">Total ({totals.barisCount} baris)</td>
+                    <td colSpan={2 + paketCount * 2} className="border border-slate-400 px-3 py-2 text-center uppercase tracking-wide">Total ({totals.barisCount} baris){totals.qty > 0 && <span className="normal-case font-semibold text-slate-600"> · Qty (Design/Proofing/Materi): {fmtPoin(totals.qty)}</span>}</td>
                     <td className="border border-slate-400 px-2 py-2 text-center tabular-nums text-emerald-800">{fmtPoin(totals.target)}</td>
                     <td className="border border-slate-400 px-2 py-2 text-center tabular-nums text-sky-800">{fmtPoin(totals.realisasi)}</td>
                     <td className={`border border-slate-400 px-2 py-2 text-center tabular-nums ${totals.selisih >= 0 ? 'text-emerald-800' : 'text-rose-800'}`}>{totals.selisih >= 0 ? '+' : '−'}{fmtPoin(Math.abs(totals.selisih))}</td>
@@ -301,6 +337,7 @@ export default function AnalisaProgressCombined() {
 }
 
 function BagianChart({ bagian, rows, paketList, month }: { bagian: Bagian; rows: PRow[]; paketList: Paket[]; month: string }) {
+  const isQty = bagian.metric === 'qty';
   const dayList = useMemo(() => {
     const [y, m] = month.split('-').map(Number);
     if (!y || !m) return [];
@@ -310,17 +347,18 @@ function BagianChart({ bagian, rows, paketList, month }: { bagian: Bagian; rows:
     return out;
   }, [month]);
 
+  // Nilai per tanggal: poin (realisasi_json) atau qty.
   const realisasiByDate = useMemo(() => {
     const t: Record<string, number> = {};
-    for (const r of rows) { const k = String(r.tanggal || '').slice(0, 10); if (!k) continue; t[k] = (t[k] || 0) + realisasiPoin(r.data, paketList); }
+    for (const r of rows) { const k = String(r.tanggal || '').slice(0, 10); if (!k) continue; t[k] = (t[k] || 0) + (isQty ? (r.qty || 0) : realisasiPoin(r.data, paketList)); }
     return t;
-  }, [rows, paketList]);
+  }, [rows, paketList, isQty]);
   const activeDates = useMemo(() => new Set(rows.map(r => String(r.tanggal).slice(0, 10))), [rows]);
 
   const chartData = useMemo(() => dayList.map(d => {
     const [, mm, dd] = d.split('-').map(Number);
-    return { label: `${dd}/${mm}`, target: activeDates.has(d) ? TARGET_PER_DAY : 0, realisasi: Math.round(realisasiByDate[d] || 0) };
-  }), [dayList, realisasiByDate, activeDates]);
+    return { label: `${dd}/${mm}`, target: (!isQty && activeDates.has(d)) ? TARGET_PER_DAY : 0, realisasi: Math.round(realisasiByDate[d] || 0) };
+  }), [dayList, realisasiByDate, activeDates, isQty]);
 
   const totalTarget = chartData.reduce((s, p) => s + p.target, 0);
   const totalReal = chartData.reduce((s, p) => s + p.realisasi, 0);
@@ -333,16 +371,23 @@ function BagianChart({ bagian, rows, paketList, month }: { bagian: Bagian; rows:
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: bagian.color }} />
           <p className="text-sm font-semibold text-white">{bagian.label}</p>
+          {isQty && <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest border border-white/10 rounded-full px-1.5 py-0.5">qty</span>}
         </div>
         <div className="flex items-center gap-2 text-[11px] tabular-nums">
-          <span className="text-slate-400">Real <b className="text-sky-300">{fmtPoin(totalReal)}</b></span>
-          <span className="text-slate-400">Target <b className="text-emerald-300">{fmtPoin(totalTarget)}</b></span>
-          <span className={`font-bold ${selisih >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{selisih >= 0 ? '+' : '−'}{fmtPoin(Math.abs(selisih))}</span>
-          <span className="text-fuchsia-300 font-semibold">{totalTarget > 0 ? `${konv.toFixed(0)}%` : '—'}</span>
+          {isQty ? (
+            <span className="text-slate-400">Total Qty <b className="text-sky-300">{fmtPoin(totalReal)}</b></span>
+          ) : (
+            <>
+              <span className="text-slate-400">Real <b className="text-sky-300">{fmtPoin(totalReal)}</b></span>
+              <span className="text-slate-400">Target <b className="text-emerald-300">{fmtPoin(totalTarget)}</b></span>
+              <span className={`font-bold ${selisih >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{selisih >= 0 ? '+' : '−'}{fmtPoin(Math.abs(selisih))}</span>
+              <span className="text-fuchsia-300 font-semibold">{totalTarget > 0 ? `${konv.toFixed(0)}%` : '—'}</span>
+            </>
+          )}
         </div>
       </div>
       <div className="p-3">
-        {totalTarget === 0 && totalReal === 0 ? (
+        {totalReal === 0 && totalTarget === 0 ? (
           <div className="py-14 text-center text-sm text-slate-500">Belum ada data bulan ini.</div>
         ) : (
           <div style={{ width: '100%', height: 240 }}>
@@ -353,8 +398,8 @@ function BagianChart({ bagian, rows, paketList, month }: { bagian: Bagian; rows:
                 <YAxis allowDecimals={false} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} width={36} />
                 <Tooltip contentStyle={{ background: '#0c1120', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#94a3b8' }} itemStyle={{ color: '#e2e8f0' }} />
                 <Legend wrapperStyle={{ paddingTop: 2, fontSize: 10 }} formatter={(v) => <span style={{ color: '#cbd5e1' }}>{v}</span>} />
-                <Line type="monotone" name="Target" dataKey="target" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
-                <Line type="monotone" name="Realisasi" dataKey="realisasi" stroke={bagian.color} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+                {!isQty && <Line type="monotone" name="Target" dataKey="target" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 3 }} />}
+                <Line type="monotone" name={isQty ? 'Qty' : 'Realisasi'} dataKey="realisasi" stroke={bagian.color} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
