@@ -107,7 +107,7 @@ export function useProgressFeed() {
   return { feed, now, secsAgo, live };
 }
 
-const KIT_STYLE = `
+export const KIT_STYLE = `
   @keyframes tvpulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .3; transform: scale(.7); } }
   @keyframes tvfade { 0% { opacity: 0; transform: translateY(14px); } 100% { opacity: 1; transform: translateY(0); } }
   @keyframes tvitem { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }

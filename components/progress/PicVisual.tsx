@@ -10,9 +10,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
-interface DayAgg { date: string; real: number; pcs: number }
-interface Proc { key: string; label: string; metric?: 'poin' | 'qty'; days: DayAgg[]; prevDays: DayAgg[] }
-interface Feed {
+export interface DayAgg { date: string; real: number; pcs: number }
+export interface Proc { key: string; label: string; metric?: 'poin' | 'qty'; days: DayAgg[]; prevDays: DayAgg[] }
+export interface Feed {
   success: boolean; picLabel: string; target: number;
   month: string; monthLabel: string; prevMonth: string; prevMonthLabel: string;
   processes: Proc[];
@@ -129,7 +129,7 @@ function agg(days: DayAgg[]) {
   return { real, target, selisih, pct, hari: days.length };
 }
 
-function ProcessSection({ proc, month, monthLabel, prevMonthLabel }: {
+export function ProcessSection({ proc, month, monthLabel, prevMonthLabel }: {
   proc: Proc; month: string; monthLabel: string; prevMonthLabel: string;
 }) {
   // Proses qty-only (Design/Proofing): tanpa poin/target/selisih — cuma qty.
