@@ -382,3 +382,9 @@ input[type="date"].date-input {
   background-size: 128px 128px;
   mix-blend-mode: overlay;
 }
+
+/* Transisi slide per-proses pada /progress/all (PicVisual slideshow).
+   kit.tsx mendefinisikan .tv-fade lewat <style> internal; halaman all tidak
+   memuat kit, jadi definisikan juga di sini agar animasi tetap jalan. */
+@keyframes tvfade { 0% { opacity: 0; transform: translateY(14px); } 100% { opacity: 1; transform: translateY(0); } }
+.tv-fade { animation: tvfade .55s cubic-bezier(.22,.61,.36,1) both; }

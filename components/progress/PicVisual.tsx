@@ -21,6 +21,7 @@ interface Feed {
 const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const MON_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const POLL_MS = 30_000;
+const SLIDE_MS = 20_000; // auto-ganti slide proses tiap 20 detik (mode slideshow)
 const TARGET = 340;
 
 function fmt(n: number): string { const v = Math.round((n || 0) * 10) / 10; return v.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 1 }); }
@@ -28,10 +29,11 @@ function dayNum(iso: string): number { return Number(String(iso).slice(8, 10)); 
 function monNum(iso: string): number { return Number(String(iso).slice(5, 7)); }
 function fmtDayShort(iso: string): string { return `${dayNum(iso)} ${MON_SHORT[monNum(iso) - 1]}`; }
 
-export default function PicVisual({ pic }: { pic: string }) {
+export default function PicVisual({ pic, slideshow = false }: { pic: string; slideshow?: boolean }) {
   const [feed, setFeed] = useState<Feed | null>(null);
   const [now, setNow] = useState(new Date());
   const [err, setErr] = useState(false);
+  const [slide, setSlide] = useState(0); // indeks proses aktif (mode slideshow)
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +44,17 @@ export default function PicVisual({ pic }: { pic: string }) {
   }, [pic]);
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
   useEffect(() => { load(); const t = setInterval(load, POLL_MS); return () => clearInterval(t); }, [load]);
+
+  const procCount = feed?.processes.length || 0;
+  // Jaga indeks tetap valid saat jumlah proses berubah.
+  useEffect(() => { if (slide >= procCount && procCount > 0) setSlide(0); }, [procCount, slide]);
+  // Auto-ganti slide (reset tiap kali slide berubah, termasuk klik manual).
+  useEffect(() => {
+    if (!slideshow || procCount <= 1) return;
+    const t = setTimeout(() => setSlide(s => (s + 1) % procCount), SLIDE_MS);
+    return () => clearTimeout(t);
+  }, [slideshow, procCount, slide]);
+  const go = useCallback((n: number) => { if (procCount > 0) setSlide(((n % procCount) + procCount) % procCount); }, [procCount]);
 
   const clock = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const dateLabel = `${DAY_NAMES[now.getDay()]}, ${now.getDate()} ${MON_SHORT[now.getMonth()]} ${now.getFullYear()}`;
@@ -71,9 +84,32 @@ export default function PicVisual({ pic }: { pic: string }) {
         </div>
       </div>
 
-      <main className="px-6 sm:px-10 py-6 space-y-8">
+      <main className="px-6 sm:px-10 py-6 space-y-6">
         {!feed ? (
           <div className="py-24 text-center text-slate-400 font-semibold">{err ? 'Gagal memuat data.' : 'Memuat data…'}</div>
+        ) : slideshow ? (
+          <>
+            {/* Navigasi slide per-proses (bisa pindah manual + auto tiap 20s) */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <button onClick={() => go(slide - 1)} aria-label="Proses sebelumnya" className="shrink-0 w-9 h-9 grid place-items-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:text-slate-900 hover:border-slate-400 font-bold">‹</button>
+              <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+                {feed.processes.map((p, i) => (
+                  <button key={p.key} onClick={() => go(i)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${i === slide ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-500 border-slate-300 hover:text-slate-800 hover:border-slate-400'}`}>{p.label}</button>
+                ))}
+              </div>
+              <button onClick={() => go(slide + 1)} aria-label="Proses berikutnya" className="shrink-0 w-9 h-9 grid place-items-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:text-slate-900 hover:border-slate-400 font-bold">›</button>
+              <span className="shrink-0 flex items-center gap-2 rounded-full bg-white border border-slate-200 px-3 py-1.5">
+                <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Auto · 20s</span>
+                <span className="text-xs font-bold text-slate-500 tabular-nums">{Math.min(slide + 1, procCount)}/{procCount}</span>
+              </span>
+            </div>
+            {feed.processes[slide] && (
+              <div key={slide} className="tv-fade">
+                <ProcessSection proc={feed.processes[slide]} month={feed.month} monthLabel={feed.monthLabel} prevMonthLabel={feed.prevMonthLabel} />
+              </div>
+            )}
+          </>
         ) : (
           feed.processes.map(proc => (
             <ProcessSection key={proc.key} proc={proc} month={feed.month} monthLabel={feed.monthLabel} prevMonthLabel={feed.prevMonthLabel} />
