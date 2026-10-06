@@ -53,14 +53,28 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [all, cust] = await Promise.all([
+      const [all, ord] = await Promise.all([
         dbGet<Row>(table).catch(() => []),
-        dbGet<Row>('customers').catch(() => []),
+        dbGet<Row>('orders').catch(() => []),
       ]);
-      setCustomers((cust as Row[]).map(c => ({
-        id: Number(c.id), nama: String(c.nama || ''),
-        no_hp: String(c.no_hp || ''), kabupaten_kota: String(c.kabupaten_kota || ''),
-      })));
+      // Autocomplete customer dari data PRODUKSI (tabel `orders`), bukan master
+      // CS `customers`, supaya nama sama dengan Work Order/Produksi. Lihat
+      // penjelasan lengkap di ProgressLinePage.fetchAll.
+      const seen = new Map<string, CustomerLite>();
+      for (const o of ord as Row[]) {
+        const nama = String(o.customer_nama || '').trim();
+        if (!nama) continue;
+        const key = nama.toLowerCase();
+        const no_hp = String(o.customer_phone || '');
+        const kabupaten_kota = String(o.customer_kabupaten || '');
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, { id: Number(o.id), nama, no_hp, kabupaten_kota });
+        } else if ((!existing.no_hp && no_hp) || (!existing.kabupaten_kota && kabupaten_kota)) {
+          seen.set(key, { ...existing, no_hp: existing.no_hp || no_hp, kabupaten_kota: existing.kabupaten_kota || kabupaten_kota });
+        }
+      }
+      setCustomers(Array.from(seen.values()).sort((x, y) => x.nama.localeCompare(y.nama)));
       setRows((all as Row[])
         .filter(r => String(r.tanggal || '').slice(0, 7) === month)
         .sort((x, y) => String(x.tanggal).localeCompare(String(y.tanggal)) || Number(x.id) - Number(y.id))

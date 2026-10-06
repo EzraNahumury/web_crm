@@ -176,16 +176,35 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [all, paket, cust] = await Promise.all([
+      const [all, paket, ord] = await Promise.all([
         dbGet<Row>(table).catch(() => []),
         dbGet<Row>('line_jahit_paket').catch(() => []),
-        dbGet<Row>('customers').catch(() => []),
+        dbGet<Row>('orders').catch(() => []),
       ]);
       setPaketList((paket as Paket[]).slice().sort((x, y) => (x.urutan || 0) - (y.urutan || 0)));
-      setCustomers((cust as Row[]).map(c => ({
-        id: Number(c.id), nama: String(c.nama || ''),
-        no_hp: String(c.no_hp || ''), kabupaten_kota: String(c.kabupaten_kota || ''),
-      })));
+      // Autocomplete customer bersumber dari data PRODUKSI (tabel `orders`),
+      // BUKAN master CS `customers`. Alasan: orders.customer_nama di-cascade
+      // ke work_orders.customer_nama, jadi nama yang disarankan di sini SAMA
+      // persis dengan yang muncul di Work Order / Produksi. Master `customers`
+      // bisa beda ejaan (mis. "IS AJI" di master vs "IS AJO" di WO) karena
+      // identitas customer dicocokkan per-nama exact & tak ada sinkronisasi
+      // master → order. Dedup per-nama (case-insensitive); kontak (HP/kota)
+      // diambil dari order yang punya datanya.
+      const seen = new Map<string, CustomerLite>();
+      for (const o of ord as Row[]) {
+        const nama = String(o.customer_nama || '').trim();
+        if (!nama) continue;
+        const key = nama.toLowerCase();
+        const no_hp = String(o.customer_phone || '');
+        const kabupaten_kota = String(o.customer_kabupaten || '');
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, { id: Number(o.id), nama, no_hp, kabupaten_kota });
+        } else if ((!existing.no_hp && no_hp) || (!existing.kabupaten_kota && kabupaten_kota)) {
+          seen.set(key, { ...existing, no_hp: existing.no_hp || no_hp, kabupaten_kota: existing.kabupaten_kota || kabupaten_kota });
+        }
+      }
+      setCustomers(Array.from(seen.values()).sort((x, y) => x.nama.localeCompare(y.nama)));
       setRows((all as Row[])
         .filter(r => String(r.tanggal || '').slice(0, 7) === month)
         .sort((x, y) => String(x.tanggal).localeCompare(String(y.tanggal)) || Number(x.id) - Number(y.id))
@@ -796,9 +815,10 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
   );
 }
 
-/* Input nama customer dengan autocomplete dari master customers (nama + no HP
-   + kota). Ketik untuk filter; klik salah satu untuk isi otomatis. Tetap bisa
-   ketik nama baru yang tidak ada di daftar. */
+/* Input nama customer dengan autocomplete dari data produksi (tabel orders:
+   nama + no HP + kota). Ketik untuk filter; klik salah satu untuk isi otomatis.
+   Tetap bisa ketik nama baru yang tidak ada di daftar. Sumber orders dipilih
+   agar nama sama dengan Work Order/Produksi (lihat fetchAll). */
 function CustomerNameInput({ value, onChange, customers, ringCls }: {
   value: string; onChange: (v: string) => void; customers: CustomerLite[]; ringCls: string;
 }) {
