@@ -204,6 +204,30 @@ const STATUS_PILL: Record<string, string> = {
 };
 const STATUS_LABEL: Record<string, string> = { terlambat: 'TERLAMBAT', warning: 'HARI-H', aman: 'AMAN' };
 
+// Kartu SLA (AMAN / HARI-H / TERLAMBAT + total order). Dipakai di board
+// (PoinSlaBody) dan — lewat export ini — di slide proses Design/Proofing pada
+// /progress/all. Ukuran non-vw supaya pas di area konten biasa. Butuh KIT_STYLE
+// (tv-card) ter-inject di halaman pemakai.
+export function SlaCard({ title, counts, accent = 'border-slate-200' }: { title: string; counts: SlaCounts; accent?: string }) {
+  const total = counts.aman + counts.warning + counts.terlambat;
+  return (
+    <div className={`rounded-2xl border ${accent} bg-white tv-card p-4`}>
+      <div className="flex items-center justify-between">
+        <span className="font-black text-slate-800 uppercase tracking-wide text-sm">{title}</span>
+        <span className="text-slate-400 font-bold tabular-nums text-xs">{fmtNum(total)} order</span>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        {(['aman', 'warning', 'terlambat'] as const).map(k => (
+          <div key={k} className={`rounded-lg py-2.5 ${STATUS_PILL[k]}`}>
+            <CountUp value={counts[k]} className="block font-black tabular-nums leading-none text-2xl sm:text-3xl" />
+            <span className="font-bold uppercase tracking-wide text-[10px]">{STATUS_LABEL[k]}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════ REPORT 2 · HARIAN (Poin + SLA) ═════════════════
 // Icon per proses (inline SVG, currentColor — dipakai kecil di chip + besar
 // sebagai watermark di header band).

@@ -5,7 +5,7 @@
 // Publik (tanpa login), tema terang, konsisten dengan /progress. Data dari
 // /api/public/pic?pic=<nama> (bulan ini + bulan lalu).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -129,8 +129,8 @@ function agg(days: DayAgg[]) {
   return { real, target, selisih, pct, hari: days.length };
 }
 
-export function ProcessSection({ proc, month, monthLabel, prevMonthLabel }: {
-  proc: Proc; month: string; monthLabel: string; prevMonthLabel: string;
+export function ProcessSection({ proc, month, monthLabel, prevMonthLabel, footer }: {
+  proc: Proc; month: string; monthLabel: string; prevMonthLabel: string; footer?: ReactNode;
 }) {
   // Proses qty-only (Design/Proofing): tanpa poin/target/selisih — cuma qty.
   const isQty = proc.metric === 'qty';
@@ -248,6 +248,7 @@ export function ProcessSection({ proc, month, monthLabel, prevMonthLabel }: {
               )}
             </table>
           </div>
+          {footer && <div className="mt-4">{footer}</div>}
         </div>
 
         {/* Kanan: grafik + perbandingan */}

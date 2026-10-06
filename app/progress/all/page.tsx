@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
 import {
-  useProgressFeed, KIT_STYLE, LoadingBody,
+  useProgressFeed, KIT_STYLE, LoadingBody, SlaCard,
   PoinSlaBody, ReportTableBody, RejectBody, DeadlineBody, TelatBody,
   type Feed as BoardFeed,
 } from '@/components/progress/kit';
@@ -127,7 +127,12 @@ export default function ProgressAllPage() {
         ) : (
           proc && pic ? (
             <div key={idx} className="tv-fade px-1 sm:px-2 py-1">
-              <ProcessSection proc={proc} month={pic.month} monthLabel={pic.monthLabel} prevMonthLabel={pic.prevMonthLabel} />
+              <ProcessSection proc={proc} month={pic.month} monthLabel={pic.monthLabel} prevMonthLabel={pic.prevMonthLabel}
+                footer={board && proc.key === 'design'
+                  ? <SlaCard title="SLA Design" counts={board.sla.design.counts} accent="border-indigo-200" />
+                  : board && proc.key === 'proofing'
+                    ? <SlaCard title="SLA Proofing" counts={board.sla.proofing.counts} accent="border-sky-200" />
+                    : undefined} />
             </div>
           ) : <div className="py-24 text-center text-slate-400 font-semibold">Memuat data…</div>
         )}
