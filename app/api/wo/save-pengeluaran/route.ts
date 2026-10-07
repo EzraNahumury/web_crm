@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, execute, insert, queryOne } from '@/lib/db';
+import { pengeluaranSig } from '@/lib/pengeluaran-sig';
 
 // Real Pengeluaran Bahan — save + auto deduct stok.
 //
@@ -215,6 +216,23 @@ export async function POST(req: NextRequest) {
          VALUES (?, 'Pengurangan', ?, ?, ?, ?, ?)`,
         [m.barangId, before, after, -m.sub, 'Real Pengeluaran Bahan', woId]
       );
+    }
+
+    // ─── Auto-unfinalize finance tracking ───
+    // Kalau WO ini sudah difinalisasi finance dan isi pengeluaran berubah
+    // (signature beda) → set finalized=0 supaya balik ke "Pekerjaan Pesanan".
+    // Dibungkus try/catch agar kegagalan di sini TIDAK membatalkan simpan stok.
+    try {
+      const newSig = pengeluaranSig(rows);
+      const fin = await queryOne<{ id: number; finalized: number; pengeluaran_sig: string | null }>(
+        'SELECT id, finalized, pengeluaran_sig FROM wo_finance WHERE work_order_id = ? LIMIT 1',
+        [woId]
+      );
+      if (fin && Number(fin.finalized) === 1 && String(fin.pengeluaran_sig || '') !== newSig) {
+        await execute('UPDATE wo_finance SET finalized = 0 WHERE id = ?', [fin.id]);
+      }
+    } catch (e) {
+      console.warn('[save-pengeluaran] auto-unfinalize skipped:', e);
     }
 
     return NextResponse.json({ success: true, saved: rows.length });

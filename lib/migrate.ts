@@ -1996,6 +1996,37 @@ const MIGRATIONS: Migration[] = [
         "AND NOT EXISTS (SELECT 1 FROM `role_menu_access` x WHERE x.role_id = r.id AND x.menu_name = 'Work Orders View Only')",
     ],
   },
+  {
+    // Tracking finance "Pekerjaan Pesanan" → "Finalisasi".
+    // Satu baris per WO (UNIQUE work_order_id). Sumber data: wo_pengeluaran
+    // (Real Pengeluaran Bahan dari gudang). Alur:
+    //   - WO yang punya wo_pengeluaran & belum finalized → menu "Pekerjaan
+    //     Pesanan". Finance klik checklist (tanda sudah input ke Accurate):
+    //     revisi_count++, catat di checklist_json, finalized=1, simpan
+    //     pengeluaran_sig = signature kuantitas saat itu → WO pindah ke
+    //     "Finalisasi Pekerjaan Pesanan".
+    //   - Kalau gudang mengubah kuantitas pengeluaran (sig berubah) untuk WO
+    //     yang sudah finalized → otomatis finalized=0 (lihat save-pengeluaran)
+    //     → WO balik ke "Pekerjaan Pesanan" untuk disesuaikan lagi.
+    // revisi_count = berapa kali finance checklist (= berapa kali direvisi+input).
+    name: '102_wo_finance_tracking',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `wo_finance` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`work_order_id` INT UNSIGNED NOT NULL," +
+        "`finalized` TINYINT(1) NOT NULL DEFAULT 0," +
+        "`revisi_count` INT NOT NULL DEFAULT 0," +
+        "`checklist_json` TEXT NULL," +
+        "`pengeluaran_sig` VARCHAR(64) NULL," +
+        "`finalized_at` TIMESTAMP NULL DEFAULT NULL," +
+        "`finalized_by` VARCHAR(100) NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "UNIQUE KEY `uniq_finance_wo` (`work_order_id`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

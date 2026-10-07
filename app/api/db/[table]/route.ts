@@ -66,6 +66,7 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   wo_forecast_bahan: { columns: '*', filterCols: ['id', 'work_order_id'] },
   wo_pengeluaran:    { columns: '*', filterCols: ['id', 'work_order_id'] },
   wo_pengeluaran_bahan: { columns: '*', filterCols: ['id', 'work_order_id'] },
+  wo_finance:        { columns: '*', filterCols: ['id', 'work_order_id', 'finalized'] },
   pembelian_bahan:   { columns: '*', filterCols: ['id', 'status'] },
   pembelian_bahan_item: { columns: '*', filterCols: ['id', 'pembelian_id'] },
 };

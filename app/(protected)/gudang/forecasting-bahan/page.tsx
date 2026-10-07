@@ -24,6 +24,19 @@ function fmtDate(d: string | Date | null | undefined) {
   try { return new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return s; }
 }
 
+// Normalisasi tanggal apa pun → 'YYYY-MM-DD' (buat dibandingkan dengan nilai
+// <input type="date">). Kosong kalau tak bisa diparse.
+function toISODate(d: string | Date | null | undefined): string {
+  if (!d) return '';
+  const s = d instanceof Date ? d.toISOString() : String(d);
+  const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+}
+function todayISO(): string {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+}
+
 export default function ForecastingBahanPage() {
   const toast = useToast();
   const [woList, setWoList] = useState<Row[]>([]);   // kandidat picker (confirmed + cutoff)
@@ -32,6 +45,8 @@ export default function ForecastingBahanPage() {
   const [pengeluaran, setPengeluaran] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [tglFrom, setTglFrom] = useState(''); // filter TGL ORDER (YYYY-MM-DD)
+  const [tglTo, setTglTo] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [modalWo, setModalWo] = useState<Row | null>(null);
@@ -126,13 +141,23 @@ export default function ForecastingBahanPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return forecastedWos;
-    return forecastedWos.filter(w =>
-      String(w.no_wo || '').toLowerCase().includes(q)
-      || String(w.customer_nama || '').toLowerCase().includes(q)
-      || String(w.paket || '').toLowerCase().includes(q)
-    );
-  }, [forecastedWos, search]);
+    return forecastedWos.filter(w => {
+      if (q) {
+        const match = String(w.no_wo || '').toLowerCase().includes(q)
+          || String(w.customer_nama || '').toLowerCase().includes(q)
+          || String(w.paket || '').toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      // Filter rentang TGL ORDER (inklusif). Kosong = tak membatasi.
+      if (tglFrom || tglTo) {
+        const d = toISODate(w.tanggal_order);
+        if (!d) return false;
+        if (tglFrom && d < tglFrom) return false;
+        if (tglTo && d > tglTo) return false;
+      }
+      return true;
+    });
+  }, [forecastedWos, search, tglFrom, tglTo]);
 
   const paged = paginate(filtered, page, pageSize);
 
@@ -198,6 +223,26 @@ export default function ForecastingBahanPage() {
               Buat Forecasting
             </button>
           </div>
+        </div>
+
+        {/* Filter tanggal order — gudang bisa lihat berapa & WO apa saja per rentang tanggal */}
+        <div className="relative mt-4 flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Filter Tgl Order</span>
+          <input type="date" value={tglFrom} onChange={e => { setTglFrom(e.target.value); setPage(1); }}
+            className="bg-white/[0.03] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input" />
+          <span className="text-slate-500 text-xs">s/d</span>
+          <input type="date" value={tglTo} onChange={e => { setTglTo(e.target.value); setPage(1); }}
+            className="bg-white/[0.03] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input" />
+          <button onClick={() => { const t = todayISO(); setTglFrom(t); setTglTo(t); setPage(1); }}
+            className="text-xs font-medium text-slate-300 px-3 py-2 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-colors">Hari Ini</button>
+          {(tglFrom || tglTo) && (
+            <button onClick={() => { setTglFrom(''); setTglTo(''); setPage(1); }}
+              className="text-xs font-medium text-rose-300 px-3 py-2 rounded-lg border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 transition-colors">Reset</button>
+          )}
+          <span className="ml-auto text-[11px] font-semibold text-slate-400">
+            Menampilkan <span className="text-white tabular-nums">{filtered.length}</span> WO
+            {(tglFrom || tglTo) && <span className="text-slate-500"> (terfilter)</span>}
+          </span>
         </div>
       </div>
 
