@@ -84,6 +84,7 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/approval-finance', label: 'Approval Finance' },
       { href: '/finance/pekerjaan-pesanan', label: 'Pekerjaan Pesanan' },
       { href: '/finance/finalisasi-pekerjaan-pesanan', label: 'Finalisasi Pekerjaan Pesanan' },
+      { href: '/finance/laporan-produksi-harian', label: 'Laporan Produksi Harian' },
       { href: '/finance/pembelian-gudang', label: 'Pembelian Barang Gudang' },
       { href: '/finance/laporan', label: 'Laporan Finance' },
     ],
@@ -199,10 +200,10 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   'Dashboard': ['/dashboard'],
   'CS Selling': ['/cs-selling', '/cs-selling/form-leads', '/cs-selling/resubmit-finance'],
   'Antrian Design': ['/antrian-design', '/antrian-design/history-reject'],
-  'Finance': ['/approval-finance', '/finance/pekerjaan-pesanan', '/finance/finalisasi-pekerjaan-pesanan', '/finance/pembelian-gudang', '/finance/laporan'],
+  'Finance': ['/approval-finance', '/finance/pekerjaan-pesanan', '/finance/finalisasi-pekerjaan-pesanan', '/finance/laporan-produksi-harian', '/finance/pembelian-gudang', '/finance/laporan'],
   // Legacy alias: user yg role/menuAccess-nya masih pakai 'Approval Finance'
   // (nama lama sebelum rename ke 'Finance') tetap dapat akses ke menu.
-  'Approval Finance': ['/approval-finance', '/finance/pekerjaan-pesanan', '/finance/finalisasi-pekerjaan-pesanan', '/finance/pembelian-gudang', '/finance/laporan'],
+  'Approval Finance': ['/approval-finance', '/finance/pekerjaan-pesanan', '/finance/finalisasi-pekerjaan-pesanan', '/finance/laporan-produksi-harian', '/finance/pembelian-gudang', '/finance/laporan'],
   'CS Order': ['/orders', '/orders/bukti-pembayaran', '/orders/laporan', '/orders/laporan-deadline'],
   'Work Orders': ['/work-orders'],
   'Produksi': ['/produksi', '/produksi/history', '/produksi/tracking-reject'],
