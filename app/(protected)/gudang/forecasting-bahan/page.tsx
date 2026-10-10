@@ -24,13 +24,14 @@ function fmtDate(d: string | Date | null | undefined) {
   try { return new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return s; }
 }
 
-// Normalisasi tanggal apa pun → 'YYYY-MM-DD' (buat dibandingkan dengan nilai
-// <input type="date">). Kosong kalau tak bisa diparse.
-function toISODate(d: string | Date | null | undefined): string {
-  if (!d) return '';
-  const s = d instanceof Date ? d.toISOString() : String(d);
-  const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+// Tanggal kalender WIB (Asia/Jakarta) dari sebuah nilai waktu → 'YYYY-MM-DD'.
+// Dipakai untuk membandingkan created_at (disimpan UTC ISO) dengan nilai
+// <input type="date"> yang user pilih (dianggap tanggal WIB).
+function wibDate(value: unknown): string {
+  if (!value) return '';
+  const d = new Date(value as string);
+  if (isNaN(d.getTime())) return String(value).slice(0, 10);
+  try { return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); } catch { return String(value).slice(0, 10); }
 }
 function todayISO(): string {
   const n = new Date();
@@ -125,9 +126,11 @@ export default function ForecastingBahanPage() {
   const forecastedWos = useMemo(
     () => forecasts
       .filter(f => !pengeluaranIds.has(Number(f.work_order_id)))
-      .map(f => woById.get(Number(f.work_order_id)))
+      // Bawa tanggal DIBUAT forecast (wo_forecast.created_at) ke baris WO
+      // supaya bisa difilter & ditampilkan.
+      .map((f): Row | null => { const w = woById.get(Number(f.work_order_id)); return w ? { ...w, _forecastAt: f.created_at } : null; })
       .filter((w): w is Row => Boolean(w))
-      .sort((a, b) => String(b.tanggal_order || '').localeCompare(String(a.tanggal_order || ''))),
+      .sort((a, b) => String(b._forecastAt || '').localeCompare(String(a._forecastAt || ''))),
     [forecasts, pengeluaranIds, woById],
   );
 
@@ -148,9 +151,11 @@ export default function ForecastingBahanPage() {
           || String(w.paket || '').toLowerCase().includes(q);
         if (!match) return false;
       }
-      // Filter rentang TGL ORDER (inklusif). Kosong = tak membatasi.
+      // Filter rentang TANGGAL DIBUAT forecast (WIB, inklusif). Kosong = tak
+      // membatasi. Dulu salah pakai TGL ORDER sehingga forecast yang baru
+      // dibuat tidak kebaca saat difilter per tanggal pembuatan.
       if (tglFrom || tglTo) {
-        const d = toISODate(w.tanggal_order);
+        const d = wibDate(w._forecastAt);
         if (!d) return false;
         if (tglFrom && d < tglFrom) return false;
         if (tglTo && d > tglTo) return false;
@@ -225,9 +230,9 @@ export default function ForecastingBahanPage() {
           </div>
         </div>
 
-        {/* Filter tanggal order — gudang bisa lihat berapa & WO apa saja per rentang tanggal */}
+        {/* Filter tanggal DIBUAT forecast — gudang bisa lihat berapa & WO apa saja yang di-forecast per tanggal */}
         <div className="relative mt-4 flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Filter Tgl Order</span>
+          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Filter Tgl Dibuat</span>
           <input type="date" value={tglFrom} onChange={e => { setTglFrom(e.target.value); setPage(1); }}
             className="bg-white/[0.03] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500/40 date-input" />
           <span className="text-slate-500 text-xs">s/d</span>
@@ -252,16 +257,16 @@ export default function ForecastingBahanPage() {
           <table className="w-full min-w-[1000px]">
             <thead>
               <tr className="border-b border-white/[0.06] bg-white/[0.015]">
-                {['NO WO', 'CUSTOMER', 'PAKET', 'QTY', 'TGL ORDER', 'DEADLINE', 'STATUS', 'AKSI'].map(h => (
+                {['NO WO', 'CUSTOMER', 'PAKET', 'QTY', 'TGL DIBUAT', 'TGL ORDER', 'DEADLINE', 'STATUS', 'AKSI'].map(h => (
                   <th key={h} className={`text-[10px] text-slate-500 font-semibold ${h === 'QTY' ? 'text-right' : h === 'AKSI' ? 'text-right' : 'text-left'} px-5 py-3.5 uppercase tracking-widest`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-5 py-16 text-center text-sm text-slate-500">Memuat data…</td></tr>
+                <tr><td colSpan={9} className="px-5 py-16 text-center text-sm text-slate-500">Memuat data…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={8} className="px-5 py-16 text-center">
+                <tr><td colSpan={9} className="px-5 py-16 text-center">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500/15 to-transparent border border-blue-500/20 grid place-items-center">
                       <svg className="w-6 h-6 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -312,6 +317,7 @@ export default function ForecastingBahanPage() {
                         <span className="text-sm text-slate-300 font-semibold tabular-nums">{wo.qty > 0 ? wo.qty : '-'}</span>
                         {wo.qty > 0 && <span className="text-slate-500 text-[11px] ml-1">pcs</span>}
                       </td>
+                      <td className="px-5 py-4 text-sm text-emerald-300/90 font-medium whitespace-nowrap">{fmtDate(wibDate(wo._forecastAt))}</td>
                       <td className="px-5 py-4 text-sm text-slate-400">{fmtDate(wo.tanggal_order)}</td>
                       <td className={`px-5 py-4 text-sm font-medium ${isOverdue ? 'text-red-400' : 'text-slate-400'}`}>
                         {fmtDate(wo.deadline)}
