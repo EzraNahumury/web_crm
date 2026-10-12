@@ -5,7 +5,7 @@
 // Publik (tanpa login), tema terang, konsisten dengan /progress. Data dari
 // /api/public/pic?pic=<nama> (bulan ini + bulan lalu).
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -163,6 +163,34 @@ export function ProcessSection({ proc, month, monthLabel, prevMonthLabel, footer
 
   const diffCls = (n: number) => n >= 0 ? 'text-emerald-600' : 'text-rose-600';
 
+  // Auto-scroll tabel Rekap Harian (untuk layar live tanpa mouse): gerak turun pelan,
+  // jeda di bawah, lalu kembali ke atas, berulang — supaya semua tanggal terlihat.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let raf = 0;
+    let dir = 1; // 1 = turun, -1 = naik
+    let pause = 120; // jeda awal di atas (~2 dtk @60fps)
+    const SPEED = 0.45; // px per frame (~27px/dtk)
+    const PAUSE_FRAMES = 120; // jeda di ujung
+    const tick = () => {
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 2) {
+        if (pause > 0) {
+          pause -= 1;
+        } else {
+          el.scrollTop += dir * SPEED;
+          if (el.scrollTop >= max) { el.scrollTop = max; dir = -1; pause = PAUSE_FRAMES; }
+          else if (el.scrollTop <= 0) { el.scrollTop = 0; dir = 1; pause = PAUSE_FRAMES; }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [proc.days.length, proc.key]);
+
   return (
     <section className="rounded-3xl bg-white border border-slate-200 shadow-sm overflow-hidden">
       {/* Header proses + ringkasan bulan */}
@@ -193,11 +221,11 @@ export function ProcessSection({ proc, month, monthLabel, prevMonthLabel, footer
         {/* Kiri: tabel harian */}
         <div>
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-2">Rekap Harian · {monthLabel}</p>
-          <div className="rounded-xl border border-slate-200">
+          <div ref={scrollRef} className="rounded-xl border border-slate-200 overflow-x-hidden overflow-y-auto overscroll-contain max-h-[52vh]">
             <table className="w-full text-sm border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="text-slate-700 text-xs">
-                  <th className="bg-slate-100 border-b border-slate-200 px-3 py-2 text-left font-bold rounded-tl-xl">TANGGAL</th>
+                  <th className="bg-slate-100 border-b border-slate-200 px-3 py-2 text-left font-bold">TANGGAL</th>
                   {isQty ? (
                     <th className="bg-sky-100 border-b border-slate-200 px-3 py-2 text-center font-bold">QTY</th>
                   ) : (
