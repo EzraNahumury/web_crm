@@ -193,9 +193,9 @@ export function ProcessSection({ proc, month, monthLabel, prevMonthLabel, footer
         {/* Kiri: tabel harian */}
         <div>
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-2">Rekap Harian · {monthLabel}</p>
-          <div className="rounded-xl border border-slate-200 overflow-hidden max-h-[360px] overflow-y-auto">
+          <div className="rounded-xl border border-slate-200 overflow-hidden max-h-[70vh] overflow-y-auto overscroll-contain">
             <table className="w-full text-sm border-collapse">
-              <thead className="sticky top-0">
+              <thead className="sticky top-0 z-10">
                 <tr className="text-slate-700 text-xs">
                   <th className="bg-slate-100 border-b border-slate-200 px-3 py-2 text-left font-bold">TANGGAL</th>
                   {isQty ? (
