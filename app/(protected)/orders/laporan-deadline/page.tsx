@@ -13,8 +13,7 @@ const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli
 // Poin per unit sesuai tier/jenis paket (patokan CS, sesuai spreadsheet
 // manual "Deadline CS Order"):
 //   Standar = 1, Klasik = 1.4, Pro = 1.7, Warrior = 1.9,
-//   Jaket = 1.9, Celana Print = 1, Celana Non Print = 1.
-// (Bendera menyusul setelah poinnya dikonfirmasi.)
+//   Jaket = 1.9, Celana Print = 1, Celana Non Print = 1, Bendera = 1.
 function tierRate(tier: string): number {
   switch (tier) {
     case 'WARRIOR': return 1.9;
@@ -24,6 +23,7 @@ function tierRate(tier: string): number {
     case 'JAKET': return 1.9;
     case 'CELANA PRINT': return 1;
     case 'CELANA NON PRINT': return 1;
+    case 'BENDERA': return 1;
     default: return 0;
   }
 }
@@ -81,7 +81,7 @@ function htmlToText(s: string): string {
     .replace(/^\s+|\s+$/g, '');
 }
 
-const TIER_OPTIONS = ['STANDAR', 'KLASIK', 'PRO', 'WARRIOR', 'JAKET', 'CELANA PRINT', 'CELANA NON PRINT'];
+const TIER_OPTIONS = ['STANDAR', 'KLASIK', 'PRO', 'WARRIOR', 'JAKET', 'CELANA PRINT', 'CELANA NON PRINT', 'BENDERA'];
 
 // Satu baris paket dalam sebuah order (1 order bisa >1 paket, mis. jersey
 // Classic + Standar). detected=false → tier belum kebaca, pakai manualTier.
