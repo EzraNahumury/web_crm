@@ -221,6 +221,18 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // 'Progress Produksi' (sebelum login ulang) — asalkan punya akses Line Jahit.
   'Line Jahit': ['/line-jahit', '/progress/design', '/progress/proofing', '/progress/layouting', '/progress/printing', '/progress/press', '/progress/cutting', '/progress/steam', '/progress/materi-finishing', '/progress/finishing', '/progress/shipment'],
   'Progress Produksi': ['/line-jahit', '/progress/design', '/progress/proofing', '/progress/layouting', '/progress/printing', '/progress/press', '/progress/cutting', '/progress/steam', '/progress/materi-finishing', '/progress/finishing', '/progress/shipment'],
+  // Akses granular per-halaman Progress Produksi (mis. akun Leader Produksi
+  // hanya Layouting–Cutting). Difilter per-child di sidebar (visibleChildren).
+  'Progress Design': ['/progress/design'],
+  'Progress Proofing': ['/progress/proofing'],
+  'Progress Layouting': ['/progress/layouting'],
+  'Progress Printing': ['/progress/printing'],
+  'Progress Press': ['/progress/press'],
+  'Progress Cutting': ['/progress/cutting'],
+  'Progress Steam': ['/progress/steam'],
+  'Progress Materi Finishing': ['/progress/materi-finishing'],
+  'Progress Finishing': ['/progress/finishing'],
+  'Progress Shipment': ['/progress/shipment'],
   'Laporan': ['/laporan/produksi', '/laporan/penggunaan-bahan'],
   'Gudang': ['/stok', '/gudang/forecasting-bahan', '/gudang/real-pengeluaran-bahan', '/gudang/pembelian-bahan', '/approval-gudang'],
   // Legacy alias: user yg role/menuAccess-nya masih pakai 'Stok' (nama

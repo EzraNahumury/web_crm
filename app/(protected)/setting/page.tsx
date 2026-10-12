@@ -63,6 +63,18 @@ const MENU_ITEMS = [
   'Analisa Finishing',
   'Analisa Shipment',
   'Laporan Deadline',
+  // Akses granular per-halaman Progress Produksi (mis. Leader Produksi =
+  // Layouting–Cutting). Dipetakan di MENU_HREF_MAP + difilter per-child.
+  'Progress Design',
+  'Progress Proofing',
+  'Progress Layouting',
+  'Progress Printing',
+  'Progress Press',
+  'Progress Cutting',
+  'Progress Steam',
+  'Progress Materi Finishing',
+  'Progress Finishing',
+  'Progress Shipment',
 ];
 
 export default function SettingPage() {

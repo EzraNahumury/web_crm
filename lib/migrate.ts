@@ -2027,6 +2027,38 @@ const MIGRATIONS: Migration[] = [
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     ],
   },
+  {
+    // Role baru (permintaan). Akun user + password dibuat admin di Setting →
+    // Users (kredensial tidak boleh masuk source); pilih role yang sesuai.
+    //   Merchandiser   : Antrian Design, CS Selling, CS Order, Produksi
+    //                    (akses penuh board — view-only belum dikunci),
+    //                    Progress Produksi (semua halaman).
+    //   Leader Produksi: Produksi (akses penuh board), Monitoring Produksi,
+    //                    Progress Produksi hanya Layouting→Printing→Press→
+    //                    Cutting (lewat key granular 'Progress <nama>').
+    // stages kosong = akses penuh board Produksi (produksi/page.tsx: stageAccess
+    // kosong → isFullAccess). Idempotent (reuse pola migration 099).
+    name: '103_roles_merchandiser_leader_produksi',
+    up: (() => {
+      const ROLES = [
+        { role: 'Merchandiser', desc: 'Antrian Design, CS Selling, CS Order, Produksi (view), Progress Produksi', menus: ['Dashboard', 'Antrian Design', 'CS Selling', 'CS Order', 'Produksi', 'Progress Produksi'], stages: [] as string[] },
+        { role: 'Leader Produksi', desc: 'Produksi, Monitoring Produksi, Progress Produksi (Layouting–Cutting)', menus: ['Dashboard', 'Produksi', 'Monitoring Produksi', 'Progress Layouting', 'Progress Printing', 'Progress Press', 'Progress Cutting'], stages: [] as string[] },
+      ];
+      const esc = (s: string) => s.replace(/'/g, "''");
+      const stmts: string[] = [];
+      for (const r of ROLES) {
+        stmts.push(`INSERT INTO \`roles\` (\`nama\`,\`deskripsi\`,\`is_super_admin\`) SELECT '${esc(r.role)}','${esc(r.desc)}',0 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM \`roles\` WHERE \`nama\`='${esc(r.role)}')`);
+        for (const m of r.menus) {
+          stmts.push(`INSERT INTO \`role_menu_access\` (\`role_id\`,\`menu_name\`) SELECT ro.id,'${esc(m)}' FROM \`roles\` ro WHERE ro.nama='${esc(r.role)}' AND NOT EXISTS (SELECT 1 FROM \`role_menu_access\` a WHERE a.role_id=ro.id AND a.menu_name='${esc(m)}')`);
+        }
+        if (r.stages.length) {
+          const inList = r.stages.map(s => `'${esc(s)}'`).join(',');
+          stmts.push(`INSERT INTO \`role_stage_access\` (\`role_id\`,\`stage_id\`) SELECT ro.id, s.id FROM \`roles\` ro JOIN \`production_stages\` s ON s.nama IN (${inList}) WHERE ro.nama='${esc(r.role)}' AND NOT EXISTS (SELECT 1 FROM \`role_stage_access\` a WHERE a.role_id=ro.id AND a.stage_id=s.id)`);
+        }
+      }
+      return stmts;
+    })(),
+  },
 ];
 
 async function runMigrations(): Promise<void> {
