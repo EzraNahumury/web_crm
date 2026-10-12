@@ -10,14 +10,22 @@ type Row = Record<string, any>;
 
 const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
-// Poin per unit sesuai tier paket (patokan atasan):
-//   Standar = 1, Klasik = 1.4, Pro = 1.7, Warrior = 2.0 (tier tertinggi).
+// Poin per unit sesuai tier/jenis paket (patokan CS, sesuai spreadsheet
+// manual "Deadline CS Order"):
+//   Standar = 1, Klasik = 1.4, Pro = 1.7, Warrior = 1.9,
+//   Jaket = 1.9, Celana Print = 1, Celana Non Print = 1.
+// (Bendera menyusul setelah poinnya dikonfirmasi.)
 function tierRate(tier: string): number {
-  if (tier === 'WARRIOR') return 2.0;
-  if (tier === 'PRO') return 1.7;
-  if (tier === 'KLASIK') return 1.4;
-  if (tier === 'STANDAR') return 1;
-  return 0;
+  switch (tier) {
+    case 'WARRIOR': return 1.9;
+    case 'PRO': return 1.7;
+    case 'KLASIK': return 1.4;
+    case 'STANDAR': return 1;
+    case 'JAKET': return 1.9;
+    case 'CELANA PRINT': return 1;
+    case 'CELANA NON PRINT': return 1;
+    default: return 0;
+  }
 }
 
 // Deteksi tier + variant dari nama paket order. tier '' = tidak terdeteksi
@@ -73,7 +81,7 @@ function htmlToText(s: string): string {
     .replace(/^\s+|\s+$/g, '');
 }
 
-const TIER_OPTIONS = ['STANDAR', 'KLASIK', 'PRO', 'WARRIOR'];
+const TIER_OPTIONS = ['STANDAR', 'KLASIK', 'PRO', 'WARRIOR', 'JAKET', 'CELANA PRINT', 'CELANA NON PRINT'];
 
 // Satu baris paket dalam sebuah order (1 order bisa >1 paket, mis. jersey
 // Classic + Standar). detected=false → tier belum kebaca, pakai manualTier.
