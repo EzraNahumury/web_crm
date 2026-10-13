@@ -38,6 +38,20 @@ function fmtDateTime(d: string | null) {
   if (!d) return '-';
   try { return new Date(d).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return d; }
 }
+// Tanggal WIB (Asia/Jakarta) ringkas, mis. "14 Okt 2026". created_at/updated_at
+// disimpan UTC, jadi konversi ke WIB biar harinya pas.
+function fmtTglWIB(value: unknown): string {
+  if (!value) return '-';
+  const d = new Date(value as string);
+  if (isNaN(d.getTime())) return '-';
+  try { return d.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', year: 'numeric' }); } catch { return '-'; }
+}
+function wibDay(value: unknown): string {
+  if (!value) return '';
+  const d = new Date(value as string);
+  if (isNaN(d.getTime())) return '';
+  try { return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); } catch { return ''; }
+}
 function parseChecklist(raw: unknown): ChecklistMark[] {
   try { const o = JSON.parse(String(raw || '[]')); return Array.isArray(o) ? o : []; } catch { return []; }
 }
@@ -371,13 +385,19 @@ export default function FinancePesananPage({ mode }: { mode: 'pekerjaan' | 'fina
 /* Modal read-only: isi Real Pengeluaran Bahan sebuah WO. */
 function DetailModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
   const [rows, setRows] = useState<Row[] | null>(null);
+  const [header, setHeader] = useState<Row | null>(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r = await dbGet<Row>('wo_pengeluaran_bahan', undefined, { work_order_id: Number(wo.id) }).catch(() => []);
-        if (!cancelled) setRows((r as Row[]).slice().sort((a, b) => Number(a.urutan) - Number(b.urutan)));
-      } catch { if (!cancelled) setRows([]); }
+        const [r, h] = await Promise.all([
+          dbGet<Row>('wo_pengeluaran_bahan', undefined, { work_order_id: Number(wo.id) }).catch(() => []),
+          dbGet<Row>('wo_pengeluaran', undefined, { work_order_id: Number(wo.id) }).catch(() => []),
+        ]);
+        if (cancelled) return;
+        setRows((r as Row[]).slice().sort((a, b) => Number(a.urutan) - Number(b.urutan)));
+        setHeader((h as Row[])[0] || null);
+      } catch { if (!cancelled) { setRows([]); setHeader(null); } }
     })();
     return () => { cancelled = true; };
   }, [wo.id]);
@@ -396,6 +416,15 @@ function DetailModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
               <span className="text-blue-400 font-medium">{String(wo.no_wo || '')}</span>{' · '}
               <span className="text-slate-300">{String(wo.customer_nama || '')}</span>
             </p>
+            {header && (
+              <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                <svg className="w-3.5 h-3.5 text-emerald-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg>
+                <span>Bahan keluar: <span className="text-white font-semibold">{fmtTglWIB(header.created_at)}</span></span>
+                {header.updated_at && wibDay(header.updated_at) !== wibDay(header.created_at) && (
+                  <span className="text-slate-500">· diperbarui <span className="text-slate-300 font-medium">{fmtTglWIB(header.updated_at)}</span></span>
+                )}
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-white/[0.05] transition-colors shrink-0" title="Tutup (Esc)">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
