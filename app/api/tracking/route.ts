@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { computeDeadlineLock } from '@/lib/business-days';
+import { buildAksesorisSet, sumQtyExcludingAksesoris } from '@/lib/qty-aksesoris';
 
 // Stages the customer is allowed to see on the tracking timeline. Every
 // other stage stays inside the wo_progress table (still drives current
@@ -182,6 +183,24 @@ export async function GET(req: NextRequest) {
     } catch {}
     if (!adminWhatsapp) adminWhatsapp = String(process.env.ADMIN_WHATSAPP || '').trim();
 
+    // Jumlah pcs = qty produksi murni: total order_items TANPA baris aksesoris
+    // (barang_cs dengan hitung_qty=0, mis. "KERAH KOMBINASI" / tambahan size).
+    // work_orders.jumlah bisa keliru memasukkan aksesoris (mis. 16 jersey + 17
+    // kerah + 1 size = 34), jadi dihitung ulang dari order_items — konsisten
+    // dengan Forecasting / Laporan Deadline / Monitoring yang juga mengecualikan
+    // aksesoris. Fallback ke wo.jumlah hanya kalau order_items kosong (legacy).
+    let jumlah = Number(wo.jumlah) || 0;
+    try {
+      const items = await query<{ paket_nama: string; qty: number }>(
+        'SELECT paket_nama, qty FROM order_items WHERE order_id = ?',
+        [wo.order_id]
+      );
+      if (items.length > 0) {
+        const barangCs = await query<{ nama: string; hitung_qty: number }>('SELECT nama, hitung_qty FROM barang_cs');
+        jumlah = sumQtyExcludingAksesoris(items, buildAksesorisSet(barangCs));
+      }
+    } catch { /* biarkan fallback wo.jumlah */ }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -192,7 +211,7 @@ export async function GET(req: NextRequest) {
         admin_whatsapp: adminWhatsapp,
         paket: wo.paket,
         bahan: wo.bahan || '',
-        jumlah: wo.jumlah,
+        jumlah,
         keterangan: wo.keterangan || '',
         tanggal_order: order?.tanggal_order || wo.up_produksi || '',
         deadline: displayDeadline,
