@@ -1288,6 +1288,10 @@ export default function WorkOrderDetailPage() {
   // lihat + Download, tapi konten WO dikunci (inert) supaya tidak bisa edit /
   // menekan tombol "+" tidak sengaja. Super admin selalu bisa edit.
   const canEditWO = !!user && (user.isSuperAdmin || !(user.menuAccess || []).includes('Work Orders View Only'));
+  // Ref ke fungsi download Excel WO 2 (di-register oleh TabWO2). Tombolnya
+  // diletakkan di header (luar area inert) supaya akun view-only tetap bisa
+  // men-download & menyalin data WO 2.
+  const wo2ExcelRef = useRef<(() => void) | null>(null);
   const params = useParams();
   // Deep-link support: ?tab=wo4 opens langsung ke tab WO4.
   // Dipakai dari Forecasting Bahan → button mata.
@@ -1973,6 +1977,16 @@ export default function WorkOrderDetailPage() {
               {downloadingAll ? 'Menyiapkan...' : 'Download All'}
             </button>
           )}
+          {tab === 'wo2' && (
+            <button
+              onClick={() => wo2ExcelRef.current?.()}
+              title="Download Detail Ukuran Tim (WO 2) sebagai Excel — berisi data apa adanya, bisa disalin"
+              className="flex items-center gap-1.5 text-xs text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 rounded-full hover:bg-emerald-500/20 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              Excel WO 2
+            </button>
+          )}
           {canEditWO && (
             <button
               onClick={handleDeleteAllImports}
@@ -2011,7 +2025,7 @@ export default function WorkOrderDetailPage() {
       <div inert={!canEditWO || undefined} className={!canEditWO ? 'opacity-95' : ''}>
         {tab === 'detail' && <TabDetail wo={woData} />}
         {tab === 'wo1' && <TabWO1 wo={woData} specs={specs} specBahan={specBahan} />}
-        {tab === 'wo2' && <TabWO2 wo={woData} gudangItems={gudangItems} specs={specs} specBahan={specBahan} />}
+        {tab === 'wo2' && <TabWO2 wo={woData} gudangItems={gudangItems} specs={specs} specBahan={specBahan} onRegisterExcel={fn => { wo2ExcelRef.current = fn; }} />}
         {tab === 'wo3' && <TabWO3 wo={woData} detailItems={detailItems} specs={specs} specBahan={specBahan} />}
         {tab === 'wo4' && <TabWO4 wo={woData} detailItems={detailItems} specs={specs} specBahan={specBahan} />}
       </div>
@@ -3968,8 +3982,8 @@ function WoImportTab({ wo, section, accept, title, helper }: {
   );
 }
 
-function TabWO2({ wo }: { wo: Row; gudangItems: Row[]; specs: Row[]; specBahan: Row[] }) {
-  return <TabDetailUkuranTim wo={wo} />;
+function TabWO2({ wo, onRegisterExcel }: { wo: Row; gudangItems: Row[]; specs: Row[]; specBahan: Row[]; onRegisterExcel?: (fn: (() => void) | null) => void }) {
+  return <TabDetailUkuranTim wo={wo} onRegisterExcel={onRegisterExcel} />;
 }
 
 /* ═══ Tab WO 2 — Detail Ukuran Tim (image #464) — kolom dynamic ═══ */
@@ -4154,7 +4168,7 @@ function sizeSortIndex(v: string): number {
   return idx === -1 ? 999 : idx;
 }
 
-function TabDetailUkuranTim({ wo }: { wo: Row }) {
+function TabDetailUkuranTim({ wo, onRegisterExcel }: { wo: Row; onRegisterExcel?: (fn: (() => void) | null) => void }) {
   const toast = useToast();
   const [rows, setRows] = useState<UkuranRow[]>([]);
   const [kolom, setKolom] = useState<Wo2Col[]>(DEFAULT_WO2_KOLOM);
@@ -4162,6 +4176,40 @@ function TabDetailUkuranTim({ wo }: { wo: Row }) {
   const [loading, setLoading] = useState(true);
   // Auto-save draft (anti listrik mati): waktu terakhir tersimpan + baseline.
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+
+  // Download WO 2 (Detail Ukuran Tim) sebagai Excel — dari data live (kolom +
+  // rows), jadi akurat (tidak lewat render PDF). Di-register ke parent supaya
+  // tombolnya bisa diletakkan di header (DI LUAR area inert) → akun view-only
+  // (Layouter) tetap bisa men-download & menyalin data WO 2.
+  const handleDownloadExcelWo2 = async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const XLSX = (await import('xlsx-js-style')).default as any;
+      const leaves: { id: string; label: string }[] = [];
+      for (const col of kolom) {
+        if (col.children && col.children.length) {
+          for (const ch of col.children) leaves.push({ id: ch.id, label: `${col.label} ${ch.label}`.trim() });
+        } else {
+          leaves.push({ id: col.id, label: col.label });
+        }
+      }
+      const header = ['NO', ...leaves.map(l => l.label)];
+      const body = rows.map((r, i) => [i + 1, ...leaves.map(l => String(r.data?.[l.id] ?? ''))]);
+      const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Detail Ukuran Tim');
+      const noWo = String(wo.no_wo || wo.noWo || wo.id || 'WO');
+      XLSX.writeFile(wb, `WO2-DetailUkuranTim-${noWo}.xlsx`);
+    } catch (e) {
+      console.error('Download Excel WO2 gagal:', e);
+    }
+  };
+  // Register ulang tiap kolom/rows berubah supaya closure selalu data terbaru.
+  useEffect(() => {
+    onRegisterExcel?.(handleDownloadExcelWo2);
+    return () => onRegisterExcel?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kolom, rows]);
   const lastSavedDraftRef = useRef<string>('');
   const justPrefilledRef = useRef(false);
   const [addHeaderOpen, setAddHeaderOpen] = useState(false);
