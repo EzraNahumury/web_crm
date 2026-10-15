@@ -2070,6 +2070,17 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `detail_bahan_json` LONGTEXT NULL",
     ],
   },
+  {
+    // JOB TICKET (handover CS → Produksi). Dokumen terpisah dari Rincian Order.
+    // Bagian A (Data Order) terisi otomatis dari order; Bagian B (Detail Design)
+    // & C (Rincian Size) diinput, disimpan JSON di orders.job_ticket_json
+    // ({ picCs, tglDesignFix, detailDesign{...}, sizes[{size,pendek,panjang}] }).
+    // Idempotent (Duplicate column di-skip runner).
+    name: '105_orders_job_ticket_json',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `job_ticket_json` LONGTEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
