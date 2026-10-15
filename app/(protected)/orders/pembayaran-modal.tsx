@@ -4,6 +4,15 @@ import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
 import { DEFAULT_NB_TEMPLATE, NB_TEMPLATE_KEY } from '@/lib/nb-template';
+import { computeDeadlineLock } from '@/lib/business-days';
+
+// Tanggal apa pun → 'dd/mm/yyyy'. '-' kalau kosong/invalid.
+function fmtTgl(d: unknown): string {
+  if (!d) return '-';
+  const s = d instanceof Date ? d.toISOString() : String(d);
+  const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '-';
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -142,6 +151,18 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // Tracking link surfaced at the bottom in read-only mode.
   const [trackingLink, setTrackingLink] = useState('');
   const [noOrder, setNoOrder] = useState('');
+  // No WA customer (dari CS Selling; editable → tersimpan ke customer_phone).
+  const [noWa, setNoWa] = useState('');
+  // Tanggal-tanggal otomatis (read-only) yang terisi dari data menu luar:
+  //   dpDesainTgl    ← tanggal pembayaran DP Desain (order_payments dp_desain)
+  //   dpProduksiTgl  ← tanggal upload bukti TF DP Produksi (order_payments dp_produksi)
+  //   proofingFixTgl ← orders.tanggal_acc_proofing (ACC proofing di menu luar)
+  //   deadlineLockTgl← hasil compute Deadline Lock (sama dgn board & tracking)
+  const [dpDesainTgl, setDpDesainTgl] = useState('');
+  const [dpProduksiTgl, setDpProduksiTgl] = useState('');
+  const [proofingFixTgl, setProofingFixTgl] = useState('');
+  const [deadlineLockTgl, setDeadlineLockTgl] = useState('');
+  const [holidays, setHolidays] = useState<Set<string>>(new Set());
   // Master Barang CS untuk dropdown Nama Barang. Kalau tabel/API belum
   // ada (migration 034 belum landing), array kosong dan input jatuh
   // balik ke free-text supaya modal tetap jalan.
@@ -162,19 +183,28 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
   const fetchAll = useCallback(async () => {
     try {
-      const [o, p, i, l, bcs, st] = await Promise.all([
+      const [o, p, i, l, bcs, st, lib] = await Promise.all([
         dbGet('orders').catch(() => []),
         dbGet('order_payments').catch(() => []),
         dbGet('order_items').catch(() => []),
         dbGet('leads').catch(() => []),
         dbGet('barang_cs').catch(() => []),
         dbGet('settings').catch(() => []),
+        dbGet('libur_nasional').catch(() => []),
       ]);
       setOrders(o);
       setPayments(p);
       setItems(i);
       setBarangCs(bcs);
       setLeads(l);
+      setHolidays(new Set(
+        (lib as Row[]).map(h => {
+          if (!h.tanggal) return '';
+          const s = h.tanggal instanceof Date ? h.tanggal.toISOString() : String(h.tanggal);
+          const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+          return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+        }).filter(Boolean)
+      ));
       const tpl = (st as Row[]).find(s => String(s.key_name) === NB_TEMPLATE_KEY);
       if (tpl && String(tpl.value ?? '').trim()) setNbTemplate(String(tpl.value));
     } catch (e) { console.error(e); }
@@ -202,6 +232,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       setDiskonPct(0); setDpProdPct(70);
       setDpProdMode('pct'); setDpProdManual(0);
       setItemLines([{ id: 1, nama: '', qty: 0, harga: 0 }]);
+      setNoWa(''); setDpDesainTgl(''); setDpProduksiTgl(''); setProofingFixTgl(''); setDeadlineLockTgl('');
       return;
     }
     const o = orders.find(x => String(x.id) === pickedOrderId);
@@ -217,6 +248,16 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setNb(String(o.keterangan || nbTemplate));
     setTrackingLink(String(o.tracking_link || ''));
     setNoOrder(String(o.no_order || ''));
+    // C1 No WA, C5 Tgl Proofing Fix, C4 Tgl Deadline Lock — auto dari order.
+    setNoWa(String(o.customer_phone || ''));
+    setProofingFixTgl(o.tanggal_acc_proofing ? fmtTgl(o.tanggal_acc_proofing) : '');
+    const dl = computeDeadlineLock({
+      pilihanPaket: o.pilihan_paket,
+      tanggalAccProofing: o.tanggal_acc_proofing,
+      deadlineLock: o.deadline_lock,
+      holidays,
+    });
+    setDeadlineLockTgl(fmtTgl(dl || o.estimasi_deadline || o.deadline_lock || ''));
     // Diskon% dari order (kolom baru). Kalau tidak ada, default 0.
     setDiskonPct(Number(o.diskon_pct) || 0);
     const mode = String(o.dp_prod_mode || 'pct') === 'nominal' ? 'nominal' : 'pct';
@@ -243,6 +284,12 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     );
     setDpDesainAmount(Number(dpDesainPay?.amount) || Number(o.dp_desain) || 0);
     setDpDesainPaymentId(dpDesainPay ? Number(dpDesainPay.id) : null);
+    // C2 Tgl DP Desain + C3 Tgl DP Produksi — tanggal pembayaran (fallback created_at).
+    setDpDesainTgl(dpDesainPay ? fmtTgl(dpDesainPay.tanggal || dpDesainPay.created_at) : '');
+    const dpProduksiPay = payments.find(pp =>
+      Number(pp.order_id) === Number(o.id) && String(pp.tipe) === 'dp_produksi'
+    );
+    setDpProduksiTgl(dpProduksiPay ? fmtTgl(dpProduksiPay.tanggal || dpProduksiPay.created_at) : '');
 
     // RESTORE DRAFT: kalau order ini punya draft auto-save (belum di-Simpan,
     // mis. listrik mati saat mengisi), timpa field form dengan isi draft supaya
@@ -584,6 +631,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       const baseUpdate = {
         customer_nama: nama.trim(),
         customer_alamat: alamat,
+        customer_phone: noWa.trim() || null,
         lead_id: leadId ? Number(leadId) : null,
         keterangan: nb,
         nominal_order: grandTotal,
@@ -830,6 +878,14 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                     </td>
                   </tr>
                   <tr>
+                    <td className={`${cellCls} bg-slate-100 font-semibold`}>NO WA</td>
+                    <td className={`${cellCls} text-center`}>:</td>
+                    <td className={`${cellCls}`}>
+                      <input type="tel" value={noWa} onChange={e => setNoWa(e.target.value)}
+                        placeholder="No WhatsApp customer (dari CS Selling)" className={inputCls} readOnly={readOnly} />
+                    </td>
+                  </tr>
+                  <tr>
                     <td className={`${cellCls} bg-slate-100 font-semibold`}>PILIHAN LEADS</td>
                     <td className={`${cellCls} text-center`}>:</td>
                     <td className={`${cellCls}`}>
@@ -859,6 +915,25 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                           <span>Bank</span>
                         </label>
                       </div>
+                    </td>
+                  </tr>
+                  {/* C5 + C4 — terisi otomatis dari menu luar (read-only) */}
+                  <tr>
+                    <td className={`${cellCls} bg-slate-100 font-semibold`}>TGL PROOFING FIX</td>
+                    <td className={`${cellCls} text-center`}>:</td>
+                    <td className={`${cellCls} text-slate-800`}>
+                      {proofingFixTgl && proofingFixTgl !== '-'
+                        ? proofingFixTgl
+                        : <span className="text-slate-400 italic text-xs">otomatis dari ACC Proofing (menu luar)</span>}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className={`${cellCls} bg-slate-100 font-semibold`}>TGL DEADLINE LOCK</td>
+                    <td className={`${cellCls} text-center`}>:</td>
+                    <td className={`${cellCls} text-slate-800`}>
+                      {deadlineLockTgl && deadlineLockTgl !== '-'
+                        ? deadlineLockTgl
+                        : <span className="text-slate-400 italic text-xs">otomatis dari Deadline Lock (menu luar)</span>}
                     </td>
                   </tr>
                 </tbody>
@@ -1034,8 +1109,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                       </td>
                     </tr>
                     <tr>
-                      <td className={`${cellCls} bg-slate-100 font-bold`}>DP DESIGN</td>
-                      <td className={`${cellCls} text-right tabular-nums`}>
+                      <td className={`${cellCls} bg-slate-100 font-bold align-top`}>
+                        DP DESIGN
+                        {dpDesainTgl && dpDesainTgl !== '-' && (
+                          <div className="font-normal text-[10px] text-slate-500 mt-0.5">Tgl: {dpDesainTgl}</div>
+                        )}
+                      </td>
+                      <td className={`${cellCls} text-right tabular-nums align-top`}>
                         {dpDesainAmount > 0
                           ? <>− Rp {fmtRp(dpDesainAmount)} <span className="text-[10px] text-slate-500 ml-1">(CS Selling)</span></>
                           : <span className="text-slate-500 text-xs italic">tidak ada</span>}
@@ -1085,8 +1165,11 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                             </div>
                           )}
                         </div>
+                        {dpProduksiTgl && dpProduksiTgl !== '-' && (
+                          <div className="font-normal text-[10px] text-slate-500 mt-0.5">Tgl: {dpProduksiTgl}</div>
+                        )}
                       </td>
-                      <td className={`${cellCls} text-right tabular-nums font-bold text-blue-700`}>
+                      <td className={`${cellCls} text-right tabular-nums font-bold text-blue-700 align-top`}>
                         {dpProdMode === 'nominal' && !readOnly ? (
                           <div className="inline-flex items-center gap-1 justify-end">
                             <span>− Rp</span>
