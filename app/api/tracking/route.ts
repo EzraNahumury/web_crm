@@ -96,30 +96,41 @@ export async function GET(req: NextRequest) {
     // Compute progress based on the stages the customer actually sees,
     // so 70% on the bar corresponds to 5/7 checkmarks on the timeline
     // rather than 5/15 hidden internal steps.
-    const visibleStageIds = new Set(
-      stages.filter(s => CUSTOMER_VISIBLE_STAGES.has(s.nama)).map(s => s.id)
-    );
-    const visibleTotal = visibleStageIds.size;
-    const visibleSelesai = progress.filter(p => p.status === 'SELESAI' && visibleStageIds.has(p.stage_id)).length;
+    const visibleStages = stages.filter(s => CUSTOMER_VISIBLE_STAGES.has(s.nama));
+    const visibleTotal = visibleStages.length;
+
+    // Sebuah stage dihitung SELESAI untuk customer kalau wo_progress-nya
+    // SELESAI, ATAU WO sudah MELEWATINYA (current stage lebih dalam / urutan
+    // lebih besar). Ini menutup kasus di mana WO sudah maju (mis. sudah di
+    // Printing Layout) tapi flag SELESAI tahap sebelumnya (mis. Proofing) tidak
+    // ter-set di wo_progress — yang bikin tracking keliru menampilkan 0%.
+    const currentStage = wo.current_stage_id != null ? stages.find(s => s.id === wo.current_stage_id) : undefined;
+    const currentUrutan = currentStage ? currentStage.urutan : -1;
+    const stageDone = (s: StageRow): boolean => {
+      if (progressMap[s.id]?.status === 'SELESAI') return true;
+      return currentUrutan > 0 && s.urutan < currentUrutan;
+    };
+    const stageActive = (s: StageRow): boolean => {
+      const st = progressMap[s.id]?.status;
+      if (st === 'SEDANG' || st === 'TERSEDIA') return true;
+      return currentStage ? s.id === currentStage.id : false;
+    };
+
+    const visibleSelesai = visibleStages.filter(stageDone).length;
     const progressPercent = visibleTotal > 0 ? Math.round((visibleSelesai / visibleTotal) * 100) : 0;
 
-    // "Current stage" — prefer the deepest visible stage that's active or
-    // completed. Hides "Approval Design" etc. from the summary card so it
-    // matches the filtered timeline below.
+    // "Current stage" — tahap visible yang sedang aktif; kalau tidak ada, tahap
+    // visible terakhir yang sudah selesai. Tahap internal (Approval Design,
+    // Printing Layout, dll) disembunyikan dari kartu ringkasan.
     let currentStageName = 'Belum mulai';
     if (progressPercent >= 100) {
       currentStageName = 'Selesai';
     } else {
-      const visibleStages = stages.filter(s => CUSTOMER_VISIBLE_STAGES.has(s.nama));
-      const activeVisible = visibleStages.find(s => {
-        const p = progressMap[s.id];
-        return p && (p.status === 'SEDANG' || p.status === 'TERSEDIA');
-      });
+      const activeVisible = visibleStages.find(stageActive);
       if (activeVisible) {
         currentStageName = activeVisible.nama;
       } else {
-        // Fall back to the last completed visible stage
-        const doneVisible = [...visibleStages].reverse().find(s => progressMap[s.id]?.status === 'SELESAI');
+        const doneVisible = [...visibleStages].reverse().find(stageDone);
         if (doneVisible) currentStageName = doneVisible.nama;
       }
     }
@@ -127,19 +138,17 @@ export async function GET(req: NextRequest) {
     // Build stage list with status — only the stages the customer is
     // meant to see. Renumber the visible ones 1..N so the timeline stays
     // sequential even though hidden stages sit between them internally.
-    const stageList = stages
-      .filter(s => CUSTOMER_VISIBLE_STAGES.has(s.nama))
-      .map((s, i) => {
-        const p = progressMap[s.id];
-        return {
-          id: s.id,
-          urutan: i + 1,
-          nama: s.nama,
-          status: p?.status || 'BELUM',
-          started_at: p?.started_at || null,
-          completed_at: p?.completed_at || null,
-        };
-      });
+    const stageList = visibleStages.map((s, i) => {
+      const p = progressMap[s.id];
+      return {
+        id: s.id,
+        urutan: i + 1,
+        nama: s.nama,
+        status: stageDone(s) ? 'SELESAI' : (p?.status || 'BELUM'),
+        started_at: p?.started_at || null,
+        completed_at: p?.completed_at || null,
+      };
+    });
 
     // Tgl Selesai = deadline lock (same math as the CRM Deadline Lock
     // board). Reguler = ACC + 21 working days, Express = ACC + N working
