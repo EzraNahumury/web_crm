@@ -2059,6 +2059,17 @@ const MIGRATIONS: Migration[] = [
       return stmts;
     })(),
   },
+  {
+    // Detail Bahan di Rincian Order (pembayaran modal). Disimpan sebagai JSON
+    // array [{bagian, bahan}] di kolom orders.detail_bahan_json. Struktur meniru
+    // Detail Bahan di WO 1 (bagian + bahan dari master barang), tapi di level
+    // ORDER (sebelum WO dibuat). NB/note tetap di kolom orders.keterangan.
+    // Idempotent (Duplicate column di-skip runner).
+    name: '104_orders_detail_bahan_json',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `detail_bahan_json` LONGTEXT NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

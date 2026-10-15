@@ -29,6 +29,23 @@ function parseRp(s: string): number {
 }
 
 interface ItemLine { id: number; nama: string; qty: number; harga: number }
+// Detail Bahan (Bagian B) — meniru Detail Bahan WO 1: 8 bagian default + bisa
+// tambah baris, bahan dipilih dari master barang.
+interface BahanLine { id: number; bagian: string; bahan: string }
+const DEFAULT_BAHAN_BAGIAN = [
+  'FRONT BODY', 'BACK BODY', 'SLEEVE', 'COMBINATION',
+  'COLLAR', 'SLEEVE ENDS', 'SIDE PANTS STRIPE', 'PANTS',
+];
+function seedDetailBahan(): BahanLine[] {
+  return DEFAULT_BAHAN_BAGIAN.map((bagian, i) => ({ id: i + 1, bagian, bahan: '' }));
+}
+function parseDetailBahan(raw: unknown): BahanLine[] {
+  try {
+    const arr = JSON.parse(String(raw || '[]'));
+    if (!Array.isArray(arr) || arr.length === 0) return seedDetailBahan();
+    return arr.map((r, i) => ({ id: i + 1, bagian: String(r?.bagian || ''), bahan: String(r?.bahan || '') }));
+  } catch { return seedDetailBahan(); }
+}
 
 interface Props {
   open: boolean;
@@ -167,6 +184,10 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // ada (migration 034 belum landing), array kosong dan input jatuh
   // balik ke free-text supaya modal tetap jalan.
   const [barangCs, setBarangCs] = useState<Row[]>([]);
+  // Master barang (nama bahan) untuk dropdown Detail Bahan (Bagian B).
+  const [barangMaster, setBarangMaster] = useState<Row[]>([]);
+  // Detail Bahan (Bagian B) — rows {bagian, bahan}. Default 8 bagian WO.
+  const [detailBahan, setDetailBahan] = useState<BahanLine[]>(seedDetailBahan());
   // Template NB — diambil dari settings (Master → Notes CS Order). Fallback
   // ke DEFAULT_NB_TEMPLATE kalau settings belum diisi.
   const [nbTemplate, setNbTemplate] = useState(DEFAULT_NB_TEMPLATE);
@@ -183,7 +204,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
   const fetchAll = useCallback(async () => {
     try {
-      const [o, p, i, l, bcs, st, lib] = await Promise.all([
+      const [o, p, i, l, bcs, st, lib, brg] = await Promise.all([
         dbGet('orders').catch(() => []),
         dbGet('order_payments').catch(() => []),
         dbGet('order_items').catch(() => []),
@@ -191,11 +212,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
         dbGet('barang_cs').catch(() => []),
         dbGet('settings').catch(() => []),
         dbGet('libur_nasional').catch(() => []),
+        dbGet('barang').catch(() => []),
       ]);
       setOrders(o);
       setPayments(p);
       setItems(i);
       setBarangCs(bcs);
+      setBarangMaster(brg);
       setLeads(l);
       setHolidays(new Set(
         (lib as Row[]).map(h => {
@@ -233,6 +256,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       setDpProdMode('pct'); setDpProdManual(0);
       setItemLines([{ id: 1, nama: '', qty: 0, harga: 0 }]);
       setNoWa(''); setDpDesainTgl(''); setDpProduksiTgl(''); setProofingFixTgl(''); setDeadlineLockTgl('');
+      setDetailBahan(seedDetailBahan());
       return;
     }
     const o = orders.find(x => String(x.id) === pickedOrderId);
@@ -258,6 +282,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       holidays,
     });
     setDeadlineLockTgl(fmtTgl(dl || o.estimasi_deadline || o.deadline_lock || ''));
+    // C6 Detail Bahan (Bagian B) — dari orders.detail_bahan_json (seed default kalau kosong).
+    setDetailBahan(parseDetailBahan(o.detail_bahan_json));
     // Diskon% dari order (kolom baru). Kalau tidak ada, default 0.
     setDiskonPct(Number(o.diskon_pct) || 0);
     const mode = String(o.dp_prod_mode || 'pct') === 'nominal' ? 'nominal' : 'pct';
@@ -301,6 +327,12 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
         if (d && typeof d === 'object') {
           if (d.nama != null) setNama(String(d.nama));
           if (d.alamat != null) setAlamat(String(d.alamat));
+          if (d.noWa != null) setNoWa(String(d.noWa));
+          if (Array.isArray(d.detailBahan) && d.detailBahan.length > 0) {
+            setDetailBahan(d.detailBahan.map((r: BahanLine, idx: number) => ({
+              id: idx + 1, bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
+            })));
+          }
           if (d.leadId != null) setLeadId(String(d.leadId));
           if (d.pembayTunai != null) setPembayTunai(String(d.pembayTunai));
           if (d.payMethod != null) setPayMethod(d.payMethod === 'cash' || d.payMethod === 'bank' ? d.payMethod : '');
@@ -366,9 +398,9 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // restore saat modal dibuka lagi). Simpan tetap yang mempromosikan order ke
   // daftar CS Order + sync WO. Draft dihapus setelah Simpan sukses.
   const draftJson = useMemo(() => JSON.stringify({
-    nama, alamat, leadId, pembayTunai, payMethod, itemLines,
-    ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual,
-  }), [nama, alamat, leadId, pembayTunai, payMethod, itemLines, ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual]);
+    nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines,
+    ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan,
+  }), [nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines, ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan]);
 
   useEffect(() => {
     if (!open || !pickedOrderId || readOnly) return;
@@ -670,6 +702,15 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
           }
         }
       }
+
+      // Detail Bahan (Bagian B) — kolom baru (migration 104). Update terpisah +
+      // try/catch supaya kalau kolom belum ada, simpan utama tetap jalan.
+      try {
+        const cleanBahan = detailBahan
+          .map(r => ({ bagian: String(r.bagian || '').trim(), bahan: String(r.bahan || '').trim() }))
+          .filter(r => r.bagian || r.bahan);
+        await dbUpdate('orders', orderId, { detail_bahan_json: JSON.stringify(cleanBahan) });
+      } catch (err) { console.warn('detail_bahan_json save skipped (kolom belum ada?):', err); }
 
       // Sync order_items: delete all existing then insert current lines
       const existingItems = items.filter(it => Number(it.order_id) === orderId);
@@ -1079,9 +1120,76 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
               {/* NB + Summary panel (Grand Total → Sisa Tagihan) */}
               <div className="grid grid-cols-2 gap-3 mb-2 items-stretch">
-                <div className="flex flex-col">
-                  <div className="text-sm font-bold mb-1">NB: <span className="font-normal text-[10px] text-slate-500">(highlight teks → Ctrl+B untuk bold)</span></div>
-                  <NbEditor value={nb} onChange={setNb} readOnly={readOnly} placeholder="Catatan bahan, promo, size dsb..." />
+                <div className="flex flex-col gap-3">
+                  {/* Bagian B — Detail Bahan (meniru Detail Bahan WO 1) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-sm font-bold">DETAIL BAHAN</div>
+                      {!readOnly && (
+                        <button type="button"
+                          onClick={() => setDetailBahan(prev => [...prev, { id: Date.now(), bagian: '', bahan: '' }])}
+                          className="text-[11px] text-blue-600 border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50">+ Baris</button>
+                      )}
+                    </div>
+                    <table className="w-full border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-800 text-white">
+                          <th className="border border-slate-700 px-2 py-1 text-left w-36">BAGIAN</th>
+                          <th className="border border-slate-700 px-2 py-1 text-left">BAHAN</th>
+                          {!readOnly && <th className="border border-slate-700 px-1 py-1 w-7"></th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detailBahan.map((r, idx) => {
+                          const isDefault = idx < DEFAULT_BAHAN_BAGIAN.length && r.bagian === DEFAULT_BAHAN_BAGIAN[idx];
+                          return (
+                            <tr key={r.id}>
+                              <td className="border border-slate-300 px-1 py-0.5 align-top">
+                                {isDefault || readOnly ? (
+                                  <span className="px-1 text-slate-800 font-medium">{r.bagian || '-'}</span>
+                                ) : (
+                                  <input value={r.bagian}
+                                    onChange={e => setDetailBahan(prev => prev.map(p => p.id === r.id ? { ...p, bagian: e.target.value } : p))}
+                                    placeholder="Nama bagian"
+                                    className="w-full px-1 py-0.5 text-xs bg-transparent border-0 focus:outline-none text-slate-800" />
+                                )}
+                              </td>
+                              <td className="border border-slate-300 px-1 py-0.5 align-top">
+                                {readOnly ? (
+                                  <span className="px-1 text-slate-800">{r.bahan || '-'}</span>
+                                ) : (
+                                  <input list="rincian-bahan-options" value={r.bahan}
+                                    onChange={e => setDetailBahan(prev => prev.map(p => p.id === r.id ? { ...p, bahan: e.target.value } : p))}
+                                    placeholder="Pilih / ketik bahan"
+                                    className="w-full px-1 py-0.5 text-xs bg-white border-0 focus:outline-none text-slate-800" />
+                                )}
+                              </td>
+                              {!readOnly && (
+                                <td className="border border-slate-300 text-center align-top">
+                                  {isDefault ? <span className="text-slate-300">·</span> : (
+                                    <button type="button" title="Hapus baris"
+                                      onClick={() => setDetailBahan(prev => prev.filter(p => p.id !== r.id))}
+                                      className="text-rose-500 hover:text-rose-700 text-xs leading-none px-1">✕</button>
+                                  )}
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {!readOnly && (
+                      <datalist id="rincian-bahan-options">
+                        {barangMaster.map((b: Row) => <option key={b.id} value={String(b.nama)} />)}
+                      </datalist>
+                    )}
+                  </div>
+
+                  {/* NB / Note (tetap ada) */}
+                  <div className="flex flex-col flex-1">
+                    <div className="text-sm font-bold mb-1">NB: <span className="font-normal text-[10px] text-slate-500">(highlight teks → Ctrl+B untuk bold)</span></div>
+                    <NbEditor value={nb} onChange={setNb} readOnly={readOnly} placeholder="Catatan bahan, promo, size dsb..." />
+                  </div>
                 </div>
                 <table className="w-full border-collapse text-sm h-fit">
                   <tbody>
