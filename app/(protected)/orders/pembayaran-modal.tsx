@@ -47,6 +47,47 @@ function parseDetailBahan(raw: unknown): BahanLine[] {
   } catch { return seedDetailBahan(); }
 }
 
+// JOB TICKET — Rincian Order SEKALIGUS jadi job ticket merchandiser (bukan file
+// terpisah). Bagian B (Detail Design) & Bagian C (Rincian Size) + PIC CS & Tgl
+// Design Fix disimpan di orders.job_ticket_json
+// ({ picCs, tglDesignFix, detailDesign{...}, sizes[{size,pendek,panjang}] }).
+interface DetailDesign {
+  model: string; jenisBahan: string; kerah: string; lengan: string; warnaUtama: string;
+  logoSponsor: string; fontNomor: string; linkDesignFix: string; linkProofingFix: string; catatanProofing: string;
+}
+interface SizeRow { size: string; pendek: string; panjang: string }
+const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', '5XL'];
+const DETAIL_DESIGN_FIELDS: { label: string; key: keyof DetailDesign; type?: 'model' }[] = [
+  { label: 'Model (raglan / biasa)', key: 'model', type: 'model' },
+  { label: 'Jenis bahan', key: 'jenisBahan' },
+  { label: 'Kerah', key: 'kerah' },
+  { label: 'Lengan', key: 'lengan' },
+  { label: 'Warna utama', key: 'warnaUtama' },
+  { label: 'Logo & sponsor + posisi', key: 'logoSponsor' },
+  { label: 'Font nama / nomor', key: 'fontNomor' },
+  { label: 'Link file Design Fix', key: 'linkDesignFix' },
+  { label: 'Link file / foto Proofing Fix', key: 'linkProofingFix' },
+  { label: 'Catatan hasil proofing', key: 'catatanProofing' },
+];
+function seedDetailDesign(): DetailDesign {
+  return { model: '', jenisBahan: '', kerah: '', lengan: '', warnaUtama: '', logoSponsor: '', fontNomor: '', linkDesignFix: '', linkProofingFix: '', catatanProofing: '' };
+}
+function seedSizes(): SizeRow[] { return DEFAULT_SIZES.map(size => ({ size, pendek: '', panjang: '' })); }
+function parseJobTicket(raw: unknown): { picCs: string; tglDesignFix: string; detailDesign: DetailDesign; sizes: SizeRow[] } {
+  let o: Record<string, unknown> = {};
+  try { o = JSON.parse(String(raw || '{}')) || {}; } catch { o = {}; }
+  const dd = (o.detailDesign && typeof o.detailDesign === 'object') ? o.detailDesign as Partial<DetailDesign> : {};
+  const sizesArr = Array.isArray(o.sizes) && o.sizes.length > 0
+    ? (o.sizes as SizeRow[]).map(s => ({ size: String(s?.size || ''), pendek: String(s?.pendek || ''), panjang: String(s?.panjang || '') }))
+    : seedSizes();
+  return {
+    picCs: String(o.picCs || ''),
+    tglDesignFix: String(o.tglDesignFix || ''),
+    detailDesign: { ...seedDetailDesign(), ...dd },
+    sizes: sizesArr,
+  };
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -188,6 +229,11 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const [barangMaster, setBarangMaster] = useState<Row[]>([]);
   // Detail Bahan (Bagian B) — rows {bagian, bahan}. Default 8 bagian WO.
   const [detailBahan, setDetailBahan] = useState<BahanLine[]>(seedDetailBahan());
+  // Job Ticket extras: PIC CS/Sales + Tgl Design Fix (editable) + Detail Design + Size.
+  const [picCs, setPicCs] = useState('');
+  const [tglDesignFix, setTglDesignFix] = useState('');
+  const [detailDesign, setDetailDesign] = useState<DetailDesign>(seedDetailDesign());
+  const [sizes, setSizes] = useState<SizeRow[]>(seedSizes());
   // Template NB — diambil dari settings (Master → Notes CS Order). Fallback
   // ke DEFAULT_NB_TEMPLATE kalau settings belum diisi.
   const [nbTemplate, setNbTemplate] = useState(DEFAULT_NB_TEMPLATE);
@@ -257,6 +303,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       setItemLines([{ id: 1, nama: '', qty: 0, harga: 0 }]);
       setNoWa(''); setDpDesainTgl(''); setDpProduksiTgl(''); setProofingFixTgl(''); setDeadlineLockTgl('');
       setDetailBahan(seedDetailBahan());
+      setPicCs(''); setTglDesignFix(''); setDetailDesign(seedDetailDesign()); setSizes(seedSizes());
       return;
     }
     const o = orders.find(x => String(x.id) === pickedOrderId);
@@ -284,6 +331,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setDeadlineLockTgl(fmtTgl(dl || o.estimasi_deadline || o.deadline_lock || ''));
     // C6 Detail Bahan (Bagian B) — dari orders.detail_bahan_json (seed default kalau kosong).
     setDetailBahan(parseDetailBahan(o.detail_bahan_json));
+    // Job Ticket: PIC CS, Tgl Design Fix, Detail Design, Rincian Size — dari orders.job_ticket_json.
+    { const jt = parseJobTicket(o.job_ticket_json); setPicCs(jt.picCs); setTglDesignFix(jt.tglDesignFix); setDetailDesign(jt.detailDesign); setSizes(jt.sizes); }
     // Diskon% dari order (kolom baru). Kalau tidak ada, default 0.
     setDiskonPct(Number(o.diskon_pct) || 0);
     const mode = String(o.dp_prod_mode || 'pct') === 'nominal' ? 'nominal' : 'pct';
@@ -332,6 +381,12 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
             setDetailBahan(d.detailBahan.map((r: BahanLine, idx: number) => ({
               id: idx + 1, bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
             })));
+          }
+          if (d.picCs != null) setPicCs(String(d.picCs));
+          if (d.tglDesignFix != null) setTglDesignFix(String(d.tglDesignFix));
+          if (d.detailDesign && typeof d.detailDesign === 'object') setDetailDesign({ ...seedDetailDesign(), ...d.detailDesign });
+          if (Array.isArray(d.sizes) && d.sizes.length > 0) {
+            setSizes((d.sizes as SizeRow[]).map(s => ({ size: String(s.size || ''), pendek: String(s.pendek || ''), panjang: String(s.panjang || '') })));
           }
           if (d.leadId != null) setLeadId(String(d.leadId));
           if (d.pembayTunai != null) setPembayTunai(String(d.pembayTunai));
@@ -400,7 +455,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const draftJson = useMemo(() => JSON.stringify({
     nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines,
     ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan,
-  }), [nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines, ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan]);
+    picCs, tglDesignFix, detailDesign, sizes,
+  }), [nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines, ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan, picCs, tglDesignFix, detailDesign, sizes]);
 
   useEffect(() => {
     if (!open || !pickedOrderId || readOnly) return;
@@ -712,6 +768,19 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
         await dbUpdate('orders', orderId, { detail_bahan_json: JSON.stringify(cleanBahan) });
       } catch (err) { console.warn('detail_bahan_json save skipped (kolom belum ada?):', err); }
 
+      // Job Ticket (PIC CS, Tgl Design Fix, Detail Design, Rincian Size) — kolom
+      // baru (migration 105). Update terpisah + try/catch supaya simpan utama
+      // tetap jalan kalau kolom belum ada.
+      try {
+        const jobTicket = {
+          picCs: picCs.trim(),
+          tglDesignFix: tglDesignFix.trim(),
+          detailDesign,
+          sizes: sizes.map(s => ({ size: s.size, pendek: s.pendek, panjang: s.panjang })),
+        };
+        await dbUpdate('orders', orderId, { job_ticket_json: JSON.stringify(jobTicket) });
+      } catch (err) { console.warn('job_ticket_json save skipped (kolom belum ada?):', err); }
+
       // Sync order_items: delete all existing then insert current lines
       const existingItems = items.filter(it => Number(it.order_id) === orderId);
       for (const it of existingItems) {
@@ -903,6 +972,11 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
               <table className="w-full border-collapse mb-3 text-sm">
                 <tbody>
                   <tr>
+                    <td className={`${cellCls} bg-slate-100 font-semibold w-32`}>NO. ORDER</td>
+                    <td className={`${cellCls} w-4 text-center`}>:</td>
+                    <td className={`${cellCls} text-slate-800 font-semibold`}>{noOrder || <span className="text-slate-400 font-normal">—</span>}</td>
+                  </tr>
+                  <tr>
                     <td className={`${cellCls} bg-slate-100 font-semibold w-32`}>NAMA</td>
                     <td className={`${cellCls} w-4 text-center`}>:</td>
                     <td className={`${cellCls}`}>
@@ -924,6 +998,14 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                     <td className={`${cellCls}`}>
                       <input type="tel" value={noWa} onChange={e => setNoWa(e.target.value)}
                         placeholder="No WhatsApp customer (dari CS Selling)" className={inputCls} readOnly={readOnly} />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className={`${cellCls} bg-slate-100 font-semibold`}>PIC CS / SALES</td>
+                    <td className={`${cellCls} text-center`}>:</td>
+                    <td className={`${cellCls}`}>
+                      <input type="text" value={picCs} onChange={e => setPicCs(e.target.value)}
+                        placeholder="Nama PIC CS / Sales" className={inputCls} readOnly={readOnly} />
                     </td>
                   </tr>
                   <tr>
@@ -956,6 +1038,14 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                           <span>Bank</span>
                         </label>
                       </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className={`${cellCls} bg-slate-100 font-semibold`}>TGL DESIGN FIX</td>
+                    <td className={`${cellCls} text-center`}>:</td>
+                    <td className={`${cellCls}`}>
+                      <input type="text" value={tglDesignFix} onChange={e => setTglDesignFix(e.target.value)}
+                        placeholder="dd/mm/yyyy" className={inputCls} readOnly={readOnly} />
                     </td>
                   </tr>
                   {/* C5 + C4 — terisi otomatis dari menu luar (read-only) */}
@@ -1304,6 +1394,58 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                   </tbody>
                 </table>
               </div>
+
+              {/* B. DETAIL DESIGN — bagian job ticket di dalam Rincian Order */}
+              <table className="w-full border-collapse mb-2 text-sm">
+                <tbody>
+                  <tr><td colSpan={3} className="border border-slate-400 bg-slate-800 text-white font-bold px-2 py-1.5">DETAIL DESIGN</td></tr>
+                  {DETAIL_DESIGN_FIELDS.map(f => (
+                    <tr key={f.key}>
+                      <td className={`${cellCls} bg-slate-100 font-semibold w-52`}>{f.label}</td>
+                      <td className={`${cellCls} w-4 text-center`}>:</td>
+                      <td className={cellCls}>
+                        {f.type === 'model' ? (
+                          <select value={detailDesign.model} onChange={e => setDetailDesign(d => ({ ...d, model: e.target.value }))} disabled={readOnly} className={`${inputCls} bg-white appearance-none`}>
+                            <option value="">—</option>
+                            <option value="Raglan">Raglan</option>
+                            <option value="Biasa">Biasa</option>
+                          </select>
+                        ) : (
+                          <input type="text" value={detailDesign[f.key]} onChange={e => setDetailDesign(d => ({ ...d, [f.key]: e.target.value }))} readOnly={readOnly} className={inputCls} placeholder="..." />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* C. RINCIAN SIZE */}
+              <table className="w-full border-collapse mb-2 text-sm">
+                <tbody>
+                  <tr><td colSpan={4} className="border border-slate-400 bg-slate-800 text-white font-bold px-2 py-1.5">RINCIAN SIZE</td></tr>
+                  <tr>
+                    <td className={`${cellCls} bg-slate-200 font-bold text-center`}>SIZE</td>
+                    <td className={`${cellCls} bg-slate-200 font-bold text-center`}>LENGAN PENDEK</td>
+                    <td className={`${cellCls} bg-slate-200 font-bold text-center`}>LENGAN PANJANG</td>
+                    <td className={`${cellCls} bg-slate-200 font-bold text-center w-24`}>TOTAL</td>
+                  </tr>
+                  {sizes.map((s, i) => {
+                    const total = (Number(s.pendek) || 0) + (Number(s.panjang) || 0);
+                    return (
+                      <tr key={s.size || i}>
+                        <td className={`${cellCls} font-semibold text-center`}>{s.size}</td>
+                        <td className={cellCls}><input value={s.pendek} inputMode="numeric" onChange={e => setSizes(prev => prev.map((p, idx) => idx === i ? { ...p, pendek: e.target.value.replace(/\D/g, '') } : p))} readOnly={readOnly} className={`${inputCls} text-center`} placeholder="0" /></td>
+                        <td className={cellCls}><input value={s.panjang} inputMode="numeric" onChange={e => setSizes(prev => prev.map((p, idx) => idx === i ? { ...p, panjang: e.target.value.replace(/\D/g, '') } : p))} readOnly={readOnly} className={`${inputCls} text-center`} placeholder="0" /></td>
+                        <td className={`${cellCls} text-center tabular-nums font-semibold`}>{total || 0}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="font-bold">
+                    <td colSpan={3} className={`${cellCls} bg-slate-200 text-right`}>TOTAL</td>
+                    <td className={`${cellCls} bg-slate-200 text-center tabular-nums`}>{sizes.reduce((a, s) => a + (Number(s.pendek) || 0) + (Number(s.panjang) || 0), 0)}</td>
+                  </tr>
+                </tbody>
+              </table>
 
               {readOnly && trackingLink && (
                 <div className="mt-4 border border-blue-200 bg-blue-50 rounded-lg p-3 flex items-center justify-between gap-3">
