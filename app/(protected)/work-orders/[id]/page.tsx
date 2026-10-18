@@ -4168,6 +4168,43 @@ function sizeSortIndex(v: string): number {
   return idx === -1 ? 999 : idx;
 }
 
+// Label header WO2 yang bisa diedit inline (klik 2x → input). Commit saat blur
+// / Enter; Escape batal. stopPropagation supaya tidak memicu drag-reorder.
+function EditableHeaderLabel({ id, label, style, onRename }: {
+  id: string; label: string; style?: React.CSSProperties; onRename: (id: string, label: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(label);
+  useEffect(() => { if (!editing) setVal(label); }, [label, editing]);
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onClick={e => e.stopPropagation()}
+        onMouseDown={e => e.stopPropagation()}
+        onBlur={() => { setEditing(false); const t = val.trim(); if (t && t !== label) onRename(id, t); }}
+        onKeyDown={e => {
+          e.stopPropagation();
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          else if (e.key === 'Escape') { setVal(label); setEditing(false); }
+        }}
+        style={style}
+        className="bg-white text-slate-900 text-center rounded px-1 w-full min-w-[56px] focus:outline-none focus:ring-1 focus:ring-blue-400"
+      />
+    );
+  }
+  return (
+    <span
+      style={style}
+      title="Klik 2x untuk ubah nama kolom"
+      onDoubleClick={e => { e.stopPropagation(); setEditing(true); }}
+      className="cursor-text"
+    >{label}</span>
+  );
+}
+
 function TabDetailUkuranTim({ wo, onRegisterExcel }: { wo: Row; onRegisterExcel?: (fn: (() => void) | null) => void }) {
   const toast = useToast();
   const [rows, setRows] = useState<UkuranRow[]>([]);
@@ -4249,6 +4286,18 @@ function TabDetailUkuranTim({ wo, onRegisterExcel }: { wo: Row; onRegisterExcel?
   }
   const headerFontStyle = (colId: string): React.CSSProperties =>
     headerFontMap[colId] ? { fontSize: `${headerFontMap[colId]}px` } : {};
+
+  // Ganti nama header kolom/sub-kolom (klik 2x teks header). Tidak menghapus
+  // data — hanya mengubah label tampil, jadi tak perlu hapus+tambah kolom.
+  function renameWo2Col(id: string, label: string) {
+    setKolom(prev => prev.map(col => {
+      if (col.id === id) return { ...col, label };
+      if (col.children && col.children.some(ch => ch.id === id)) {
+        return { ...col, children: col.children.map(ch => ch.id === id ? { ...ch, label } : ch) };
+      }
+      return col;
+    }));
+  }
 
   // Mini A− / A+ control shown on header hover to resize just that column.
   // stopPropagation so it never triggers the header's drag / sort onClick.
@@ -4853,7 +4902,7 @@ function TabDetailUkuranTim({ wo, onRegisterExcel }: { wo: Row; onRegisterExcel?
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik icon X untuk hapus kolom. Hover header lalu klik A− / A+ untuk atur ukuran font kolom itu. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell ke bawah/atas untuk auto-fill (Excel-style). NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
+      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik 2x nama header untuk ubah namanya. Klik icon X untuk hapus kolom. Hover header lalu klik A− / A+ untuk atur ukuran font kolom itu. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell ke bawah/atas untuk auto-fill (Excel-style). NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
 
       {/* Bounded-height scroll box so the horizontal scrollbar sits at the
           bottom edge of the visible box (always on-screen) instead of the
@@ -4908,7 +4957,7 @@ function TabDetailUkuranTim({ wo, onRegisterExcel }: { wo: Row; onRegisterExcel?
                         <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                           <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm9-13a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm1 5a1 1 0 11-2 0 1 1 0 012 0z" />
                         </svg>
-                        <span style={headerFontStyle(k.id)}>{k.label}</span>
+                        <EditableHeaderLabel id={k.id} label={k.label} style={headerFontStyle(k.id)} onRename={renameWo2Col} />
                         {curDir === 'asc' && (
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
@@ -4949,7 +4998,7 @@ function TabDetailUkuranTim({ wo, onRegisterExcel }: { wo: Row; onRegisterExcel?
                       <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                         <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm9-13a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm1 5a1 1 0 11-2 0 1 1 0 012 0z" />
                       </svg>
-                      <span style={headerFontStyle(k.id)}>{k.label}</span>
+                      <EditableHeaderLabel id={k.id} label={k.label} style={headerFontStyle(k.id)} onRename={renameWo2Col} />
                     </span>
                     {headerDeleteButton(k.id, k.label, `Hapus kolom ${k.label}`)}
                     {headerFontControls(k.id)}
@@ -4981,7 +5030,7 @@ function TabDetailUkuranTim({ wo, onRegisterExcel }: { wo: Row; onRegisterExcel?
                               <svg className="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                                 <path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zm0 6a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm9-13a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 100-2 1 1 0 000 2zm1 5a1 1 0 11-2 0 1 1 0 012 0z" />
                               </svg>
-                              <span style={headerFontStyle(c.id)}>{c.label}</span>
+                              <EditableHeaderLabel id={c.id} label={c.label} style={headerFontStyle(c.id)} onRename={renameWo2Col} />
                             </span>
                             {headerDeleteButton(c.id, `${k.label} -> ${c.label}`, `Hapus sub-kolom ${c.label}`)}
                             {headerFontControls(c.id)}
