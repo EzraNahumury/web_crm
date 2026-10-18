@@ -261,6 +261,73 @@ export default function LaporanDeadlineCsOrderPage() {
   const thisMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
 
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [excelBusy, setExcelBusy] = useState(false);
+
+  // Export Excel — mirip tampilan spreadsheet CRM: per tanggal Deadline Lock,
+  // kolom NO/CUSTOMER/QTY/PAKET/POINT/BONUS/KET + baris TOTAL, semua di 1 sheet.
+  async function downloadExcel() {
+    if (dateGroups.length === 0) return;
+    setExcelBusy(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const XLSX = (await import('xlsx-js-style')).default as any;
+      const COLS = 7;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const aoa: any[][] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const merges: any[] = [];
+      const titleStyle = { font: { bold: true, sz: 14 } };
+      const subStyle = { font: { sz: 10, color: { rgb: '64748B' } } };
+      const dateStyle = { font: { bold: true, sz: 11, color: { rgb: '1E293B' } }, fill: { fgColor: { rgb: 'FBBF24' } } };
+      const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'BAE6FD' } }, alignment: { horizontal: 'center' } };
+      const totLabel = { font: { bold: true }, fill: { fgColor: { rgb: 'F1F5F9' } }, alignment: { horizontal: 'center' } };
+      const totQty = { font: { bold: true }, fill: { fgColor: { rgb: 'BBF7D0' } }, alignment: { horizontal: 'center' } };
+      const totPoint = { font: { bold: true }, fill: { fgColor: { rgb: 'FECACA' } }, alignment: { horizontal: 'right' } };
+
+      aoa.push([{ v: `LAPORAN DEADLINE CS ORDER — ${monthLabelSel}`, s: titleStyle }]);
+      merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: COLS - 1 } });
+      aoa.push([{ v: `${monthRows.length} order · ${totalQty} pcs · ${totalPoint.toLocaleString('id-ID')} poin`, s: subStyle }]);
+      merges.push({ s: { r: 1, c: 0 }, e: { r: 1, c: COLS - 1 } });
+      aoa.push([]);
+
+      for (const g of dateGroups) {
+        const r0 = aoa.length;
+        aoa.push([{ v: fmtDL(g.dl), s: dateStyle }]);
+        merges.push({ s: { r: r0, c: 0 }, e: { r: r0, c: COLS - 1 } });
+        aoa.push(['NO', 'CUSTOMER', 'QTY', 'PAKET', 'POINT', 'BONUS', 'KET'].map(h => ({ v: h, s: headStyle })));
+        g.rows.forEach((o, oi) => {
+          o.lines.forEach((l, li) => {
+            const tier = lineTier(l, o);
+            aoa.push([
+              li === 0 ? oi + 1 : '',
+              li === 0 ? (o.customer || '-') : '',
+              l.qty,
+              l.detected ? l.display : (o.manualTier || '-'),
+              tier ? linePoint(l, o) : '',
+              li === 0 ? (o.bonus || '') : '',
+              li === 0 ? htmlToText(o.ket || '') : '',
+            ]);
+          });
+        });
+        aoa.push([
+          { v: 'TOTAL', s: totLabel }, { v: '', s: totLabel },
+          { v: g.qty, s: totQty }, { v: '', s: totLabel },
+          { v: g.point, s: totPoint }, '', '',
+        ]);
+        merges.push({ s: { r: aoa.length - 1, c: 0 }, e: { r: aoa.length - 1, c: 1 } });
+        aoa.push([]);
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!merges'] = merges;
+      ws['!cols'] = [{ wch: 5 }, { wch: 36 }, { wch: 8 }, { wch: 16 }, { wch: 10 }, { wch: 26 }, { wch: 34 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Deadline CS Order');
+      XLSX.writeFile(wb, `Laporan-Deadline-${selectedMonth || 'semua'}.xlsx`);
+    } catch (e) { console.error('Excel gagal', e); }
+    setExcelBusy(false);
+  }
+
   async function downloadPdf() {
     if (dateGroups.length === 0) return;
     setPdfBusy(true);
@@ -358,6 +425,12 @@ export default function LaporanDeadlineCsOrderPage() {
               title="Download PDF laporan deadline bulan ini">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               {pdfBusy ? 'Membuat...' : 'Download PDF'}
+            </button>
+            <button onClick={downloadExcel} disabled={excelBusy || dateGroups.length === 0}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-green-300 border border-green-500/25 bg-green-500/10 hover:bg-green-500/15 disabled:opacity-40 px-3 py-2 rounded-lg transition-colors shrink-0"
+              title="Export Excel laporan deadline bulan ini">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75h16.5v16.5H3.75zM3.75 9h16.5M9 3.75v16.5" /></svg>
+              {excelBusy ? 'Membuat...' : 'Export Excel'}
             </button>
             <div className="relative flex-1 basis-full sm:basis-[220px] min-w-[180px]">
               <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
