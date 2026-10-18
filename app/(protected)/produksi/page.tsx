@@ -556,6 +556,14 @@ export default function ProduksiPage() {
     // di atas. WO tanpa target (belum ada tanggal_deadline) taruh di
     // paling bawah supaya operator fokus ke yang urgent dulu.
     return filtered.slice().sort((a, b) => {
+      // Shipment: WO yang sudah submit pelunasan & menunggu approval finance
+      // (pelunasan PENDING) ditaruh PALING BAWAH — supaya operator fokus ke WO
+      // yang masih perlu diproses dulu (Full Finished / Submit Pelunasan) di atas.
+      if (activeStage === 'Shipment') {
+        const pa = isPelunasanPending(a) ? 1 : 0;
+        const pb = isPelunasanPending(b) ? 1 : 0;
+        if (pa !== pb) return pa - pb;
+      }
       const tA = woTargets[Number(a.wo?.id)]?.targetSelesai || '';
       const tB = woTargets[Number(b.wo?.id)]?.targetSelesai || '';
       if (!tA && !tB) return 0;
