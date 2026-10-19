@@ -4,6 +4,7 @@ import { dbGet, dbUpdate, dbCreate } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
 import { useAuth } from '@/lib/auth-context';
 import { sanitizeNbHtml } from '@/lib/utils';
+import { Pagination, paginate } from '@/lib/pagination';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -29,6 +30,8 @@ export default function ApprovalFinancePage() {
   const toast = useToast();
   const [filter, setFilter] = useState<Filter>('PENDING');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Row[]>([]);
   const [payments, setPayments] = useState<Row[]>([]);
@@ -117,6 +120,10 @@ export default function ApprovalFinancePage() {
       return true;
     }).sort((a: Row, b: Row) => Number(b.id) - Number(a.id));
   }, [scoped, filter, search]);
+
+  // Pagination (default 10/halaman) supaya tidak perlu scroll panjang.
+  const paged = paginate(filtered, page, pageSize);
+  useEffect(() => { setPage(1); }, [filter, search, pageSize]);
 
   const counts = useMemo(() => {
     return {
@@ -416,7 +423,7 @@ export default function ApprovalFinancePage() {
                     <p className="text-xs text-slate-500 max-w-xs">Coba pilih tab lain untuk melihat order dengan status berbeda.</p>
                   </div>
                 </td></tr>
-              ) : filtered.map((o: Row) => {
+              ) : paged.slice.map((o: Row) => {
                 const p = paymentsByOrder[Number(o.id)] || [];
                 const dpDesain = p.find((x: Row) => String(x.tipe) === 'dp_desain');
                 const dpAmt = Number(dpDesain?.amount || o.dp_desain || 0);
@@ -508,6 +515,12 @@ export default function ApprovalFinancePage() {
             </tbody>
           </table>
         </div>
+        {filtered.length > 0 && (
+          <div className="px-4 py-3 border-t border-white/[0.06]">
+            <Pagination current={paged.current} total={paged.total} count={paged.count} pageSize={pageSize}
+              onChange={setPage} onPageSizeChange={(n) => { setPageSize(n); setPage(1); }} />
+          </div>
+        )}
       </div>
 
       {detail && (() => {
