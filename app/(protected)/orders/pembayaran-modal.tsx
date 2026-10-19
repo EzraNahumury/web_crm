@@ -4,7 +4,6 @@ import { dbGet, dbCreate, dbUpdate, dbDelete } from '@/lib/api-db';
 import { invalidateCache } from '@/lib/cache';
 import { useToast } from '@/lib/toast';
 import { DEFAULT_NB_TEMPLATE, NB_TEMPLATE_KEY } from '@/lib/nb-template';
-import { computeDeadlineLock } from '@/lib/business-days';
 
 // Tanggal apa pun → 'dd/mm/yyyy'. '-' kalau kosong/invalid.
 function fmtTgl(d: unknown): string {
@@ -50,10 +49,10 @@ function parseDetailBahan(raw: unknown): BahanLine[] {
 // JOB TICKET — PIC CS/Sales & Tgl Design Fix dibawa di Rincian Order (disimpan
 // di orders.job_ticket_json). Bagian Detail Design & Rincian Size dihapus atas
 // permintaan.
-function parseJobTicket(raw: unknown): { picCs: string; tglDesignFix: string } {
+function parseJobTicket(raw: unknown): { picCs: string } {
   let o: Record<string, unknown> = {};
   try { o = JSON.parse(String(raw || '{}')) || {}; } catch { o = {}; }
-  return { picCs: String(o.picCs || ''), tglDesignFix: String(o.tglDesignFix || '') };
+  return { picCs: String(o.picCs || '') };
 }
 
 interface Props {
@@ -179,16 +178,11 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const [noOrder, setNoOrder] = useState('');
   // No WA customer (dari CS Selling; editable → tersimpan ke customer_phone).
   const [noWa, setNoWa] = useState('');
-  // Tanggal-tanggal otomatis (read-only) yang terisi dari data menu luar:
+  // Tanggal otomatis (read-only) di bagian DP:
   //   dpDesainTgl    ← tanggal pembayaran DP Desain (order_payments dp_desain)
   //   dpProduksiTgl  ← tanggal upload bukti TF DP Produksi (order_payments dp_produksi)
-  //   proofingFixTgl ← orders.tanggal_acc_proofing (ACC proofing di menu luar)
-  //   deadlineLockTgl← hasil compute Deadline Lock (sama dgn board & tracking)
   const [dpDesainTgl, setDpDesainTgl] = useState('');
   const [dpProduksiTgl, setDpProduksiTgl] = useState('');
-  const [proofingFixTgl, setProofingFixTgl] = useState('');
-  const [deadlineLockTgl, setDeadlineLockTgl] = useState('');
-  const [holidays, setHolidays] = useState<Set<string>>(new Set());
   // Master Barang CS untuk dropdown Nama Barang. Kalau tabel/API belum
   // ada (migration 034 belum landing), array kosong dan input jatuh
   // balik ke free-text supaya modal tetap jalan.
@@ -197,9 +191,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const [barangMaster, setBarangMaster] = useState<Row[]>([]);
   // Detail Bahan (Bagian B) — rows {bagian, bahan}. Default 8 bagian WO.
   const [detailBahan, setDetailBahan] = useState<BahanLine[]>(seedDetailBahan());
-  // Job Ticket: PIC CS/Sales + Tgl Design Fix (editable) di header Rincian Order.
+  // PIC CS/Sales (editable) di header Rincian Order.
   const [picCs, setPicCs] = useState('');
-  const [tglDesignFix, setTglDesignFix] = useState('');
   // Template NB — diambil dari settings (Master → Notes CS Order). Fallback
   // ke DEFAULT_NB_TEMPLATE kalau settings belum diisi.
   const [nbTemplate, setNbTemplate] = useState(DEFAULT_NB_TEMPLATE);
@@ -216,14 +209,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
 
   const fetchAll = useCallback(async () => {
     try {
-      const [o, p, i, l, bcs, st, lib, brg] = await Promise.all([
+      const [o, p, i, l, bcs, st, brg] = await Promise.all([
         dbGet('orders').catch(() => []),
         dbGet('order_payments').catch(() => []),
         dbGet('order_items').catch(() => []),
         dbGet('leads').catch(() => []),
         dbGet('barang_cs').catch(() => []),
         dbGet('settings').catch(() => []),
-        dbGet('libur_nasional').catch(() => []),
         dbGet('barang').catch(() => []),
       ]);
       setOrders(o);
@@ -232,14 +224,6 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       setBarangCs(bcs);
       setBarangMaster(brg);
       setLeads(l);
-      setHolidays(new Set(
-        (lib as Row[]).map(h => {
-          if (!h.tanggal) return '';
-          const s = h.tanggal instanceof Date ? h.tanggal.toISOString() : String(h.tanggal);
-          const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
-          return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
-        }).filter(Boolean)
-      ));
       const tpl = (st as Row[]).find(s => String(s.key_name) === NB_TEMPLATE_KEY);
       if (tpl && String(tpl.value ?? '').trim()) setNbTemplate(String(tpl.value));
     } catch (e) { console.error(e); }
@@ -267,9 +251,9 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       setDiskonPct(0); setDpProdPct(70);
       setDpProdMode('pct'); setDpProdManual(0);
       setItemLines([{ id: 1, nama: '', qty: 0, harga: 0 }]);
-      setNoWa(''); setDpDesainTgl(''); setDpProduksiTgl(''); setProofingFixTgl(''); setDeadlineLockTgl('');
+      setNoWa(''); setDpDesainTgl(''); setDpProduksiTgl('');
       setDetailBahan(seedDetailBahan());
-      setPicCs(''); setTglDesignFix('');
+      setPicCs('');
       return;
     }
     const o = orders.find(x => String(x.id) === pickedOrderId);
@@ -285,20 +269,12 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setNb(String(o.keterangan || nbTemplate));
     setTrackingLink(String(o.tracking_link || ''));
     setNoOrder(String(o.no_order || ''));
-    // C1 No WA, C5 Tgl Proofing Fix, C4 Tgl Deadline Lock — auto dari order.
+    // No WA — auto dari order (editable).
     setNoWa(String(o.customer_phone || ''));
-    setProofingFixTgl(o.tanggal_acc_proofing ? fmtTgl(o.tanggal_acc_proofing) : '');
-    const dl = computeDeadlineLock({
-      pilihanPaket: o.pilihan_paket,
-      tanggalAccProofing: o.tanggal_acc_proofing,
-      deadlineLock: o.deadline_lock,
-      holidays,
-    });
-    setDeadlineLockTgl(fmtTgl(dl || o.estimasi_deadline || o.deadline_lock || ''));
-    // C6 Detail Bahan (Bagian B) — dari orders.detail_bahan_json (seed default kalau kosong).
+    // Detail Bahan (Bagian B) — dari orders.detail_bahan_json (seed default kalau kosong).
     setDetailBahan(parseDetailBahan(o.detail_bahan_json));
-    // Job Ticket: PIC CS & Tgl Design Fix — dari orders.job_ticket_json.
-    { const jt = parseJobTicket(o.job_ticket_json); setPicCs(jt.picCs); setTglDesignFix(jt.tglDesignFix); }
+    // PIC CS/Sales — dari orders.job_ticket_json.
+    { const jt = parseJobTicket(o.job_ticket_json); setPicCs(jt.picCs); }
     // Diskon% dari order (kolom baru). Kalau tidak ada, default 0.
     setDiskonPct(Number(o.diskon_pct) || 0);
     const mode = String(o.dp_prod_mode || 'pct') === 'nominal' ? 'nominal' : 'pct';
@@ -349,7 +325,6 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
             })));
           }
           if (d.picCs != null) setPicCs(String(d.picCs));
-          if (d.tglDesignFix != null) setTglDesignFix(String(d.tglDesignFix));
           if (d.leadId != null) setLeadId(String(d.leadId));
           if (d.pembayTunai != null) setPembayTunai(String(d.pembayTunai));
           if (d.payMethod != null) setPayMethod(d.payMethod === 'cash' || d.payMethod === 'bank' ? d.payMethod : '');
@@ -417,8 +392,8 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   const draftJson = useMemo(() => JSON.stringify({
     nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines,
     ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan,
-    picCs, tglDesignFix,
-  }), [nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines, ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan, picCs, tglDesignFix]);
+    picCs,
+  }), [nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines, ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan, picCs]);
 
   useEffect(() => {
     if (!open || !pickedOrderId || readOnly) return;
@@ -734,7 +709,7 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       // baru (migration 105). Update terpisah + try/catch supaya simpan utama
       // tetap jalan kalau kolom belum ada.
       try {
-        const jobTicket = { picCs: picCs.trim(), tglDesignFix: tglDesignFix.trim() };
+        const jobTicket = { picCs: picCs.trim() };
         await dbUpdate('orders', orderId, { job_ticket_json: JSON.stringify(jobTicket) });
       } catch (err) { console.warn('job_ticket_json save skipped (kolom belum ada?):', err); }
 
@@ -995,33 +970,6 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                           <span>Bank</span>
                         </label>
                       </div>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className={`${cellCls} bg-slate-100 font-semibold`}>TGL DESIGN FIX</td>
-                    <td className={`${cellCls} text-center`}>:</td>
-                    <td className={`${cellCls}`}>
-                      <input type="text" value={tglDesignFix} onChange={e => setTglDesignFix(e.target.value)}
-                        placeholder="dd/mm/yyyy" className={inputCls} readOnly={readOnly} />
-                    </td>
-                  </tr>
-                  {/* C5 + C4 — terisi otomatis dari menu luar (read-only) */}
-                  <tr>
-                    <td className={`${cellCls} bg-slate-100 font-semibold`}>TGL PROOFING FIX</td>
-                    <td className={`${cellCls} text-center`}>:</td>
-                    <td className={`${cellCls} text-slate-800`}>
-                      {proofingFixTgl && proofingFixTgl !== '-'
-                        ? proofingFixTgl
-                        : <span className="text-slate-400 italic text-xs">otomatis dari ACC Proofing (menu luar)</span>}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className={`${cellCls} bg-slate-100 font-semibold`}>TGL DEADLINE LOCK</td>
-                    <td className={`${cellCls} text-center`}>:</td>
-                    <td className={`${cellCls} text-slate-800`}>
-                      {deadlineLockTgl && deadlineLockTgl !== '-'
-                        ? deadlineLockTgl
-                        : <span className="text-slate-400 italic text-xs">otomatis dari Deadline Lock (menu luar)</span>}
                     </td>
                   </tr>
                 </tbody>
