@@ -4168,8 +4168,10 @@ function sizeSortIndex(v: string): number {
   return idx === -1 ? 999 : idx;
 }
 
-// Label header WO2 yang bisa diedit inline (klik 2x → input). Commit saat blur
-// / Enter; Escape batal. stopPropagation supaya tidak memicu drag-reorder.
+// Label header WO2 yang bisa diedit inline. Edit dipicu via tombol pensil (✎)
+// ATAU klik 2x. Pakai tombol karena header <th> ber-`draggable`, sehingga
+// double-click/seleksi teks sering tidak jalan — tombol (klik tanpa geser) tetap
+// andal, sama seperti tombol X hapus & A−/A+. Commit saat blur/Enter, Escape batal.
 function EditableHeaderLabel({ id, label, style, onRename }: {
   id: string; label: string; style?: React.CSSProperties; onRename: (id: string, label: string) => void;
 }) {
@@ -4196,12 +4198,24 @@ function EditableHeaderLabel({ id, label, style, onRename }: {
     );
   }
   return (
-    <span
-      style={style}
-      title="Klik 2x untuk ubah nama kolom"
-      onDoubleClick={e => { e.stopPropagation(); setEditing(true); }}
-      className="cursor-text"
-    >{label}</span>
+    <span className="inline-flex items-center justify-center gap-1 group/hdr">
+      <span
+        style={style}
+        title="Ubah nama kolom (klik ✎ atau 2x)"
+        onDoubleClick={e => { e.stopPropagation(); setEditing(true); }}
+        className="cursor-text"
+      >{label}</span>
+      <button
+        type="button"
+        title="Ubah nama kolom"
+        draggable={false}
+        onMouseDown={e => e.stopPropagation()}
+        onClick={e => { e.stopPropagation(); e.preventDefault(); setEditing(true); }}
+        className="opacity-50 hover:opacity-100 shrink-0 text-current"
+      >
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+      </button>
+    </span>
   );
 }
 
@@ -4902,7 +4916,7 @@ function TabDetailUkuranTim({ wo, onRegisterExcel }: { wo: Row; onRegisterExcel?
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik 2x nama header untuk ubah namanya. Klik icon X untuk hapus kolom. Hover header lalu klik A− / A+ untuk atur ukuran font kolom itu. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell ke bawah/atas untuk auto-fill (Excel-style). NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
+      <p className="text-[11px] text-slate-500">Tip: drag header untuk ubah posisi. Klik ikon ✎ (atau 2x) pada nama header untuk ubah namanya. Klik icon X untuk hapus kolom. Hover header lalu klik A− / A+ untuk atur ukuran font kolom itu. Klik SIZE/KET untuk sort. Copy dari Excel + paste di cell mana saja untuk isi banyak baris sekaligus. Drag <span className="inline-block w-2 h-2 bg-emerald-500 align-middle mx-0.5" /> di corner cell ke bawah/atas untuk auto-fill (Excel-style). NAMA / NP / SIZE / KET otomatis sinkron ke WO 3 saat Simpan.</p>
 
       {/* Bounded-height scroll box so the horizontal scrollbar sits at the
           bottom edge of the visible box (always on-screen) instead of the
