@@ -39,6 +39,7 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
   const a = PROGRESS_ACCENTS[accent] || PROGRESS_ACCENTS.sky;
   const hasKet = !!(ketOptions && ketOptions.length);
   const [month, setMonth] = useState(currentYm());
+  const [search, setSearch] = useState('');
   const [rows, setRows] = useState<SRow[]>([]);
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,13 +85,19 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
   }, [table, month]);
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Filter per nama customer (cari progress terakhir customer).
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? rows.filter(r => String(r.customer || '').toLowerCase().includes(q)) : rows;
+  }, [rows, search]);
+
   const groupedByDate = useMemo(() => {
     const g: Record<string, SRow[]> = {};
-    for (const r of rows) (g[r.tanggal] ||= []).push(r);
+    for (const r of filteredRows) (g[r.tanggal] ||= []).push(r);
     return g;
-  }, [rows]);
+  }, [filteredRows]);
 
-  const totalQty = rows.reduce((s, r) => s + r.qty, 0);
+  const totalQty = filteredRows.reduce((s, r) => s + r.qty, 0);
 
   async function addRow() {
     if (!newTanggal) { toast.warning('Validasi', 'Pilih tanggal.'); return; }
@@ -150,6 +157,11 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="relative w-full sm:w-56">
+              <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari nama customer..."
+                className={`w-full bg-[#111827] border border-white/10 text-white text-sm rounded-xl pl-9 pr-3 py-2 focus:outline-none ${a.ring}`} />
+            </div>
             <label className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider hidden sm:block">Bulan</label>
             <input type="month" value={month} onChange={e => setMonth(e.target.value)}
               className={`bg-[#111827] border border-white/10 text-white text-sm rounded-xl px-3 py-2 focus:outline-none ${a.ring} date-input`} />

@@ -147,6 +147,7 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
   // sudah ditarik/lanjut). Cutting pakai model posisi, bukan eksekusi.
   const hasEksekusi = isPress || opsMode === 'print';
   const [month, setMonth] = useState(currentYm());
+  const [search, setSearch] = useState('');
   const [rows, setRows] = useState<PRow[]>([]);
   const [paketList, setPaketList] = useState<Paket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -222,6 +223,19 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
     for (const r of rows) { (g[r.tanggal] ||= []).push(r); }
     return g;
   }, [rows]);
+
+  // Grup untuk TAMPILAN tabel, difilter per nama customer (search). Recap/SLA
+  // tetap pakai groupedByDate penuh — search hanya memfilter yang ditampilkan.
+  const displayGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return groupedByDate;
+    const g: Record<string, PRow[]> = {};
+    for (const date of Object.keys(groupedByDate)) {
+      const matched = groupedByDate[date].filter(r => String(r.customer || '').toLowerCase().includes(q));
+      if (matched.length) g[date] = matched;
+    }
+    return g;
+  }, [groupedByDate, search]);
 
   // Summary per paket + grand totals.
   const summary = useMemo(() => {
@@ -361,6 +375,11 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="relative w-full sm:w-56">
+              <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari nama customer..."
+                className={`w-full bg-[#111827] border border-white/10 text-white text-sm rounded-xl pl-9 pr-3 py-2 focus:outline-none ${a.ring}`} />
+            </div>
             <label className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider hidden sm:block">Bulan</label>
             <input type="month" value={month} onChange={e => setMonth(e.target.value)}
               className={`bg-[#111827] border border-white/10 text-white text-sm rounded-xl px-3 py-2 focus:outline-none ${a.ring} date-input`} />
@@ -560,10 +579,10 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
             </tr>
           </thead>
           <tbody>
-            {Object.keys(groupedByDate).length === 0 ? (
+            {Object.keys(displayGroups).length === 0 ? (
               <tr><td colSpan={bodyColCount} className="border border-slate-300 px-3 py-8 text-center text-sm text-slate-500 bg-white">Belum ada data untuk bulan ini. Tambah baris di atas.</td></tr>
             ) : (
-              Object.entries(groupedByDate).map(([date, group]) => (
+              Object.entries(displayGroups).map(([date, group]) => (
                 group.map((r, i) => (
                   <tr key={r.id} className="bg-white hover:bg-slate-50 text-slate-800 text-sm">
                     {i === 0 && (
@@ -698,10 +717,10 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
       {/* Tabel versi MOBILE — kartu per tanggal (grid qty tetap bisa diedit) */}
       <div className="md:hidden space-y-3">
         <div className="rounded-xl px-4 py-2 bg-white text-slate-800 border border-slate-200 font-bold text-sm tracking-wide">BULAN {monthLabel}</div>
-        {Object.keys(groupedByDate).length === 0 ? (
+        {Object.keys(displayGroups).length === 0 ? (
           <div className="rounded-2xl bg-[#111827] border border-white/[0.06] px-4 py-8 text-center text-sm text-slate-500">Belum ada data untuk bulan ini. Tambah baris di atas.</div>
         ) : (
-          Object.entries(groupedByDate).map(([date, group]) => {
+          Object.entries(displayGroups).map(([date, group]) => {
             const totalRp = group.reduce((s, gr) => s + realisasiPoin(gr.data, paketList), 0);
             const diff = totalRp - PROGRESS_TARGET_PER_DAY;
             const pos = diff >= 0;
