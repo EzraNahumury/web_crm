@@ -19,6 +19,11 @@ function currentYm(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
+function lastDayOfMonth(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  if (!y || !m) return `${ym}-28`;
+  return `${ym}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+}
 function fmtDayShort(iso: string): string {
   const [, m, d] = String(iso).slice(0, 10).split('-').map(Number);
   if (!m || !d) return iso;
@@ -40,6 +45,10 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
   const hasKet = !!(ketOptions && ketOptions.length);
   const [month, setMonth] = useState(currentYm());
   const [search, setSearch] = useState('');
+  // Rentang tanggal untuk Export Excel (default = sebulan; bisa diubah bebas).
+  const [exFrom, setExFrom] = useState(`${currentYm()}-01`);
+  const [exTo, setExTo] = useState(lastDayOfMonth(currentYm()));
+  const [exBusy, setExBusy] = useState(false);
   const [rows, setRows] = useState<SRow[]>([]);
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,6 +93,37 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
     setLoading(false);
   }, [table, month]);
   useEffect(() => { fetchAll(); }, [fetchAll]);
+  // Default rentang export ikut bulan yang dipilih (bisa diubah manual).
+  useEffect(() => { setExFrom(`${month}-01`); setExTo(lastDayOfMonth(month)); }, [month]);
+
+  async function handleExportExcel() {
+    setExBusy(true);
+    try {
+      const all = await dbGet<Row>(table).catch(() => []);
+      const from = exFrom, to = exTo;
+      const filt = (all as Row[])
+        .map(r => ({ tanggal: String(r.tanggal).slice(0, 10), customer: String(r.customer || ''), keterangan: String(r.keterangan || ''), qty: Number(r.qty) || 0, inputBy: String(r.input_by || '') }))
+        .filter(r => r.tanggal && (!from || r.tanggal >= from) && (!to || r.tanggal <= to))
+        .sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.customer.localeCompare(b.customer));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const XLSX = (await import('xlsx-js-style')).default as any;
+      const head = ['NO', 'TANGGAL', 'CUSTOMER', 'KETERANGAN', 'QTY', 'INPUT'];
+      const totalQ = filt.reduce((s, r) => s + r.qty, 0);
+      const aoa = [
+        [{ v: `${title} — ${from} s/d ${to}`, s: { font: { bold: true, sz: 13 } } }],
+        head.map(h => ({ v: h, s: { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } } } })),
+        ...filt.map((r, i) => [i + 1, r.tanggal, r.customer, r.keterangan || '-', r.qty, r.inputBy || '-']),
+        [{ v: 'TOTAL', s: { font: { bold: true } } }, '', '', '', { v: totalQ, s: { font: { bold: true } } }, ''],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
+      ws['!cols'] = [{ wch: 5 }, { wch: 12 }, { wch: 32 }, { wch: 18 }, { wch: 8 }, { wch: 18 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, (title.slice(0, 28)) || 'Progress');
+      XLSX.writeFile(wb, `${title.replace(/\s+/g, '-')}-${from}_${to}.xlsx`);
+    } catch (e) { console.error('Export Excel gagal', e); }
+    setExBusy(false);
+  }
 
   // Filter per nama customer (cari progress terakhir customer).
   const filteredRows = useMemo(() => {
@@ -167,6 +207,18 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
               className={`bg-[#111827] border border-white/10 text-white text-sm rounded-xl px-3 py-2 focus:outline-none ${a.ring} date-input`} />
             <button onClick={() => setMonth(currentYm())}
               className="text-xs font-medium text-slate-300 hover:text-white px-3 py-2 rounded-xl border border-white/10 bg-[#111827] hover:bg-white/[0.04] transition-colors">Bulan Ini</button>
+            <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider hidden sm:block ml-1">Export</span>
+            <input type="date" value={exFrom} onChange={e => setExFrom(e.target.value)} title="Dari tanggal"
+              className={`bg-[#111827] border border-white/10 text-white text-sm rounded-xl px-2 py-2 focus:outline-none ${a.ring} date-input`} />
+            <span className="text-slate-500 text-xs">s/d</span>
+            <input type="date" value={exTo} onChange={e => setExTo(e.target.value)} title="Sampai tanggal"
+              className={`bg-[#111827] border border-white/10 text-white text-sm rounded-xl px-2 py-2 focus:outline-none ${a.ring} date-input`} />
+            <button onClick={handleExportExcel} disabled={exBusy}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-300 border border-green-500/25 bg-green-500/10 hover:bg-green-500/15 disabled:opacity-40 px-3 py-2 rounded-xl transition-colors"
+              title="Download Excel progress sesuai rentang tanggal">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75h16.5v16.5H3.75zM3.75 9h16.5M9 3.75v16.5" /></svg>
+              {exBusy ? '...' : 'Export Excel'}
+            </button>
           </div>
         </div>
       </div>
