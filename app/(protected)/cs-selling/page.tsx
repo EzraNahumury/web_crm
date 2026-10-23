@@ -267,6 +267,17 @@ function CsSellingDrawer({ open, onClose, onSaved, customers, leads, resellers, 
     setLeadId(o.lead_id ? String(o.lead_id) : '');
     setNamaTim(String(o.nama_tim || ''));
     setKeterangan(String(o.keterangan || ''));
+    // NB (keterangan) bisa diubah di Rincian Order (pembayaran-modal) SETELAH
+    // daftar CS Selling di-cache, jadi `editOrder` bisa basi. Ambil keterangan
+    // TERBARU dari DB supaya simpan edit (mis. ganti alamat) TIDAK menimpa NB
+    // custom dengan nilai lama/kosong (bug: ubah alamat → NB balik ke template).
+    (async () => {
+      try {
+        const fresh = await dbGet('orders', undefined, { id: Number(o.id) });
+        const fk = (fresh as Array<{ keterangan?: unknown }>)[0]?.keterangan;
+        if (fk !== undefined) setKeterangan(String(fk ?? ''));
+      } catch { /* biarkan nilai dari daftar */ }
+    })();
     // Decode pilihan_paket. Reguler/Prioritas are stored plain;
     // Express is "Express - <durasi>".
     const raw = String(o.pilihan_paket || '');
