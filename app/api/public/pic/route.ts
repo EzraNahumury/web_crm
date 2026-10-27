@@ -19,10 +19,17 @@ interface PaketRate { prefix: string; ra: number; rc: number }
 //   'columns' — tabel line_jahit (qty paket di kolom ${prefix}_atasan/celana) → poin
 //   'qty'     — tabel sederhana (progress_design/proofing) dengan kolom qty → qty saja
 type Source = 'json' | 'columns' | 'qty';
-interface ProcCfg { table: string; label: string; source: Source }
+// `extra` = tabel tambahan yang poin-nya digabung ke proses ini. Dipakai untuk
+// Sewing: selain Penjahit Internal (line_jahit), tambahkan Penjahit Luar
+// (Borongan & CMT, realisasi_json) supaya laporan jahit = SELURUH jahit.
+interface ProcCfg { table: string; label: string; source: Source; extra?: { table: string; source: Source }[] }
+const SEWING_EXTRA: { table: string; source: Source }[] = [
+  { table: 'penjahit_borongan', source: 'json' },
+  { table: 'cmt', source: 'json' },
+];
 const PIC_CONFIG: Record<string, { label: string; processes: ProcCfg[] }> = {
   erick: { label: 'Erick', processes: [{ table: 'progress_printing', label: 'Printing', source: 'json' }, { table: 'progress_press', label: 'Press', source: 'json' }] },
-  amboss: { label: 'Amboss', processes: [{ table: 'progress_cutting', label: 'Cutting', source: 'json' }, { table: 'line_jahit', label: 'Sewing', source: 'columns' }] },
+  amboss: { label: 'Amboss', processes: [{ table: 'progress_cutting', label: 'Cutting', source: 'json' }, { table: 'line_jahit', label: 'Sewing', source: 'columns', extra: SEWING_EXTRA }] },
   intan: { label: 'Intan', processes: [{ table: 'progress_finishing', label: 'Finishing', source: 'json' }, { table: 'progress_shipment', label: 'Shipment', source: 'json' }] },
   vina: { label: 'Vina', processes: [{ table: 'progress_design', label: 'Design', source: 'qty' }, { table: 'progress_proofing', label: 'Proofing', source: 'qty' }, { table: 'progress_layouting', label: 'Layouting', source: 'json' }] },
   // Gabungan semua proses (dipakai di /progress/all), urut sesuai alur.
@@ -34,7 +41,7 @@ const PIC_CONFIG: Record<string, { label: string; processes: ProcCfg[] }> = {
       { table: 'progress_printing', label: 'Printing', source: 'json' },
       { table: 'progress_press', label: 'Press', source: 'json' },
       { table: 'progress_cutting', label: 'Cutting', source: 'json' },
-      { table: 'line_jahit', label: 'Sewing', source: 'columns' },
+      { table: 'line_jahit', label: 'Sewing', source: 'columns', extra: SEWING_EXTRA },
       { table: 'progress_steam', label: 'Steam', source: 'json' },
       { table: 'progress_materi_finishing', label: 'Materi Finishing', source: 'qty' },
       { table: 'progress_finishing', label: 'Finishing', source: 'json' },
@@ -103,6 +110,19 @@ function aggregateByDay(rows: Record<string, unknown>[], rates: PaketRate[], ymF
     .map(([date, v]) => ({ date, real: Math.round(v.real * 10) / 10, pcs: v.pcs }));
 }
 
+// Gabung dua daftar DayAgg per-tanggal (untuk proses dengan tabel tambahan).
+function mergeDays(...lists: DayAgg[][]): DayAgg[] {
+  const map = new Map<string, { real: number; pcs: number }>();
+  for (const list of lists) for (const d of list) {
+    const cur = map.get(d.date) || { real: 0, pcs: 0 };
+    cur.real += d.real; cur.pcs += d.pcs;
+    map.set(d.date, cur);
+  }
+  return Array.from(map.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, v]) => ({ date, real: Math.round(v.real * 10) / 10, pcs: v.pcs }));
+}
+
 export async function GET(req: NextRequest) {
   try {
     const pic = String(new URL(req.url).searchParams.get('pic') || 'erick').toLowerCase();
@@ -123,22 +143,32 @@ export async function GET(req: NextRequest) {
       prefix: String(p.kolom_prefix), ra: Number(p.rate_atasan) || BASE_RATE_POIN, rc: Number(p.rate_celana) || BASE_RATE_POIN,
     }));
 
-    const processes = await Promise.all(config.processes.map(async proc => {
-      let rows: Record<string, unknown>[] = [];
+    const fetchRows = async (table: string, source: Source): Promise<Record<string, unknown>[]> => {
       try {
-        const sql = proc.source === 'columns'
-          ? `SELECT * FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`
-          : proc.source === 'qty'
-            ? `SELECT tanggal, qty FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`
-            : `SELECT tanggal, realisasi_json FROM \`${proc.table}\` WHERE tanggal BETWEEN ? AND ?`;
-        rows = await query<Record<string, unknown>>(sql, [winStart, winEnd]);
-      } catch { rows = []; }
+        const sql = source === 'columns'
+          ? `SELECT * FROM \`${table}\` WHERE tanggal BETWEEN ? AND ?`
+          : source === 'qty'
+            ? `SELECT tanggal, qty FROM \`${table}\` WHERE tanggal BETWEEN ? AND ?`
+            : `SELECT tanggal, realisasi_json FROM \`${table}\` WHERE tanggal BETWEEN ? AND ?`;
+        return await query<Record<string, unknown>>(sql, [winStart, winEnd]);
+      } catch { return []; }
+    };
+
+    const processes = await Promise.all(config.processes.map(async proc => {
+      const rows = await fetchRows(proc.table, proc.source);
+      const curLists = [aggregateByDay(rows, rates, curYm, proc.source)];
+      const prevLists = [aggregateByDay(rows, rates, prevYm, proc.source)];
+      for (const ex of proc.extra || []) {
+        const exRows = await fetchRows(ex.table, ex.source);
+        curLists.push(aggregateByDay(exRows, rates, curYm, ex.source));
+        prevLists.push(aggregateByDay(exRows, rates, prevYm, ex.source));
+      }
       return {
         key: proc.table.replace('progress_', ''),
         label: proc.label,
         metric: proc.source === 'qty' ? 'qty' : 'poin',
-        days: aggregateByDay(rows, rates, curYm, proc.source),
-        prevDays: aggregateByDay(rows, rates, prevYm, proc.source),
+        days: mergeDays(...curLists),
+        prevDays: mergeDays(...prevLists),
       };
     }));
 

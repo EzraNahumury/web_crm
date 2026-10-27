@@ -161,18 +161,28 @@ export async function GET() {
       progressProcess('progress_finishing', 'Finishing', rates, todayISO, monthKey, winStart, monthEnd, reportDates),
       progressProcess('progress_shipment', 'Shipment', rates, todayISO, monthKey, winStart, monthEnd, reportDates),
     ]);
-    const jahitRows = await query<Record<string, unknown>>('SELECT * FROM line_jahit WHERE tanggal BETWEEN ? AND ?', [winStart, monthEnd]).catch(() => []);
+    // Jahit = SELURUH proses jahit: Penjahit Internal (tabel line_jahit, qty di
+    // kolom per paket) + Penjahit Luar (Borongan & CMT, qty di realisasi_json).
+    // Ketiganya pekerjaan jahit yang berbeda (bukan duplikat) jadi dijumlah.
+    const [jahitRows, boronganRows, cmtRows] = await Promise.all([
+      query<Record<string, unknown>>('SELECT * FROM `line_jahit` WHERE tanggal BETWEEN ? AND ?', [winStart, monthEnd]).catch(() => []),
+      query<{ tanggal: unknown; realisasi_json: unknown }>('SELECT tanggal, realisasi_json FROM `penjahit_borongan` WHERE tanggal BETWEEN ? AND ?', [winStart, monthEnd]).catch(() => []),
+      query<{ tanggal: unknown; realisasi_json: unknown }>('SELECT tanggal, realisasi_json FROM `cmt` WHERE tanggal BETWEEN ? AND ?', [winStart, monthEnd]).catch(() => []),
+    ]);
     let jTodayPoin = 0, jTodayPcs = 0, jTodayOrders = 0, jMonthPoin = 0;
     const jPerDate = emptyPerDate(reportDates);
-    for (const r of jahitRows) {
-      const iso = isoDate(r.tanggal);
-      const data: Record<string, number> = {};
-      for (const rt of rates) { data[`${rt.prefix}_atasan`] = Number(r[`${rt.prefix}_atasan`]) || 0; data[`${rt.prefix}_celana`] = Number(r[`${rt.prefix}_celana`]) || 0; }
+    const addJahit = (iso: string, data: Record<string, number>) => {
       const { poin, pcs } = poinOf(data, rates);
       if (iso.slice(0, 7) === monthKey) jMonthPoin += poin;
       if (iso === todayISO) { jTodayPoin += poin; jTodayPcs += pcs; jTodayOrders += 1; }
       if (jPerDate[iso]) { jPerDate[iso].qty += pcs; jPerDate[iso].poin += poin; }
+    };
+    for (const r of jahitRows) {
+      const data: Record<string, number> = {};
+      for (const rt of rates) { data[`${rt.prefix}_atasan`] = Number(r[`${rt.prefix}_atasan`]) || 0; data[`${rt.prefix}_celana`] = Number(r[`${rt.prefix}_celana`]) || 0; }
+      addJahit(isoDate(r.tanggal), data);
     }
+    for (const r of [...boronganRows, ...cmtRows]) addJahit(isoDate(r.tanggal), parseData(r.realisasi_json));
     const jahit = { key: 'jahit', label: 'Jahit', todayPoin: jTodayPoin, todayPcs: jTodayPcs, todayOrders: jTodayOrders, monthPoin: jMonthPoin, perDate: jPerDate };
 
     const rawProc = [printing, press, cutting, jahit, steam, finishing, shipment];
