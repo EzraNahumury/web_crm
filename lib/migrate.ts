@@ -2081,6 +2081,15 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `orders` ADD COLUMN `job_ticket_json` LONGTEXT NULL",
     ],
   },
+  {
+    // Stok minimal per barang. Kalau qty <= stok_minimal, barang dianggap
+    // menipis/habis dan muncul di notifikasi Overview Gudang. 0 = belum diset
+    // (jatuh ke ambang default global di UI).
+    name: '106_barang_stok_minimal',
+    up: [
+      "ALTER TABLE `barang` ADD COLUMN `stok_minimal` INT NOT NULL DEFAULT 0",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

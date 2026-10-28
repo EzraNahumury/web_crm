@@ -8,7 +8,13 @@ import { Pagination, paginate } from '@/lib/pagination';
 type Row = Record<string, any>;
 
 const SATUAN_OPTIONS = ['kg', 'roll', 'liter', 'meter', 'pcs'];
-const LOW_STOCK_THRESHOLD = 20; // batas "barang akan habis"
+const LOW_STOCK_THRESHOLD = 20; // batas default "barang akan habis" (kalau stok minimal belum diset)
+
+// Ambang menipis efektif per barang: pakai stok_minimal kalau sudah diset
+// (>0), kalau belum jatuh ke ambang default global.
+function effMin(stokMinimal: number): number {
+  return stokMinimal > 0 ? stokMinimal : LOW_STOCK_THRESHOLD;
+}
 
 function fmtDate(d: string) {
   if (!d) return '-';
@@ -17,6 +23,18 @@ function fmtDate(d: string) {
 
 function fmtRp(n: number): string {
   return new Intl.NumberFormat('id-ID').format(n || 0);
+}
+
+// Tanggal lokal (YYYY-MM-DD) dari timestamp created_at, konsisten dengan
+// kolom Tanggal yang pakai toLocaleDateString. Dipakai filter range tanggal.
+function isoFromTs(v: unknown): string {
+  if (!v) return '';
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (isNaN(d.getTime())) {
+    const m = String(v).match(/(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export default function StokPage() {
@@ -41,10 +59,15 @@ export default function StokPage() {
   const [adjPage, setAdjPage] = useState(1);
   const [aktualPageSize, setAktualPageSize] = useState(10);
   const [adjPageSize, setAdjPageSize] = useState(10);
+  // Filter Riwayat Adjustment: tipe (Masuk/Keluar) + rentang tanggal.
+  const [adjTipe, setAdjTipe] = useState<'all' | 'masuk' | 'keluar'>('all');
+  const [adjFrom, setAdjFrom] = useState('');
+  const [adjTo, setAdjTo] = useState('');
   const toast = useToast();
 
   useEffect(() => { setAktualPage(1); }, [search]);
   useEffect(() => { setAktualPage(1); setAdjPage(1); }, [tab]);
+  useEffect(() => { setAdjPage(1); }, [adjTipe, adjFrom, adjTo]);
 
   const [forecastBahan, setForecastBahan] = useState<Row[]>([]);
   async function fetchData() {
@@ -86,6 +109,7 @@ export default function StokPage() {
       harga,
       total: qty * harga,
       letak: String(b.letak || '-'),
+      stokMinimal: Number(b.stok_minimal) || 0,
       stokId: s?.id,
     };
   }), [barangList, stokList]);
@@ -97,18 +121,32 @@ export default function StokPage() {
 
   const aktualPaged = paginate(filtered, aktualPage, aktualPageSize);
 
-  // Riwayat Adjustment — filter by nama bahan, keterangan, tipe, atau no WO.
+  // Riwayat Adjustment — filter tipe (Masuk/Keluar), rentang tanggal, lalu
+  // teks (nama bahan, keterangan, tipe, atau no WO).
   const filteredAdjustments = useMemo(() => {
     const q = adjSearch.trim().toLowerCase();
-    if (!q) return adjustments;
     return adjustments.filter((a: Row) => {
-      const wo = a.work_order_id ? woList.find((w: Row) => String(w.id) === String(a.work_order_id)) : null;
-      return String(a.barang_nama || '').toLowerCase().includes(q)
-        || String(a.keterangan || '').toLowerCase().includes(q)
-        || String(a.tipe || '').toLowerCase().includes(q)
-        || String(wo?.no_wo || '').toLowerCase().includes(q);
+      // Tipe: Masuk = Penambahan; Keluar = Pengurangan + Pemakaian_WO.
+      if (adjTipe === 'masuk' && String(a.tipe) !== 'Penambahan') return false;
+      if (adjTipe === 'keluar' && !['Pengurangan', 'Pemakaian_WO'].includes(String(a.tipe))) return false;
+      // Rentang tanggal (inklusif) berdasarkan created_at.
+      if (adjFrom || adjTo) {
+        const iso = isoFromTs(a.created_at);
+        if (!iso) return false;
+        if (adjFrom && iso < adjFrom) return false;
+        if (adjTo && iso > adjTo) return false;
+      }
+      if (q) {
+        const wo = a.work_order_id ? woList.find((w: Row) => String(w.id) === String(a.work_order_id)) : null;
+        const match = String(a.barang_nama || '').toLowerCase().includes(q)
+          || String(a.keterangan || '').toLowerCase().includes(q)
+          || String(a.tipe || '').toLowerCase().includes(q)
+          || String(wo?.no_wo || '').toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      return true;
     });
-  }, [adjustments, adjSearch, woList]);
+  }, [adjustments, adjSearch, adjTipe, adjFrom, adjTo, woList]);
   const adjPaged = paginate(filteredAdjustments, adjPage, adjPageSize);
 
   // ─── Overview stats ───
@@ -146,8 +184,13 @@ export default function StokPage() {
     return map;
   }, [stokDisplay]);
 
+  // Barang menipis/habis: qty <= stok minimal efektif per barang. Urut dari
+  // paling parah (selisih qty vs minimal paling negatif) di atas.
   const barangAkanHabis = useMemo(
-    () => stokDisplay.filter(m => m.qty <= LOW_STOCK_THRESHOLD).sort((a, b) => a.qty - b.qty).slice(0, 15),
+    () => stokDisplay
+      .map(m => ({ ...m, min: effMin(m.stokMinimal) }))
+      .filter(m => m.qty <= m.min)
+      .sort((a, b) => (a.qty - a.min) - (b.qty - b.min)),
     [stokDisplay]
   );
 
@@ -381,22 +424,19 @@ export default function StokPage() {
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                {forecastDeficits.slice(0, 12).map(d => (
-                  <div key={d.nama} className="rounded-lg border border-amber-500/20 bg-amber-500/[0.05] px-3 py-2">
-                    <p className="text-xs font-semibold text-white truncate" title={d.nama}>{d.nama}</p>
-                    <p className="text-[11px] text-amber-200/80 mt-0.5">
-                      Perlu <strong>{d.needed}</strong> · Stok <strong>{d.stok}</strong> {d.satuan}
-                      <span className="text-rose-300 font-semibold ml-2">−{d.defisit}</span>
-                    </p>
-                  </div>
-                ))}
+              <div className="max-h-[420px] overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {forecastDeficits.map(d => (
+                    <div key={d.nama} className="rounded-lg border border-amber-500/20 bg-amber-500/[0.05] px-3 py-2">
+                      <p className="text-xs font-semibold text-white truncate" title={d.nama}>{d.nama}</p>
+                      <p className="text-[11px] text-amber-200/80 mt-0.5">
+                        Perlu <strong>{d.needed}</strong> · Stok <strong>{d.stok}</strong> {d.satuan}
+                        <span className="text-rose-300 font-semibold ml-2">−{d.defisit}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
-              {forecastDeficits.length > 12 && (
-                <p className="text-[11px] text-amber-200/60 mt-2 text-center">
-                  … dan {forecastDeficits.length - 12} bahan lainnya
-                </p>
-              )}
             </div>
           )}
 
@@ -442,7 +482,7 @@ export default function StokPage() {
               </div>
               <div className="flex-1">
                 <h2 className="text-base font-semibold text-white">Data Barang yang Akan Habis</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Stok ≤ {LOW_STOCK_THRESHOLD} — perlu segera restok</p>
+                <p className="text-xs text-slate-500 mt-0.5">Stok sudah mencapai / di bawah stok minimal — perlu segera restok</p>
               </div>
               <span className="text-xs font-bold text-red-300 bg-red-500/10 border border-red-500/25 rounded-full px-3 py-1">
                 {barangAkanHabis.length} item
@@ -453,16 +493,17 @@ export default function StokPage() {
                 <p className="text-sm text-emerald-300">✓ Semua barang stoknya masih aman</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[700px]">
-                  <thead>
-                    <tr className="border-b border-white/[0.06] text-[10px] text-slate-500 font-semibold uppercase tracking-widest bg-white/[0.015]">
+              <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
+                <table className="w-full min-w-[760px]">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="border-b border-white/[0.06] text-[10px] text-slate-500 font-semibold uppercase tracking-widest bg-[#141c2b]">
                       <th className="text-left px-5 py-3">No</th>
                       <th className="text-left px-5 py-3">Kode</th>
                       <th className="text-left px-5 py-3">Nama Barang</th>
                       <th className="text-left px-5 py-3">Jenis</th>
                       <th className="text-left px-5 py-3">Satuan</th>
                       <th className="text-left px-5 py-3">Gudang</th>
+                      <th className="text-right px-5 py-3">Stok Min</th>
                       <th className="text-right px-5 py-3">Stok</th>
                     </tr>
                   </thead>
@@ -475,6 +516,9 @@ export default function StokPage() {
                         <td className="px-5 py-3 text-sm text-slate-400">{m.jenis}</td>
                         <td className="px-5 py-3 text-sm text-slate-400">{m.satuan}</td>
                         <td className="px-5 py-3 text-sm text-slate-400">{m.letak}</td>
+                        <td className="px-5 py-3 text-right text-sm text-slate-400 tabular-nums">
+                          {m.stokMinimal > 0 ? m.stokMinimal : <span className="text-slate-600" title={`Belum diset — pakai default ${LOW_STOCK_THRESHOLD}`}>{LOW_STOCK_THRESHOLD}*</span>}
+                        </td>
                         <td className="px-5 py-3 text-right">
                           <span className={`text-sm font-bold tabular-nums ${m.qty === 0 ? 'text-red-300' : 'text-amber-300'}`}>{m.qty}</span>
                           <span className="text-xs text-slate-500 ml-1">{m.satuan}</span>
@@ -516,6 +560,7 @@ export default function StokPage() {
                     <th className="text-left px-5 py-3.5">Jenis</th>
                     <th className="text-left px-5 py-3.5">Satuan</th>
                     <th className="text-right px-5 py-3.5">Harga</th>
+                    <th className="text-right px-5 py-3.5">Stok Min</th>
                     <th className="text-right px-5 py-3.5">Stok</th>
                     <th className="text-right px-5 py-3.5">Total</th>
                     <th className="text-left px-5 py-3.5">Letak</th>
@@ -524,7 +569,7 @@ export default function StokPage() {
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
-                    <tr><td colSpan={10} className="px-5 py-10 text-center text-sm text-slate-500">Tidak ada data barang</td></tr>
+                    <tr><td colSpan={11} className="px-5 py-10 text-center text-sm text-slate-500">Tidak ada data barang</td></tr>
                   ) : aktualPaged.slice.map((m, i) => (
                     <tr key={m.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
                       <td className="px-5 py-3.5 text-sm text-slate-500 tabular-nums">{(aktualPaged.current - 1) * 10 + i + 1}</td>
@@ -533,17 +578,25 @@ export default function StokPage() {
                       <td className="px-5 py-3.5"><span className="text-xs text-slate-400 bg-white/[0.06] px-2.5 py-1 rounded">{m.jenis}</span></td>
                       <td className="px-5 py-3.5 text-sm text-slate-400">{m.satuan}</td>
                       <td className="px-5 py-3.5 text-sm text-right text-slate-300 tabular-nums">Rp {fmtRp(m.harga)}</td>
+                      <td className="px-5 py-3.5 text-sm text-right text-slate-400 tabular-nums">
+                        {m.stokMinimal > 0 ? m.stokMinimal : <span className="text-slate-600" title={`Belum diset — pakai default ${LOW_STOCK_THRESHOLD}`}>{LOW_STOCK_THRESHOLD}*</span>}
+                      </td>
                       <td className="px-5 py-3.5 text-sm text-right text-white font-semibold tabular-nums">{m.qty}</td>
                       <td className="px-5 py-3.5 text-sm text-right text-emerald-300 tabular-nums">Rp {fmtRp(m.total)}</td>
                       <td className="px-5 py-3.5 text-sm text-slate-400">{m.letak}</td>
                       <td className="px-5 py-3.5">
-                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                          m.qty === 0 ? 'text-red-300 bg-red-500/15 border border-red-500/25'
-                          : m.qty <= LOW_STOCK_THRESHOLD ? 'text-amber-300 bg-amber-500/15 border border-amber-500/25'
-                          : 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/25'
-                        }`}>
-                          {m.qty === 0 ? 'Habis' : m.qty <= LOW_STOCK_THRESHOLD ? 'Menipis' : 'Tersedia'}
-                        </span>
+                        {(() => {
+                          const min = effMin(m.stokMinimal);
+                          return (
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                              m.qty === 0 ? 'text-red-300 bg-red-500/15 border border-red-500/25'
+                              : m.qty <= min ? 'text-amber-300 bg-amber-500/15 border border-amber-500/25'
+                              : 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/25'
+                            }`}>
+                              {m.qty === 0 ? 'Habis' : m.qty <= min ? 'Menipis' : 'Tersedia'}
+                            </span>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}
@@ -571,13 +624,50 @@ export default function StokPage() {
             </button>
           </div>
 
-          {/* Search riwayat */}
-          <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3">
+          {/* Filter riwayat — tipe + rentang tanggal + search */}
+          <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3 space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Segmented tipe */}
+              <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#0d1117] border border-white/[0.06]">
+                {([
+                  { key: 'all' as const, label: 'Semua' },
+                  { key: 'masuk' as const, label: 'Barang Masuk' },
+                  { key: 'keluar' as const, label: 'Barang Keluar' },
+                ]).map(t => (
+                  <button key={t.key} onClick={() => setAdjTipe(t.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                      adjTipe === t.key
+                        ? t.key === 'masuk' ? 'bg-blue-600 text-white' : t.key === 'keluar' ? 'bg-orange-600 text-white' : 'bg-slate-600 text-white'
+                        : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                    }`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {/* Rentang tanggal */}
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-medium text-slate-400">Dari</label>
+                <input type="date" value={adjFrom} max={adjTo || undefined} onChange={e => setAdjFrom(e.target.value)}
+                  className="bg-[#0d1117] border border-white/10 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500/40 date-input" />
+                <label className="text-[11px] font-medium text-slate-400">s/d</label>
+                <input type="date" value={adjTo} min={adjFrom || undefined} onChange={e => setAdjTo(e.target.value)}
+                  className="bg-[#0d1117] border border-white/10 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500/40 date-input" />
+              </div>
+              {(adjTipe !== 'all' || adjFrom || adjTo) && (
+                <button onClick={() => { setAdjTipe('all'); setAdjFrom(''); setAdjTo(''); }}
+                  className="text-xs font-medium text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] px-3 py-1.5 rounded-lg transition-colors">
+                  Reset Filter
+                </button>
+              )}
+              <span className="ml-auto text-xs text-slate-500">
+                <strong className="text-slate-300">{filteredAdjustments.length}</strong> riwayat
+              </span>
+            </div>
             <div className="relative">
               <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
               <input value={adjSearch} onChange={e => { setAdjSearch(e.target.value); setAdjPage(1); }}
                 placeholder="Cari nama bahan, keterangan, tipe, atau No WO..."
-                className="w-full bg-transparent text-white placeholder-slate-500 pl-10 pr-4 py-2 text-sm focus:outline-none" />
+                className="w-full bg-[#0d1117] border border-white/10 rounded-lg text-white placeholder-slate-500 pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-blue-500/40" />
             </div>
           </div>
 
@@ -729,7 +819,7 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
   const [editingId, setEditingId] = useState<number | null>(null);
   const [q, setQ] = useState('');
   const [form, setForm] = useState({
-    kode: '', nama: '', tipeId: '', satuan: 'pcs', harga: '', letak: '',
+    kode: '', nama: '', tipeId: '', satuan: 'pcs', harga: '', letak: '', stokMinimal: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -747,13 +837,14 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
           satuan: String(b.satuan || 'pcs'),
           gudang: String(b.letak || '-'),
           stok: Number(s?.qty) || 0,
+          stokMinimal: Number(b.stok_minimal) || 0,
         };
       });
   }, [barangList, stokList, q]);
 
   function reset() {
     setEditingId(null);
-    setForm({ kode: '', nama: '', tipeId: '', satuan: 'pcs', harga: '', letak: '' });
+    setForm({ kode: '', nama: '', tipeId: '', satuan: 'pcs', harga: '', letak: '', stokMinimal: '' });
   }
 
   function pickForEdit(id: number) {
@@ -767,6 +858,7 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
       satuan: String(b.satuan || 'pcs'),
       harga: String(b.harga || ''),
       letak: String(b.letak || ''),
+      stokMinimal: String(b.stok_minimal || ''),
     });
   }
 
@@ -783,6 +875,7 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
         satuan: form.satuan,
         harga: Number(form.harga) || 0,
         letak: 'Gudang Ayres',
+        stok_minimal: Number(form.stokMinimal) || 0,
       };
       if (editingId) {
         await dbUpdate('barang', editingId, payload);
@@ -872,12 +965,13 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
                       <th className="text-left px-3 py-2.5">Jenis</th>
                       <th className="text-left px-3 py-2.5">Satuan</th>
                       <th className="text-left px-3 py-2.5">Gudang</th>
+                      <th className="text-right px-3 py-2.5">Min</th>
                       <th className="text-right px-3 py-2.5">Stok</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.length === 0 ? (
-                      <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-500">Tidak ada data</td></tr>
+                      <tr><td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-500">Tidak ada data</td></tr>
                     ) : filtered.map((b, i) => (
                       <tr key={b.id}
                         onClick={() => pickForEdit(b.id)}
@@ -891,6 +985,7 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
                         <td className="px-3 py-2.5 text-slate-400">{b.jenis}</td>
                         <td className="px-3 py-2.5 text-slate-400">{b.satuan}</td>
                         <td className="px-3 py-2.5 text-slate-400">{b.gudang}</td>
+                        <td className="px-3 py-2.5 text-right text-slate-400 tabular-nums">{b.stokMinimal > 0 ? b.stokMinimal : '-'}</td>
                         <td className="px-3 py-2.5 text-right text-white tabular-nums">{b.stok}</td>
                       </tr>
                     ))}
@@ -946,6 +1041,15 @@ function DataBarangModal({ onClose, onSaved, barangList, stokList, tipeBarangLis
                     placeholder="0"
                     className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:border-blue-500/40" />
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Stok Minimal</label>
+                <input type="text" inputMode="numeric"
+                  value={form.stokMinimal}
+                  onChange={e => setForm(f => ({ ...f, stokMinimal: e.target.value.replace(/\D/g, '') }))}
+                  placeholder="0"
+                  className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/40 tabular-nums" />
+                <p className="text-[10px] text-slate-500 mt-1">Muncul di notifikasi Overview saat stok ≤ nilai ini. Kosong/0 = pakai default {LOW_STOCK_THRESHOLD}.</p>
               </div>
               <button onClick={handleSave} disabled={saving}
                 className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-lg shadow-blue-500/20">
