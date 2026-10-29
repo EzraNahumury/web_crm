@@ -63,11 +63,17 @@ export default function StokPage() {
   const [adjTipe, setAdjTipe] = useState<'all' | 'masuk' | 'keluar'>('all');
   const [adjFrom, setAdjFrom] = useState('');
   const [adjTo, setAdjTo] = useState('');
+  // Overview: filter status ketersediaan barang (massal).
+  const [ovStatus, setOvStatus] = useState<'perlu' | 'all' | 'tersedia' | 'menipis' | 'habis'>('perlu');
+  const [ovSearch, setOvSearch] = useState('');
+  const [ovPage, setOvPage] = useState(1);
+  const [ovPageSize, setOvPageSize] = useState(10);
   const toast = useToast();
 
   useEffect(() => { setAktualPage(1); }, [search]);
   useEffect(() => { setAktualPage(1); setAdjPage(1); }, [tab]);
   useEffect(() => { setAdjPage(1); }, [adjTipe, adjFrom, adjTo]);
+  useEffect(() => { setOvPage(1); }, [ovStatus, ovSearch]);
 
   const [forecastBahan, setForecastBahan] = useState<Row[]>([]);
   async function fetchData() {
@@ -193,6 +199,33 @@ export default function StokPage() {
       .sort((a, b) => (a.qty - a.min) - (b.qty - b.min)),
     [stokDisplay]
   );
+
+  // Status ketersediaan per barang untuk filter massal di Overview.
+  const statusOf = (qty: number, stokMinimal: number): 'habis' | 'menipis' | 'tersedia' =>
+    qty === 0 ? 'habis' : qty <= effMin(stokMinimal) ? 'menipis' : 'tersedia';
+  const statusCounts = useMemo(() => {
+    let tersedia = 0, menipis = 0, habis = 0;
+    for (const m of stokDisplay) {
+      const s = statusOf(m.qty, m.stokMinimal);
+      if (s === 'habis') habis++; else if (s === 'menipis') menipis++; else tersedia++;
+    }
+    return { tersedia, menipis, habis, perlu: menipis + habis, all: stokDisplay.length };
+  }, [stokDisplay]);
+  const stokByStatus = useMemo(() => {
+    const q = ovSearch.trim().toLowerCase();
+    const list = stokDisplay
+      .map(m => ({ ...m, min: effMin(m.stokMinimal), status: statusOf(m.qty, m.stokMinimal) }))
+      .filter(m => {
+        if (ovStatus === 'perlu') { if (m.status === 'tersedia') return false; }
+        else if (ovStatus !== 'all') { if (m.status !== ovStatus) return false; }
+        if (q && !(m.nama.toLowerCase().includes(q) || m.kode.toLowerCase().includes(q))) return false;
+        return true;
+      });
+    return (ovStatus === 'tersedia' || ovStatus === 'all')
+      ? list.sort((a, b) => a.nama.localeCompare(b.nama))
+      : list.sort((a, b) => (a.qty - a.min) - (b.qty - b.min));
+  }, [stokDisplay, ovStatus, ovSearch]);
+  const ovPaged = paginate(stokByStatus, ovPage, ovPageSize);
 
   // Forecasting deficit: agregat kebutuhan bahan dari semua wo_forecast_bahan,
   // bandingkan dengan qty stok. Kalau kebutuhan > stok, munculkan warning
@@ -474,60 +507,98 @@ export default function StokPage() {
             )}
           </div>
 
-          {/* Barang akan habis */}
+          {/* Status Ketersediaan Barang — filter massal per status */}
           <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
-            <div className="flex items-center gap-3 px-5 py-4 border-b border-white/[0.06] bg-red-500/[0.03]">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-red-500/20 to-red-500/5 border border-red-500/25 grid place-items-center shrink-0">
-                <svg className="w-4 h-4 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-white/[0.06] bg-white/[0.015]">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-teal-500/20 to-teal-500/5 border border-teal-500/25 grid place-items-center shrink-0">
+                <svg className="w-4 h-4 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5M3.75 6.75h16.5M3.75 17.25h16.5" /></svg>
               </div>
               <div className="flex-1">
-                <h2 className="text-base font-semibold text-white">Data Barang yang Akan Habis</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Stok sudah mencapai / di bawah stok minimal — perlu segera restok</p>
+                <h2 className="text-base font-semibold text-white">Status Ketersediaan Barang</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Filter massal per status — stok dibanding stok minimal tiap barang</p>
               </div>
-              <span className="text-xs font-bold text-red-300 bg-red-500/10 border border-red-500/25 rounded-full px-3 py-1">
-                {barangAkanHabis.length} item
+              <span className="text-xs font-bold text-slate-300 bg-white/[0.06] border border-white/10 rounded-full px-3 py-1">
+                {stokByStatus.length} item
               </span>
             </div>
-            {barangAkanHabis.length === 0 ? (
+
+            {/* Filter chips + search */}
+            <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-white/[0.06]">
+              {([
+                { key: 'perlu' as const, label: 'Perlu Restock', n: statusCounts.perlu, on: 'bg-red-600 text-white', badge: 'bg-red-500/15 text-red-300' },
+                { key: 'habis' as const, label: 'Habis', n: statusCounts.habis, on: 'bg-rose-600 text-white', badge: 'bg-rose-500/15 text-rose-300' },
+                { key: 'menipis' as const, label: 'Menipis', n: statusCounts.menipis, on: 'bg-amber-600 text-white', badge: 'bg-amber-500/15 text-amber-300' },
+                { key: 'tersedia' as const, label: 'Tersedia', n: statusCounts.tersedia, on: 'bg-emerald-600 text-white', badge: 'bg-emerald-500/15 text-emerald-300' },
+                { key: 'all' as const, label: 'Semua', n: statusCounts.all, on: 'bg-slate-600 text-white', badge: 'bg-white/10 text-slate-300' },
+              ]).map(c => (
+                <button key={c.key} onClick={() => setOvStatus(c.key)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    ovStatus === c.key ? c.on : 'text-slate-400 bg-[#0d1117] border border-white/[0.06] hover:text-white hover:bg-white/[0.04]'
+                  }`}>
+                  {c.label}
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${ovStatus === c.key ? 'bg-black/20 text-white' : c.badge}`}>{c.n}</span>
+                </button>
+              ))}
+              <div className="relative ml-auto min-w-[200px] flex-1 max-w-xs">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                <input value={ovSearch} onChange={e => setOvSearch(e.target.value)} placeholder="Cari kode / nama..."
+                  className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg pl-9 pr-3 py-1.5 text-sm focus:outline-none focus:border-teal-500/40" />
+              </div>
+            </div>
+
+            {stokByStatus.length === 0 ? (
               <div className="px-5 py-10 text-center">
-                <p className="text-sm text-emerald-300">✓ Semua barang stoknya masih aman</p>
+                <p className="text-sm text-slate-400">Tidak ada barang untuk filter ini.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
-                <table className="w-full min-w-[760px]">
-                  <thead className="sticky top-0 z-10">
-                    <tr className="border-b border-white/[0.06] text-[10px] text-slate-500 font-semibold uppercase tracking-widest bg-[#141c2b]">
-                      <th className="text-left px-5 py-3">No</th>
-                      <th className="text-left px-5 py-3">Kode</th>
-                      <th className="text-left px-5 py-3">Nama Barang</th>
-                      <th className="text-left px-5 py-3">Jenis</th>
-                      <th className="text-left px-5 py-3">Satuan</th>
-                      <th className="text-left px-5 py-3">Gudang</th>
-                      <th className="text-right px-5 py-3">Stok Min</th>
-                      <th className="text-right px-5 py-3">Stok</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {barangAkanHabis.map((m, i) => (
-                      <tr key={m.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                        <td className="px-5 py-3 text-sm text-slate-500 tabular-nums">{i + 1}</td>
-                        <td className="px-5 py-3 text-sm text-slate-400 font-mono">{m.kode}</td>
-                        <td className="px-5 py-3 text-sm text-white font-medium">{m.nama}</td>
-                        <td className="px-5 py-3 text-sm text-slate-400">{m.jenis}</td>
-                        <td className="px-5 py-3 text-sm text-slate-400">{m.satuan}</td>
-                        <td className="px-5 py-3 text-sm text-slate-400">{m.letak}</td>
-                        <td className="px-5 py-3 text-right text-sm text-slate-400 tabular-nums">
-                          {m.stokMinimal > 0 ? m.stokMinimal : <span className="text-slate-600" title={`Belum diset — pakai default ${LOW_STOCK_THRESHOLD}`}>{LOW_STOCK_THRESHOLD}*</span>}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <span className={`text-sm font-bold tabular-nums ${m.qty === 0 ? 'text-red-300' : 'text-amber-300'}`}>{m.qty}</span>
-                          <span className="text-xs text-slate-500 ml-1">{m.satuan}</span>
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[820px]">
+                    <thead>
+                      <tr className="border-b border-white/[0.06] text-[10px] text-slate-500 font-semibold uppercase tracking-widest bg-white/[0.015]">
+                        <th className="text-left px-5 py-3">No</th>
+                        <th className="text-left px-5 py-3">Kode</th>
+                        <th className="text-left px-5 py-3">Nama Barang</th>
+                        <th className="text-left px-5 py-3">Jenis</th>
+                        <th className="text-left px-5 py-3">Satuan</th>
+                        <th className="text-left px-5 py-3">Gudang</th>
+                        <th className="text-right px-5 py-3">Stok Min</th>
+                        <th className="text-right px-5 py-3">Stok</th>
+                        <th className="text-left px-5 py-3">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {ovPaged.slice.map((m, i) => (
+                        <tr key={m.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                          <td className="px-5 py-3 text-sm text-slate-500 tabular-nums">{(ovPaged.current - 1) * ovPageSize + i + 1}</td>
+                          <td className="px-5 py-3 text-sm text-slate-400 font-mono">{m.kode}</td>
+                          <td className="px-5 py-3 text-sm text-white font-medium">{m.nama}</td>
+                          <td className="px-5 py-3 text-sm text-slate-400">{m.jenis}</td>
+                          <td className="px-5 py-3 text-sm text-slate-400">{m.satuan}</td>
+                          <td className="px-5 py-3 text-sm text-slate-400">{m.letak}</td>
+                          <td className="px-5 py-3 text-right text-sm text-slate-400 tabular-nums">
+                            {m.stokMinimal > 0 ? m.stokMinimal : <span className="text-slate-600" title={`Belum diset — pakai default ${LOW_STOCK_THRESHOLD}`}>{LOW_STOCK_THRESHOLD}*</span>}
+                          </td>
+                          <td className="px-5 py-3 text-right">
+                            <span className={`text-sm font-bold tabular-nums ${m.status === 'habis' ? 'text-red-300' : m.status === 'menipis' ? 'text-amber-300' : 'text-emerald-300'}`}>{m.qty}</span>
+                            <span className="text-xs text-slate-500 ml-1">{m.satuan}</span>
+                          </td>
+                          <td className="px-5 py-3">
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+                              m.status === 'habis' ? 'text-red-300 bg-red-500/15 border-red-500/25'
+                              : m.status === 'menipis' ? 'text-amber-300 bg-amber-500/15 border-amber-500/25'
+                              : 'text-emerald-300 bg-emerald-500/15 border-emerald-500/25'
+                            }`}>
+                              {m.status === 'habis' ? 'Habis' : m.status === 'menipis' ? 'Menipis' : 'Tersedia'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination current={ovPaged.current} total={ovPaged.total} count={ovPaged.count} pageSize={ovPageSize} onChange={setOvPage} onPageSizeChange={s => { setOvPageSize(s); setOvPage(1); }} />
+              </>
             )}
           </div>
         </div>
