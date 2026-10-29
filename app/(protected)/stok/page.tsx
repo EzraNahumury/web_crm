@@ -68,6 +68,9 @@ export default function StokPage() {
   const [ovSearch, setOvSearch] = useState('');
   const [ovPage, setOvPage] = useState(1);
   const [ovPageSize, setOvPageSize] = useState(10);
+  // Periode untuk laporan PDF (opsional). Kosong = semua waktu (kumulatif).
+  const [pdfFrom, setPdfFrom] = useState('');
+  const [pdfTo, setPdfTo] = useState('');
   const toast = useToast();
 
   useEffect(() => { setAktualPage(1); }, [search]);
@@ -263,9 +266,38 @@ export default function StokPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const autoTable = (autoTableMod as any).default;
 
-      const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+      // Landscape — muat kolom Masuk/Keluar/Periode per barang.
+      const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' });
       const today = new Date();
       const dateStr = today.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+
+      // Periode mutasi (opsional). Kosong = semua waktu (kumulatif).
+      const hasPeriode = Boolean(pdfFrom || pdfTo);
+      const periodeLabel = hasPeriode
+        ? `${pdfFrom ? fmtDate(pdfFrom) : '…'} s/d ${pdfTo ? fmtDate(pdfTo) : '…'}`
+        : 'Semua waktu (kumulatif)';
+
+      // Agregasi Masuk/Keluar + rentang tanggal mutasi per barang, dari
+      // stok_adjustment yang masuk periode. Masuk = selisih +, Keluar = selisih −.
+      const mov = new Map<number, { masuk: number; keluar: number; minDate: string; maxDate: string }>();
+      for (const a of adjustments) {
+        const bid = Number(a.barang_id);
+        if (!bid) continue;
+        const iso = isoFromTs(a.created_at);
+        if (!iso) continue;
+        if (pdfFrom && iso < pdfFrom) continue;
+        if (pdfTo && iso > pdfTo) continue;
+        const sel = Number(a.selisih) || 0;
+        const cur = mov.get(bid) || { masuk: 0, keluar: 0, minDate: iso, maxDate: iso };
+        if (sel > 0) cur.masuk += sel; else cur.keluar += -sel;
+        if (iso < cur.minDate) cur.minDate = iso;
+        if (iso > cur.maxDate) cur.maxDate = iso;
+        mov.set(bid, cur);
+      }
+      let sumMasuk = 0, sumKeluar = 0;
+      for (const [, v] of mov) { sumMasuk += v.masuk; sumKeluar += v.keluar; }
+      const masukTotal = hasPeriode ? sumMasuk : totalMasuk;
+      const keluarTotal = hasPeriode ? sumKeluar : totalKeluar;
 
       // Header
       doc.setFontSize(18);
@@ -273,20 +305,20 @@ export default function StokPage() {
       doc.text('LAPORAN STOK BAHAN', 14, 18);
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.text(`AYRES Production · Dibuat: ${dateStr}`, 14, 25);
+      doc.text(`AYRES Production · Gudang Ayres · Dibuat: ${dateStr}`, 14, 25);
+      doc.text(`Periode mutasi: ${periodeLabel}`, 14, 31);
 
       // Summary
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
-      doc.text('Ringkasan', 14, 35);
+      doc.text('Ringkasan', 14, 41);
       autoTable(doc, {
-        startY: 38,
+        startY: 44,
         head: [['Metric', 'Nilai']],
         body: [
-          ['Total Barang Masuk (kumulatif)', String(totalMasuk)],
-          ['Total Barang Keluar (kumulatif)', String(totalKeluar)],
-          ['Total Semua Gudang', String(totalAllStok)],
-          ...Object.entries(perGudang).map(([g, n]) => [`  · ${g}`, String(n)]),
+          [`Total Barang Masuk (${hasPeriode ? 'periode' : 'kumulatif'})`, String(masukTotal)],
+          [`Total Barang Keluar (${hasPeriode ? 'periode' : 'kumulatif'})`, String(keluarTotal)],
+          ['Total Stok Gudang Ayres', String(totalAllStok)],
         ],
         theme: 'grid',
         headStyles: { fillColor: [15, 118, 110] },
@@ -297,24 +329,32 @@ export default function StokPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let y = (doc as any).lastAutoTable.finalY + 8;
 
-      // Data Barang lengkap
+      // Data Barang lengkap + mutasi per barang
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
       doc.text('Data Barang', 14, y);
       autoTable(doc, {
         startY: y + 3,
-        head: [['Kode', 'Nama Barang', 'Jenis', 'Satuan', 'Harga', 'Stok', 'Total (Rp)', 'Letak']],
-        body: stokDisplay.map(m => [
-          m.kode, m.nama, m.jenis, m.satuan,
-          fmtRp(m.harga), String(m.qty), fmtRp(m.total), m.letak,
-        ]),
+        head: [['Kode', 'Nama Barang', 'Jenis', 'Satuan', 'Harga', 'Stok', 'Total (Rp)', 'Masuk', 'Keluar', 'Periode Mutasi']],
+        body: stokDisplay.map(m => {
+          const mv = mov.get(Number(m.id));
+          return [
+            m.kode, m.nama, m.jenis, m.satuan,
+            fmtRp(m.harga), String(m.qty), fmtRp(m.total),
+            mv ? String(mv.masuk) : '0',
+            mv ? String(mv.keluar) : '0',
+            mv ? `${fmtDate(mv.minDate)} – ${fmtDate(mv.maxDate)}` : '-',
+          ];
+        }),
         theme: 'striped',
         headStyles: { fillColor: [30, 64, 175] },
-        styles: { fontSize: 8, cellPadding: 2 },
+        styles: { fontSize: 7.5, cellPadding: 1.5 },
         columnStyles: {
           4: { halign: 'right' },
           5: { halign: 'right' },
           6: { halign: 'right' },
+          7: { halign: 'right' },
+          8: { halign: 'right' },
         },
         margin: { left: 14, right: 14 },
       });
@@ -322,21 +362,26 @@ export default function StokPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       y = (doc as any).lastAutoTable.finalY + 8;
 
-      // Barang akan habis
+      // Barang akan habis (stok ≤ stok minimal per barang)
       if (barangAkanHabis.length > 0) {
-        if (y > 250) { doc.addPage(); y = 20; }
+        if (y > 170) { doc.addPage(); y = 20; }
         doc.setFontSize(11);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(180, 20, 20);
-        doc.text(`⚠ Barang yang Akan Habis (≤ ${LOW_STOCK_THRESHOLD})`, 14, y);
+        doc.text('⚠ Barang yang Akan Habis (stok ≤ stok minimal)', 14, y);
         doc.setTextColor(0, 0, 0);
         autoTable(doc, {
           startY: y + 3,
-          head: [['Kode', 'Nama Barang', 'Jenis', 'Satuan', 'Stok', 'Letak']],
-          body: barangAkanHabis.map(m => [m.kode, m.nama, m.jenis, m.satuan, String(m.qty), m.letak]),
+          head: [['Kode', 'Nama Barang', 'Jenis', 'Satuan', 'Stok Min', 'Stok']],
+          body: barangAkanHabis.map(m => [
+            m.kode, m.nama, m.jenis, m.satuan,
+            m.stokMinimal > 0 ? String(m.stokMinimal) : `${LOW_STOCK_THRESHOLD}*`,
+            String(m.qty),
+          ]),
           theme: 'grid',
           headStyles: { fillColor: [220, 38, 38] },
           styles: { fontSize: 9 },
+          columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' } },
           margin: { left: 14, right: 14 },
         });
       }
@@ -379,7 +424,24 @@ export default function StokPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <div className="flex items-end gap-2 shrink-0 flex-wrap">
+            {/* Periode mutasi untuk PDF (opsional). Kosong = kumulatif. */}
+            <div className="flex flex-col">
+              <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Periode PDF (ops.)</label>
+              <div className="flex items-center gap-1.5">
+                <input type="date" value={pdfFrom} max={pdfTo || undefined} onChange={e => setPdfFrom(e.target.value)}
+                  className="bg-[#111827] border border-white/10 text-white text-xs rounded-lg px-2.5 py-2 focus:outline-none focus:border-teal-500/40 date-input" />
+                <span className="text-slate-500 text-xs">s/d</span>
+                <input type="date" value={pdfTo} min={pdfFrom || undefined} onChange={e => setPdfTo(e.target.value)}
+                  className="bg-[#111827] border border-white/10 text-white text-xs rounded-lg px-2.5 py-2 focus:outline-none focus:border-teal-500/40 date-input" />
+                {(pdfFrom || pdfTo) && (
+                  <button onClick={() => { setPdfFrom(''); setPdfTo(''); }} title="Reset periode"
+                    className="text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] rounded-lg px-2 py-2 transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                )}
+              </div>
+            </div>
             <button
               onClick={handleDownloadPdf}
               disabled={downloadingPdf}
