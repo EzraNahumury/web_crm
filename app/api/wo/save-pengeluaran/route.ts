@@ -41,6 +41,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const woId = Number(body.wo_id);
     const notes: string | null = body.notes ?? null;
+    // Tanggal pengeluaran yang dipilih gudang (YYYY-MM-DD). Kalau valid,
+    // dipakai sebagai tanggal header + created_at stok_adjustment (jam 12:00
+    // supaya aman dari pergeseran zona waktu). Kalau kosong/invalid → null
+    // (header NULL, audit pakai default CURRENT_TIMESTAMP = sekarang).
+    const tanggal: string | null = /^\d{4}-\d{2}-\d{2}$/.test(String(body.tanggal || ''))
+      ? String(body.tanggal) : null;
+    const adjCreatedAt: string | null = tanggal ? `${tanggal} 12:00:00` : null;
     const rawRows: PayloadRow[] = Array.isArray(body.rows) ? body.rows : [];
     if (!woId) {
       return NextResponse.json({ success: false, error: 'wo_id required' }, { status: 400 });
@@ -168,14 +175,14 @@ export async function POST(req: NextRequest) {
       await execute('DELETE FROM wo_pengeluaran_bahan WHERE work_order_id = ?', [woId]);
     }
 
-    // ─── Insert header (kalau belum ada) or update notes ───
+    // ─── Insert header (kalau belum ada) or update notes + tanggal ───
     if (!existingHeader) {
       await insert(
-        'INSERT INTO wo_pengeluaran (work_order_id, notes) VALUES (?, ?)',
-        [woId, notes]
+        'INSERT INTO wo_pengeluaran (work_order_id, notes, tanggal) VALUES (?, ?, ?)',
+        [woId, notes, tanggal]
       );
     } else {
-      await execute('UPDATE wo_pengeluaran SET notes = ? WHERE work_order_id = ?', [notes, woId]);
+      await execute('UPDATE wo_pengeluaran SET notes = ?, tanggal = ? WHERE work_order_id = ?', [notes, tanggal, woId]);
     }
 
     // ─── Insert new detail rows + deduct stok + audit ───
@@ -210,12 +217,21 @@ export async function POST(req: NextRequest) {
       } else {
         await insert('INSERT INTO stok (barang_id, qty) VALUES (?, ?)', [m.barangId, after]);
       }
-      await insert(
-        `INSERT INTO stok_adjustment
-           (barang_id, tipe, qty_sebelum, qty_sesudah, selisih, keterangan, work_order_id)
-         VALUES (?, 'Pengurangan', ?, ?, ?, ?, ?)`,
-        [m.barangId, before, after, -m.sub, 'Real Pengeluaran Bahan', woId]
-      );
+      if (adjCreatedAt) {
+        await insert(
+          `INSERT INTO stok_adjustment
+             (barang_id, tipe, qty_sebelum, qty_sesudah, selisih, keterangan, work_order_id, created_at)
+           VALUES (?, 'Pengurangan', ?, ?, ?, ?, ?, ?)`,
+          [m.barangId, before, after, -m.sub, 'Real Pengeluaran Bahan', woId, adjCreatedAt]
+        );
+      } else {
+        await insert(
+          `INSERT INTO stok_adjustment
+             (barang_id, tipe, qty_sebelum, qty_sesudah, selisih, keterangan, work_order_id)
+           VALUES (?, 'Pengurangan', ?, ?, ?, ?, ?)`,
+          [m.barangId, before, after, -m.sub, 'Real Pengeluaran Bahan', woId]
+        );
+      }
     }
 
     // ─── Auto-unfinalize finance tracking ───

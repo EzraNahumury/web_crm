@@ -19,6 +19,23 @@ function fmtDate(d: string | Date | null | undefined) {
   try { return new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return s; }
 }
 
+// Value apa pun → 'YYYY-MM-DD' untuk <input type="date">; '' kalau kosong.
+function toInputDate(v: unknown): string {
+  if (!v) return '';
+  const s = String(v);
+  const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Tanggal hari ini sebagai 'YYYY-MM-DD' (lokal).
+function todayInput(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function RealPengeluaranBahanPage() {
   const toast = useToast();
   const [woList, setWoList] = useState<Row[]>([]);   // kandidat picker (confirmed + cutoff)
@@ -116,6 +133,14 @@ export default function RealPengeluaranBahanPage() {
     [pengeluaran, woById],
   );
 
+  // Header pengeluaran per WO → untuk tampilkan tanggal pengeluaran di list
+  // dan prefill tanggal saat edit.
+  const pengByWo = useMemo(() => {
+    const m = new Map<number, Row>();
+    for (const p of pengeluaran) m.set(Number(p.work_order_id), p);
+    return m;
+  }, [pengeluaran]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return pengeluaranWos;
@@ -199,16 +224,16 @@ export default function RealPengeluaranBahanPage() {
           <table className="w-full min-w-[1000px]">
             <thead>
               <tr className="border-b border-white/[0.06] bg-white/[0.015]">
-                {['NO WO', 'CUSTOMER', 'PAKET', 'QTY', 'TGL ORDER', 'DEADLINE', 'STATUS', 'AKSI'].map(h => (
+                {['NO WO', 'CUSTOMER', 'PAKET', 'QTY', 'TGL ORDER', 'TGL KELUAR', 'DEADLINE', 'STATUS', 'AKSI'].map(h => (
                   <th key={h} className={`text-[10px] text-slate-500 font-semibold ${h === 'QTY' ? 'text-right' : h === 'AKSI' ? 'text-right' : 'text-left'} px-5 py-3.5 uppercase tracking-widest`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-5 py-16 text-center text-sm text-slate-500">Memuat data…</td></tr>
+                <tr><td colSpan={9} className="px-5 py-16 text-center text-sm text-slate-500">Memuat data…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={8} className="px-5 py-16 text-center">
+                <tr><td colSpan={9} className="px-5 py-16 text-center">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-transparent border border-emerald-500/20 grid place-items-center">
                       <svg className="w-6 h-6 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -260,6 +285,13 @@ export default function RealPengeluaranBahanPage() {
                         {wo.qty > 0 && <span className="text-slate-500 text-[11px] ml-1">pcs</span>}
                       </td>
                       <td className="px-5 py-4 text-sm text-slate-400">{fmtDate(wo.tanggal_order)}</td>
+                      <td className="px-5 py-4 text-sm text-slate-300">
+                        {(() => {
+                          const peng = pengByWo.get(Number(wo.id));
+                          const tgl = peng?.tanggal || peng?.created_at;
+                          return tgl ? fmtDate(tgl) : <span className="text-slate-600">-</span>;
+                        })()}
+                      </td>
                       <td className={`px-5 py-4 text-sm font-medium ${isOverdue ? 'text-red-400' : 'text-slate-400'}`}>
                         {fmtDate(wo.deadline)}
                       </td>
@@ -332,6 +364,7 @@ export default function RealPengeluaranBahanPage() {
         <PengeluaranModal
           wo={editWo}
           mode="edit"
+          initialTanggal={toInputDate(pengByWo.get(Number(editWo.id))?.tanggal)}
           onClose={() => setEditWo(null)}
           onSaved={fetchData}
         />
@@ -340,6 +373,7 @@ export default function RealPengeluaranBahanPage() {
         <PengeluaranModal
           wo={viewWo}
           mode="view"
+          initialTanggal={toInputDate(pengByWo.get(Number(viewWo.id))?.tanggal) || toInputDate(pengByWo.get(Number(viewWo.id))?.created_at)}
           onClose={() => setViewWo(null)}
           onSaved={fetchData}
         />
@@ -467,9 +501,10 @@ function PickerModal({ candidates, onClose, onPick }: {
    POST ke /api/wo/save-pengeluaran (auto deduct stok + audit trail).
    ──────────────────────────────────────────────────────────────── */
 type ModalMode = 'edit' | 'view';
-function PengeluaranModal({ wo, mode, onClose, onSaved }: {
+function PengeluaranModal({ wo, mode, initialTanggal, onClose, onSaved }: {
   wo: Row;
   mode: ModalMode;
+  initialTanggal?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -477,6 +512,8 @@ function PengeluaranModal({ wo, mode, onClose, onSaved }: {
   const isView = mode === 'view';
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Tanggal pengeluaran — default hari ini (atau tanggal tersimpan saat edit).
+  const [tanggal, setTanggal] = useState(initialTanggal || todayInput());
   const [rows, setRows] = useState<GudangRow[]>([]);
   const [barangList, setBarangList] = useState<Row[]>([]);
   const [stokMap, setStokMap] = useState<Record<string, { qty: number; satuan: string }>>({});
@@ -572,6 +609,7 @@ function PengeluaranModal({ wo, mode, onClose, onSaved }: {
     try {
       const payload = {
         wo_id: Number(wo.id),
+        tanggal: tanggal || null,
         rows: rows.filter(r => !r.sectionHeader).map(r => ({
           bagian: r.bagian,
           bahan: r.bahan,
@@ -618,6 +656,20 @@ function PengeluaranModal({ wo, mode, onClose, onSaved }: {
           <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-white/[0.05] transition-colors shrink-0" title="Tutup (Esc)">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
+        </div>
+
+        {/* Tanggal pengeluaran — gudang boleh set manual kalau input tidak real-time. */}
+        <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b border-white/10 bg-white/[0.015]">
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Tanggal Pengeluaran</label>
+          {isView ? (
+            <span className="text-sm text-white font-medium">{tanggal ? fmtDate(tanggal) : '-'}</span>
+          ) : (
+            <>
+              <input type="date" value={tanggal} max={todayInput()} onChange={e => setTanggal(e.target.value)}
+                className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-emerald-500/40 date-input" />
+              <span className="text-[11px] text-slate-500">Sesuaikan kalau input tidak real-time.</span>
+            </>
+          )}
         </div>
 
         {!isView && insufficient.length > 0 && (

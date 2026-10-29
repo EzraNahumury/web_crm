@@ -2090,6 +2090,15 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `barang` ADD COLUMN `stok_minimal` INT NOT NULL DEFAULT 0",
     ],
   },
+  {
+    // Tanggal real pengeluaran bahan — gudang kadang input tidak real-time,
+    // jadi boleh set tanggal pemakaian sendiri. NULL = pakai created_at
+    // (perilaku lama). Dipakai juga sebagai created_at stok_adjustment.
+    name: '107_wo_pengeluaran_tanggal',
+    up: [
+      "ALTER TABLE `wo_pengeluaran` ADD COLUMN `tanggal` DATE NULL",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
