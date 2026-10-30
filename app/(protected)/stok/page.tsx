@@ -7,7 +7,14 @@ import { Pagination, paginate } from '@/lib/pagination';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-const SATUAN_OPTIONS = ['kg', 'roll', 'liter', 'meter', 'pcs'];
+const SATUAN_OPTIONS = ['kg', 'roll', 'liter', 'meter', 'pcs', 'pack'];
+
+// Format qty yang bisa pecahan (DECIMAL dari DB datang sebagai string):
+// tampilkan utuh kalau bulat, maksimal 2 desimal kalau pecahan.
+function fmtQty(v: unknown): string {
+  const n = Number(v) || 0;
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
 const LOW_STOCK_THRESHOLD = 20; // batas default "barang akan habis" (kalau stok minimal belum diset)
 
 // Ambang menipis efektif per barang: pakai stok_minimal kalau sudah diset
@@ -823,7 +830,7 @@ export default function StokPage() {
                   {adjPaged.slice.length === 0 ? (
                     <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-slate-500">{adjSearch ? 'Tidak ada riwayat yang cocok' : 'Belum ada riwayat adjustment'}</td></tr>
                   ) : adjPaged.slice.map((a: Row) => {
-                    const selisih = a.selisih || 0;
+                    const selisih = Number(a.selisih) || 0;
                     const satuan = a.satuan || 'pcs';
                     const tipeColor = a.tipe === 'Penambahan' ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25'
                       : a.tipe === 'Pengurangan' ? 'text-orange-300 bg-orange-500/10 border-orange-500/25'
@@ -847,11 +854,11 @@ export default function StokPage() {
                             <span className="text-xs text-slate-500">Manual</span>
                           )}
                         </td>
-                        <td className="px-5 py-3.5 text-sm text-slate-400 text-right tabular-nums">{a.qty_sebelum} {satuan}</td>
-                        <td className="px-5 py-3.5 text-sm text-slate-300 text-right tabular-nums">{a.qty_sesudah} {satuan}</td>
+                        <td className="px-5 py-3.5 text-sm text-slate-400 text-right tabular-nums">{fmtQty(a.qty_sebelum)} {satuan}</td>
+                        <td className="px-5 py-3.5 text-sm text-slate-300 text-right tabular-nums">{fmtQty(a.qty_sesudah)} {satuan}</td>
                         <td className="px-5 py-3.5 text-sm font-semibold text-right tabular-nums">
                           <span className={selisih >= 0 ? 'text-emerald-300' : 'text-orange-300'}>
-                            {selisih >= 0 ? '+' : ''}{selisih} {satuan}
+                            {selisih >= 0 ? '+' : ''}{fmtQty(selisih)} {satuan}
                           </span>
                         </td>
                         <td className="px-5 py-3.5 text-sm text-slate-400">{a.keterangan || '-'}</td>
@@ -1230,7 +1237,8 @@ function AdjustmentModal({ mode, onClose, onSaved, barangList, stokList, toast }
   const selectedBarang = barangList.find(b => String(b.id) === barangId);
   const currentStok = stokList.find(s => String(s.barang_id) === barangId);
   const currentQty = Number(currentStok?.qty) || 0;
-  const qtyNum = Number(qty) || 0;
+  // Qty bisa pecahan (mis. 0.5 kg). Terima koma maupun titik sebagai pemisah.
+  const qtyNum = Number(String(qty).replace(',', '.')) || 0;
   const finalQty = mode === 'masuk' ? currentQty + qtyNum : Math.max(0, currentQty - qtyNum);
 
   const isMasuk = mode === 'masuk';
@@ -1350,20 +1358,21 @@ function AdjustmentModal({ mode, onClose, onSaved, barangList, stokList, toast }
             <div>
               <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest block">Stok Sekarang</span>
               <div className="mt-1 flex items-baseline gap-1">
-                <span className="text-xl font-bold text-white tabular-nums">{barangId ? currentQty : '–'}</span>
+                <span className="text-xl font-bold text-white tabular-nums">{barangId ? fmtQty(currentQty) : '–'}</span>
                 {barangId && <span className="text-[11px] text-slate-500">{selectedBarang?.satuan}</span>}
               </div>
             </div>
             <div>
               <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest block">Jumlah {isMasuk ? 'Masuk' : 'Keluar'}</span>
-              <input type="number" min="0" value={qty} onChange={e => setQty(e.target.value)} placeholder="0"
+              <input type="text" inputMode="decimal" value={qty}
+                onChange={e => setQty(e.target.value.replace(/[^0-9.,]/g, ''))} placeholder="0"
                 className="w-full bg-[#0d1117] border border-white/10 text-white rounded-lg px-2 py-1.5 text-sm mt-1 focus:outline-none focus:border-blue-500/40 tabular-nums" />
             </div>
             <div>
               <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest block">Stok Akhir</span>
               <div className="mt-1 flex items-baseline gap-1">
                 <span className={`text-xl font-bold tabular-nums ${!isMasuk && finalQty === 0 && qtyNum > 0 ? 'text-red-300' : 'text-emerald-300'}`}>
-                  {barangId && qty ? finalQty : '–'}
+                  {barangId && qty ? fmtQty(finalQty) : '–'}
                 </span>
                 {barangId && qty && <span className="text-[11px] text-slate-500">{selectedBarang?.satuan}</span>}
               </div>

@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
         [barangId]
       );
       const barang = await queryOne<BarangRow>('SELECT nama FROM barang WHERE id = ?', [barangId]);
-      const available = stok?.qty ?? 0;
+      const available = Number(stok?.qty ?? 0);
       stokSnapshot.set(barangId, { id: stok?.id ?? null, qty: available, nama: barang?.nama || '' });
       if (available < qtyNeeded) {
         insufficient.push({ bahan: barang?.nama || `barang #${barangId}`, available, needed: qtyNeeded });

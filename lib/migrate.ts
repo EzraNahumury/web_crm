@@ -2099,6 +2099,18 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `wo_pengeluaran` ADD COLUMN `tanggal` DATE NULL",
     ],
   },
+  {
+    // Stok bisa pecahan (mis. 0.5 kg). Sebelumnya qty/selisih bertipe INT
+    // sehingga penambahan < 1 (0.5 kg) terpotong jadi 0 dan stok tidak
+    // bertambah. Lebarkan ke DECIMAL(12,2) biar pecahan tersimpan.
+    name: '108_stok_decimal_qty',
+    up: [
+      "ALTER TABLE `stok` MODIFY COLUMN `qty` DECIMAL(12,2) NOT NULL DEFAULT 0",
+      "ALTER TABLE `stok_adjustment` MODIFY COLUMN `qty_sebelum` DECIMAL(12,2) NOT NULL DEFAULT 0",
+      "ALTER TABLE `stok_adjustment` MODIFY COLUMN `qty_sesudah` DECIMAL(12,2) NOT NULL DEFAULT 0",
+      "ALTER TABLE `stok_adjustment` MODIFY COLUMN `selisih` DECIMAL(12,2) NOT NULL DEFAULT 0",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {
