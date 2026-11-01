@@ -132,6 +132,9 @@ export default function LineJahitPage() {
   const [rows, setRows] = useState<LineJahitRow[]>([]);
   const [paketList, setPaketList] = useState<Paket[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [boronganRows, setBoronganRows] = useState<Row[]>([]);
+  const [cmtRows, setCmtRows] = useState<Row[]>([]);
+  const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Form state.
@@ -153,13 +156,20 @@ export default function LineJahitPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [allRows, allPaket, allAtt] = await Promise.all([
+      const [allRows, allPaket, allAtt, allBorongan, allCmt] = await Promise.all([
         dbGet('line_jahit').catch(() => []),
         dbGet('line_jahit_paket').catch(() => []),
         dbGet('penjahit_attendance').catch(() => []),
+        dbGet('penjahit_borongan').catch(() => []),
+        dbGet('cmt').catch(() => []),
       ]);
       const [y, m] = month.split('-').map(Number);
       const monthPrefix = `${y}-${String(m).padStart(2, '0')}`;
+      const byMonth = (arr: Row[]) => (arr as Row[])
+        .filter(r => String(r.tanggal || '').slice(0, 7) === monthPrefix)
+        .sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)) || Number(a.id) - Number(b.id));
+      setBoronganRows(byMonth(allBorongan as Row[]));
+      setCmtRows(byMonth(allCmt as Row[]));
       const filtered = (allRows as Row[]).filter(r => {
         const t = String(r.tanggal || '').slice(0, 7);
         return t === monthPrefix;
@@ -185,6 +195,123 @@ export default function LineJahitPage() {
     const [y, m] = month.split('-').map(Number);
     return `${BULAN_ID[m - 1]?.toUpperCase() || ''} ${y}`;
   }, [month]);
+
+  // ─── Export (Excel + PDF) — satu laporan mencakup 4 seksi: Line Jahit
+  //     internal, Kedatangan Penjahit, Penjahit Borongan, CMT (bulan terpilih).
+  const pkSorted = useMemo(() => paketList.slice().sort((a, b) => (a.urutan || 0) - (b.urutan || 0)), [paketList]);
+
+  function parseRealisasiJson(raw: unknown): Record<string, number> {
+    try { const o = JSON.parse(String(raw || '{}')); return o && typeof o === 'object' ? o as Record<string, number> : {}; }
+    catch { return {}; }
+  }
+
+  function buildSections() {
+    const d = (s: unknown) => fmtDayShort(String(s).slice(0, 10));
+    // 1) Line Jahit internal (per customer, qty per paket + poin).
+    const internalHead = ['NO', 'TANGGAL', 'CUSTOMER', ...pkSorted.flatMap(p => [`${p.nama} ATASAN`, `${p.nama} CELANA`]), 'POIN'];
+    const internalBody: (string | number)[][] = rows.map((r, i) => [
+      i + 1, d(r.tanggal), String(r.customer || ''),
+      ...pkSorted.flatMap(p => [Number(r[`${p.kolom_prefix}_atasan`]) || 0, Number(r[`${p.kolom_prefix}_celana`]) || 0]),
+      Math.round(realisasiPoin(r, paketList) * 10) / 10,
+    ]);
+    // 2) Kedatangan penjahit.
+    const kedatanganHead = ['NO', 'TANGGAL', 'PENJAHIT STANDAR', 'PENJAHIT SPECIAL', 'TOTAL'];
+    const kedatanganBody: (string | number)[][] = attendance
+      .slice().sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)))
+      .map((a, i) => {
+        const s = Number(a.jumlah_standar) || 0, sp = Number(a.jumlah_special) || 0;
+        return [i + 1, d(a.tanggal), s, sp, s + sp];
+      });
+    // 3/4) Penjahit Luar (Borongan + CMT) — per penjahit + WO, qty di realisasi_json.
+    const luarHead = ['NO', 'TANGGAL', 'NAMA PENJAHIT', 'NAMA WO', ...pkSorted.flatMap(p => [`${p.nama} ATASAN`, `${p.nama} CELANA`]), 'TOTAL PCS', 'POIN'];
+    const buildLuar = (arr: Row[]): (string | number)[][] => arr.map((r, i) => {
+      const data = parseRealisasiJson(r.realisasi_json);
+      const cells: (string | number)[] = [i + 1, d(r.tanggal), String(r.nama_penjahit || ''), String(r.nama_wo || '')];
+      let tot = 0;
+      for (const p of pkSorted) {
+        const a = Number(data[`${p.kolom_prefix}_atasan`]) || 0, c = Number(data[`${p.kolom_prefix}_celana`]) || 0;
+        cells.push(a, c); tot += a + c;
+      }
+      cells.push(tot, Math.round(realisasiPoin(data as unknown as LineJahitRow, paketList) * 10) / 10);
+      return cells;
+    });
+    return {
+      internal: { head: internalHead, body: internalBody },
+      kedatangan: { head: kedatanganHead, body: kedatanganBody },
+      borongan: { head: luarHead, body: buildLuar(boronganRows) },
+      cmt: { head: luarHead, body: buildLuar(cmtRows) },
+    };
+  }
+
+  async function handleExportExcel() {
+    setExporting(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const XLSX = (await import('xlsx-js-style')).default as any;
+      const sec = buildSections();
+      const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } } };
+      const titleStyle = { font: { bold: true, sz: 13 } };
+      const mkSheet = (title: string, head: string[], body: (string | number)[][]) => {
+        const aoa = [
+          [{ v: title, s: titleStyle }],
+          head.map(h => ({ v: h, s: headStyle })),
+          ...body,
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, head.length - 1) } }];
+        return ws;
+      };
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, mkSheet(`Line Jahit — ${monthLabel}`, sec.internal.head, sec.internal.body), 'Line Jahit');
+      XLSX.utils.book_append_sheet(wb, mkSheet(`Kedatangan Penjahit — ${monthLabel}`, sec.kedatangan.head, sec.kedatangan.body), 'Kedatangan');
+      XLSX.utils.book_append_sheet(wb, mkSheet(`Penjahit Borongan — ${monthLabel}`, sec.borongan.head, sec.borongan.body), 'Borongan');
+      XLSX.utils.book_append_sheet(wb, mkSheet(`CMT — ${monthLabel}`, sec.cmt.head, sec.cmt.body), 'CMT');
+      XLSX.writeFile(wb, `laporan-line-jahit-${month}.xlsx`);
+      toast.success('Excel Terunduh', `Laporan Line Jahit ${monthLabel}.`);
+    } catch (e) { console.error('Export Excel gagal', e); toast.error('Gagal', 'Export Excel gagal.'); }
+    setExporting(false);
+  }
+
+  async function handleExportPdf() {
+    setExporting(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const autoTableMod = await import('jspdf-autotable');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const autoTable = (autoTableMod as any).default;
+      const sec = buildSections();
+      const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' });
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+      doc.text(`LAPORAN LINE JAHIT — ${monthLabel}`, 14, 16);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text('AYRES Production', 14, 22);
+      let y = 28;
+      const section = (title: string, head: string[], body: (string | number)[][], fill: [number, number, number]) => {
+        if (y > 185) { doc.addPage(); y = 16; }
+        doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.text(title, 14, y);
+        autoTable(doc, {
+          startY: y + 2,
+          head: [head],
+          body: body.length
+            ? body.map(r => r.map(c => String(c)))
+            : [[{ content: 'Tidak ada data', colSpan: head.length, styles: { halign: 'center', textColor: 150 } }]],
+          theme: 'striped',
+          headStyles: { fillColor: fill },
+          styles: { fontSize: 7, cellPadding: 1.2 },
+          margin: { left: 14, right: 14 },
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        y = (doc as any).lastAutoTable.finalY + 7;
+      };
+      section('Penjahit Internal — Line Jahit', sec.internal.head, sec.internal.body, [30, 64, 175]);
+      section('Kedatangan Penjahit', sec.kedatangan.head, sec.kedatangan.body, [124, 58, 237]);
+      section('Penjahit Borongan', sec.borongan.head, sec.borongan.body, [217, 119, 6]);
+      section('CMT', sec.cmt.head, sec.cmt.body, [225, 29, 72]);
+      doc.save(`laporan-line-jahit-${month}.pdf`);
+      toast.success('PDF Terunduh', `Laporan Line Jahit ${monthLabel}.`);
+    } catch (e) { console.error('Export PDF gagal', e); toast.error('Gagal', 'Export PDF gagal.'); }
+    setExporting(false);
+  }
 
   const groupedByDate = useMemo(() => {
     const g: Record<string, LineJahitRow[]> = {};
@@ -363,6 +490,24 @@ export default function LineJahitPage() {
               className="text-xs font-medium text-slate-300 hover:text-white px-3 py-2 rounded-xl border border-white/10 bg-[#111827] hover:bg-white/[0.04] transition-colors"
             >
               Bulan Ini
+            </button>
+            <button
+              onClick={handleExportExcel}
+              disabled={exporting}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-green-700 hover:bg-green-600 disabled:opacity-50 px-3 py-2 rounded-xl transition-colors shadow-lg shadow-green-700/20"
+              title="Export semua (Line Jahit, Kedatangan, Borongan, CMT) ke Excel"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              {exporting ? '...' : 'Excel'}
+            </button>
+            <button
+              onClick={handleExportPdf}
+              disabled={exporting}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-500 disabled:opacity-50 px-3 py-2 rounded-xl transition-colors shadow-lg shadow-red-500/20"
+              title="Export semua (Line Jahit, Kedatangan, Borongan, CMT) ke PDF"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              {exporting ? '...' : 'PDF'}
             </button>
             <button
               onClick={() => setShowAddPaket(true)}
