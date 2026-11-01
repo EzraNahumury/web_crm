@@ -207,21 +207,35 @@ export default function LineJahitPage() {
 
   function buildSections() {
     const d = (s: unknown) => fmtDayShort(String(s).slice(0, 10));
+    const r1 = (n: number) => Math.round(n * 10) / 10;
     // 1) Line Jahit internal (per customer, qty per paket + poin).
     const internalHead = ['NO', 'TANGGAL', 'CUSTOMER', ...pkSorted.flatMap(p => [`${p.nama} ATASAN`, `${p.nama} CELANA`]), 'POIN'];
     const internalBody: (string | number)[][] = rows.map((r, i) => [
       i + 1, d(r.tanggal), String(r.customer || ''),
       ...pkSorted.flatMap(p => [Number(r[`${p.kolom_prefix}_atasan`]) || 0, Number(r[`${p.kolom_prefix}_celana`]) || 0]),
-      Math.round(realisasiPoin(r, paketList) * 10) / 10,
+      r1(realisasiPoin(r, paketList)),
     ]);
+    // Total internal (per paket atasan/celana, pcs, poin).
+    const intPaketSums = pkSorted.map(p => {
+      let a = 0, c = 0;
+      for (const r of rows) { a += Number(r[`${p.kolom_prefix}_atasan`]) || 0; c += Number(r[`${p.kolom_prefix}_celana`]) || 0; }
+      return [a, c] as [number, number];
+    });
+    const intPcs = intPaketSums.reduce((s, [a, c]) => s + a + c, 0);
+    const intPoin = rows.reduce((s, r) => s + realisasiPoin(r, paketList), 0);
+    const internalFoot: (string | number)[] = ['TOTAL', '', '', ...intPaketSums.flat(), r1(intPoin)];
+
     // 2) Kedatangan penjahit.
     const kedatanganHead = ['NO', 'TANGGAL', 'PENJAHIT STANDAR', 'PENJAHIT SPECIAL', 'TOTAL'];
-    const kedatanganBody: (string | number)[][] = attendance
-      .slice().sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)))
-      .map((a, i) => {
-        const s = Number(a.jumlah_standar) || 0, sp = Number(a.jumlah_special) || 0;
-        return [i + 1, d(a.tanggal), s, sp, s + sp];
-      });
+    const attSorted = attendance.slice().sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)));
+    const kedatanganBody: (string | number)[][] = attSorted.map((a, i) => {
+      const s = Number(a.jumlah_standar) || 0, sp = Number(a.jumlah_special) || 0;
+      return [i + 1, d(a.tanggal), s, sp, s + sp];
+    });
+    let sStd = 0, sSpc = 0;
+    for (const a of attendance) { sStd += Number(a.jumlah_standar) || 0; sSpc += Number(a.jumlah_special) || 0; }
+    const kedatanganFoot: (string | number)[] = ['TOTAL', '', sStd, sSpc, sStd + sSpc];
+
     // 3/4) Penjahit Luar (Borongan + CMT) — per penjahit + WO, qty di realisasi_json.
     const luarHead = ['NO', 'TANGGAL', 'NAMA PENJAHIT', 'NAMA WO', ...pkSorted.flatMap(p => [`${p.nama} ATASAN`, `${p.nama} CELANA`]), 'TOTAL PCS', 'POIN'];
     const buildLuar = (arr: Row[]): (string | number)[][] => arr.map((r, i) => {
@@ -232,14 +246,37 @@ export default function LineJahitPage() {
         const a = Number(data[`${p.kolom_prefix}_atasan`]) || 0, c = Number(data[`${p.kolom_prefix}_celana`]) || 0;
         cells.push(a, c); tot += a + c;
       }
-      cells.push(tot, Math.round(realisasiPoin(data as unknown as LineJahitRow, paketList) * 10) / 10);
+      cells.push(tot, r1(realisasiPoin(data as unknown as LineJahitRow, paketList)));
       return cells;
     });
+    const luarTotals = (arr: Row[]) => {
+      const paketSums = pkSorted.map(p => {
+        let a = 0, c = 0;
+        for (const r of arr) { const data = parseRealisasiJson(r.realisasi_json); a += Number(data[`${p.kolom_prefix}_atasan`]) || 0; c += Number(data[`${p.kolom_prefix}_celana`]) || 0; }
+        return [a, c] as [number, number];
+      });
+      const pcs = paketSums.reduce((s, [a, c]) => s + a + c, 0);
+      const poin = arr.reduce((s, r) => s + realisasiPoin(parseRealisasiJson(r.realisasi_json) as unknown as LineJahitRow, paketList), 0);
+      const foot: (string | number)[] = ['TOTAL', '', '', '', ...paketSums.flat(), pcs, r1(poin)];
+      return { foot, pcs, poin };
+    };
+    const bT = luarTotals(boronganRows);
+    const cT = luarTotals(cmtRows);
+
+    const grand = {
+      intPcs, intPoin: r1(intPoin),
+      borPcs: bT.pcs, borPoin: r1(bT.poin),
+      cmtPcs: cT.pcs, cmtPoin: r1(cT.poin),
+      allPcs: intPcs + bT.pcs + cT.pcs,
+      allPoin: r1(intPoin + bT.poin + cT.poin),
+    };
+
     return {
-      internal: { head: internalHead, body: internalBody },
-      kedatangan: { head: kedatanganHead, body: kedatanganBody },
-      borongan: { head: luarHead, body: buildLuar(boronganRows) },
-      cmt: { head: luarHead, body: buildLuar(cmtRows) },
+      internal: { head: internalHead, body: internalBody, foot: internalFoot },
+      kedatangan: { head: kedatanganHead, body: kedatanganBody, foot: kedatanganFoot },
+      borongan: { head: luarHead, body: buildLuar(boronganRows), foot: bT.foot },
+      cmt: { head: luarHead, body: buildLuar(cmtRows), foot: cT.foot },
+      grand,
     };
   }
 
@@ -251,21 +288,36 @@ export default function LineJahitPage() {
       const sec = buildSections();
       const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } } };
       const titleStyle = { font: { bold: true, sz: 13 } };
-      const mkSheet = (title: string, head: string[], body: (string | number)[][]) => {
+      const footStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'FDE68A' } } };
+      const mkSheet = (title: string, head: string[], body: (string | number)[][], foot?: (string | number)[]) => {
         const aoa = [
           [{ v: title, s: titleStyle }],
           head.map(h => ({ v: h, s: headStyle })),
           ...body,
+          ...(foot ? [foot.map(c => ({ v: c, s: footStyle }))] : []),
         ];
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, head.length - 1) } }];
         return ws;
       };
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, mkSheet(`Line Jahit — ${monthLabel}`, sec.internal.head, sec.internal.body), 'Line Jahit');
-      XLSX.utils.book_append_sheet(wb, mkSheet(`Kedatangan Penjahit — ${monthLabel}`, sec.kedatangan.head, sec.kedatangan.body), 'Kedatangan');
-      XLSX.utils.book_append_sheet(wb, mkSheet(`Penjahit Borongan — ${monthLabel}`, sec.borongan.head, sec.borongan.body), 'Borongan');
-      XLSX.utils.book_append_sheet(wb, mkSheet(`CMT — ${monthLabel}`, sec.cmt.head, sec.cmt.body), 'CMT');
+      XLSX.utils.book_append_sheet(wb, mkSheet(`Line Jahit — ${monthLabel}`, sec.internal.head, sec.internal.body, sec.internal.foot), 'Line Jahit');
+      XLSX.utils.book_append_sheet(wb, mkSheet(`Kedatangan Penjahit — ${monthLabel}`, sec.kedatangan.head, sec.kedatangan.body, sec.kedatangan.foot), 'Kedatangan');
+      XLSX.utils.book_append_sheet(wb, mkSheet(`Penjahit Borongan — ${monthLabel}`, sec.borongan.head, sec.borongan.body, sec.borongan.foot), 'Borongan');
+      XLSX.utils.book_append_sheet(wb, mkSheet(`CMT — ${monthLabel}`, sec.cmt.head, sec.cmt.body, sec.cmt.foot), 'CMT');
+      // Sheet Ringkasan — total keseluruhan (internal + luar).
+      const g = sec.grand;
+      const ringkasanAoa = [
+        [{ v: `Ringkasan Total Jahit — ${monthLabel}`, s: titleStyle }],
+        ['SEKSI', 'TOTAL PCS', 'TOTAL POIN'].map(h => ({ v: h, s: headStyle })),
+        ['Sewing Internal (Line Jahit)', g.intPcs, g.intPoin],
+        ['Sewing Luar — Borongan', g.borPcs, g.borPoin],
+        ['Sewing Luar — CMT', g.cmtPcs, g.cmtPoin],
+        [{ v: 'TOTAL KESELURUHAN', s: footStyle }, { v: g.allPcs, s: footStyle }, { v: g.allPoin, s: footStyle }],
+      ];
+      const wsR = XLSX.utils.aoa_to_sheet(ringkasanAoa);
+      wsR['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
+      XLSX.utils.book_append_sheet(wb, wsR, 'Ringkasan');
       XLSX.writeFile(wb, `laporan-line-jahit-${month}.xlsx`);
       toast.success('Excel Terunduh', `Laporan Line Jahit ${monthLabel}.`);
     } catch (e) { console.error('Export Excel gagal', e); toast.error('Gagal', 'Export Excel gagal.'); }
@@ -286,7 +338,7 @@ export default function LineJahitPage() {
       doc.setFontSize(9); doc.setFont('helvetica', 'normal');
       doc.text('AYRES Production', 14, 22);
       let y = 28;
-      const section = (title: string, head: string[], body: (string | number)[][], fill: [number, number, number]) => {
+      const section = (title: string, head: string[], body: (string | number)[][], foot: (string | number)[], fill: [number, number, number]) => {
         if (y > 185) { doc.addPage(); y = 16; }
         doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.text(title, 14, y);
         autoTable(doc, {
@@ -295,6 +347,8 @@ export default function LineJahitPage() {
           body: body.length
             ? body.map(r => r.map(c => String(c)))
             : [[{ content: 'Tidak ada data', colSpan: head.length, styles: { halign: 'center', textColor: 150 } }]],
+          foot: body.length ? [foot.map(c => String(c))] : undefined,
+          footStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: 'bold' },
           theme: 'striped',
           headStyles: { fillColor: fill },
           styles: { fontSize: 7, cellPadding: 1.2 },
@@ -303,10 +357,31 @@ export default function LineJahitPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         y = (doc as any).lastAutoTable.finalY + 7;
       };
-      section('Penjahit Internal — Line Jahit', sec.internal.head, sec.internal.body, [30, 64, 175]);
-      section('Kedatangan Penjahit', sec.kedatangan.head, sec.kedatangan.body, [124, 58, 237]);
-      section('Penjahit Borongan', sec.borongan.head, sec.borongan.body, [217, 119, 6]);
-      section('CMT', sec.cmt.head, sec.cmt.body, [225, 29, 72]);
+      section('Penjahit Internal — Line Jahit', sec.internal.head, sec.internal.body, sec.internal.foot, [30, 64, 175]);
+      section('Kedatangan Penjahit', sec.kedatangan.head, sec.kedatangan.body, sec.kedatangan.foot, [124, 58, 237]);
+      section('Penjahit Borongan', sec.borongan.head, sec.borongan.body, sec.borongan.foot, [217, 119, 6]);
+      section('CMT', sec.cmt.head, sec.cmt.body, sec.cmt.foot, [225, 29, 72]);
+
+      // Total keseluruhan (internal + luar).
+      const g = sec.grand;
+      if (y > 170) { doc.addPage(); y = 16; }
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.text('Total Keseluruhan Jahit', 14, y);
+      autoTable(doc, {
+        startY: y + 2,
+        head: [['SEKSI', 'TOTAL PCS', 'TOTAL POIN']],
+        body: [
+          ['Sewing Internal (Line Jahit)', String(g.intPcs), String(g.intPoin)],
+          ['Sewing Luar — Borongan', String(g.borPcs), String(g.borPoin)],
+          ['Sewing Luar — CMT', String(g.cmtPcs), String(g.cmtPoin)],
+        ],
+        foot: [['TOTAL KESELURUHAN', String(g.allPcs), String(g.allPoin)]],
+        footStyles: { fillColor: [15, 118, 110], textColor: 255, fontStyle: 'bold' },
+        theme: 'grid',
+        headStyles: { fillColor: [15, 118, 110] },
+        styles: { fontSize: 9 },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+        margin: { left: 14, right: 14 },
+      });
       doc.save(`laporan-line-jahit-${month}.pdf`);
       toast.success('PDF Terunduh', `Laporan Line Jahit ${monthLabel}.`);
     } catch (e) { console.error('Export PDF gagal', e); toast.error('Gagal', 'Export PDF gagal.'); }
