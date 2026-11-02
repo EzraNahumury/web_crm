@@ -183,7 +183,7 @@ export async function GET() {
       addJahit(isoDate(r.tanggal), data);
     }
     for (const r of [...boronganRows, ...cmtRows]) addJahit(isoDate(r.tanggal), parseData(r.realisasi_json));
-    const jahit = { key: 'jahit', label: 'Jahit', todayPoin: jTodayPoin, todayPcs: jTodayPcs, todayOrders: jTodayOrders, monthPoin: jMonthPoin, perDate: jPerDate };
+    const jahit = { key: 'jahit', label: 'Sewing', todayPoin: jTodayPoin, todayPcs: jTodayPcs, todayOrders: jTodayOrders, monthPoin: jMonthPoin, perDate: jPerDate };
 
     const rawProc = [printing, press, cutting, jahit, steam, finishing, shipment];
     const processes = rawProc.map(p => ({

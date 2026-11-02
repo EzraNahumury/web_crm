@@ -259,7 +259,7 @@ const PROC_META: Record<string, { sub: string; grad: string; bar: string; Icon: 
   printing: { sub: 'Proses Cetak', grad: 'from-emerald-500 to-green-600', bar: 'from-emerald-400 to-green-500', Icon: IconPrinter },
   press: { sub: 'Proses Press', grad: 'from-violet-500 to-purple-600', bar: 'from-violet-400 to-purple-500', Icon: IconLayers },
   cutting: { sub: 'Proses Pemotongan', grad: 'from-orange-500 to-amber-600', bar: 'from-orange-400 to-amber-500', Icon: IconScissors },
-  jahit: { sub: 'Proses Jahit', grad: 'from-blue-500 to-sky-600', bar: 'from-blue-400 to-sky-500', Icon: IconSewing },
+  jahit: { sub: 'Proses Sewing', grad: 'from-blue-500 to-sky-600', bar: 'from-blue-400 to-sky-500', Icon: IconSewing },
   steam: { sub: 'Proses Steam', grad: 'from-rose-500 to-red-600', bar: 'from-rose-400 to-red-500', Icon: IconSteam },
   finishing: { sub: 'Proses Finishing', grad: 'from-indigo-500 to-violet-600', bar: 'from-indigo-400 to-violet-500', Icon: IconFinishing },
   shipment: { sub: 'Proses Pengiriman', grad: 'from-teal-500 to-cyan-600', bar: 'from-teal-400 to-cyan-500', Icon: IconBox },
@@ -568,7 +568,7 @@ export function buildSample(): Feed {
     ({ key, label, todayPoin: poin, todayPcs: pcs, todayOrders: orders, monthPoin: month, pct: Math.min(100, Math.round((poin / target) * 100)) });
   const processes = [
     mkProc('printing', 'Printing', 372, 388, 9, 6420), mkProc('press', 'Press', 268, 279, 7, 5180),
-    mkProc('cutting', 'Cutting', 415, 431, 11, 7040), mkProc('jahit', 'Jahit', 306, 318, 8, 5960),
+    mkProc('cutting', 'Cutting', 415, 431, 11, 7040), mkProc('jahit', 'Sewing', 306, 318, 8, 5960),
     mkProc('steam', 'Steam', 224, 233, 6, 4180), mkProc('finishing', 'Finishing', 341, 352, 9, 6010),
     mkProc('shipment', 'Shipment', 188, 195, 5, 3120),
   ];
@@ -581,7 +581,7 @@ export function buildSample(): Feed {
       const mk = (label: string, key: string, base: number): ReportRow => ({
         key, label, cells: dates.map((_, i) => { const qty = (base + i * 13) % 150; return { qty, poin: Math.round(qty * 1.4 * 10) / 10 }; }),
       });
-      const rows = [mk('Printing', 'printing', 80), mk('Press', 'press', 60), mk('Cutting', 'cutting', 100), mk('Jahit', 'jahit', 90), mk('Steam', 'steam', 70), mk('Finishing', 'finishing', 110), mk('Shipment', 'shipment', 50)];
+      const rows = [mk('Printing', 'printing', 80), mk('Press', 'press', 60), mk('Cutting', 'cutting', 100), mk('Sewing', 'jahit', 90), mk('Steam', 'steam', 70), mk('Finishing', 'finishing', 110), mk('Shipment', 'shipment', 50)];
       const totals = dates.map((_, i) => { let qty = 0, poin = 0; for (const r of rows) { qty += r.cells[i].qty; poin += r.cells[i].poin; } return { qty, poin: Math.round(poin * 10) / 10 }; });
       return { dates, rows, totals };
     })(),

@@ -77,7 +77,7 @@ function drawUnicodeCellText(pdf: any, text: string, cell: any) {
 
 const PROD_STAGES = [
   'Proofing','Layout Printing','Approval Layout','Proses Printing','Sublim Press',
-  'QC Panel','Potong Kain','QC Cutting','Jahit','QC Jersey','Finishing','Pengiriman',
+  'QC Panel','Potong Kain','QC Cutting','Sewing','QC Jersey','Finishing','Pengiriman',
 ];
 
 // 14 stages sesuai template Excel AYRES APPAREL (image #454). Dipakai
@@ -417,7 +417,7 @@ function buildWoSpecHtml(spec: Row, wo: Row, allSpecBahan: Row[]) {
       <!-- Keterangan Jahit — kotak besar kosong di bawah bahan (left
            column). Flex-1 supaya isi sisa vertikal space. -->
       <div style="flex:1;display:flex;flex-direction:column;border-top:2px solid #000">
-        <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:6px 0;border-bottom:2px solid #000">Keterangan Jahit</div>
+        <div style="background:#000;color:#fff;text-align:center;font-size:11px;font-weight:800;padding:6px 0;border-bottom:2px solid #000">Keterangan Sewing</div>
         <div style="flex:1;padding:8px 10px;font-size:10px;white-space:pre-wrap;min-height:120px">${spec.keterangan_jahit || ''}</div>
       </div>
     </div>
@@ -2577,7 +2577,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
       // ─── Keterangan Jahit B33:E38 ───
       ws.mergeCells('B33:E33');
       const kjLbl = ws.getCell('B33');
-      kjLbl.value = 'Keterangan Jahit :';
+      kjLbl.value = 'Keterangan Sewing :';
       kjLbl.font = { name: 'Arial', size: 11, bold: true };
       kjLbl.alignment = { vertical: 'middle', horizontal: 'center' };
 
@@ -3209,7 +3209,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                   </div>
                   <div><label className={lCls}>Font & Nomor</label><input value={fontNomor} onChange={e => setFontNomor(e.target.value)} className={iCls} placeholder="ARIAL" /></div>
                   <div><label className={lCls}>Keterangan</label><textarea value={keterangan} onChange={e => setKeterangan(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
-                  <div><label className={lCls}>Keterangan Jahit</label><textarea value={keteranganJahit} onChange={e => setKeteranganJahit(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
+                  <div><label className={lCls}>Keterangan Sewing</label><textarea value={keteranganJahit} onChange={e => setKeteranganJahit(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
                 </div>
               </div>
 
@@ -3368,7 +3368,7 @@ function TabWO1({ wo, specs: initialSpecs, specBahan: initialSpecBahan }: { wo: 
                   </div>
                   <div><label className={lCls}>Font & Nomor</label><input value={fontNomor} onChange={e => setFontNomor(e.target.value)} className={iCls} placeholder="ARIAL" /></div>
                   <div><label className={lCls}>Keterangan</label><textarea value={keterangan} onChange={e => setKeterangan(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
-                  <div><label className={lCls}>Keterangan Jahit</label><textarea value={keteranganJahit} onChange={e => setKeteranganJahit(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
+                  <div><label className={lCls}>Keterangan Sewing</label><textarea value={keteranganJahit} onChange={e => setKeteranganJahit(e.target.value)} rows={3} className={`${iCls} resize-none`} /></div>
                 </div>
               </div>
               <div className="border-t border-white/[0.06] pt-5">

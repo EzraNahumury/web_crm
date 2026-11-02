@@ -4,8 +4,8 @@ export const STAGES = [
   { key: 'PRINT', label: 'Print' },
   { key: 'PRES', label: 'Pres' },
   { key: 'CUT_FABRIC', label: 'Cut Fabric' },
-  { key: 'JAHIT', label: 'Jahit' },
-  { key: 'QC_JAHIT_STEAM', label: 'QC Jahit & Steam' },
+  { key: 'JAHIT', label: 'Sewing' },
+  { key: 'QC_JAHIT_STEAM', label: 'QC Sewing & Steam' },
   { key: 'FINISHING', label: 'Finishing' },
   { key: 'PENGIRIMAN', label: 'Pengiriman' },
 ] as const;

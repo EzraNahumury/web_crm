@@ -115,8 +115,8 @@ async function generateOrderPDF(orders: Order[], type: 'weekly' | 'monthly', par
       { header: 'PAKET', dataKey: 'paket' },{ header: 'KETERANGAN', dataKey: 'ket' },{ header: 'BAHAN', dataKey: 'bahan' },
       { header: 'TGL DP DESIGN', dataKey: 'dp' },{ header: 'DL CUST & PRODUKSI', dataKey: 'dl' },{ header: 'NO WORK ORDER', dataKey: 'wo' },
       { header: 'PROOFING', dataKey: 'p1' },{ header: 'WAITINGLIST', dataKey: 'p2' },{ header: 'PRINT', dataKey: 'p3' },
-      { header: 'PRES', dataKey: 'p4' },{ header: 'CUT FABRIC', dataKey: 'p5' },{ header: 'JAHIT', dataKey: 'p6' },
-      { header: 'QC JAHIT DAN STEAM', dataKey: 'p7' },{ header: 'FINISHING', dataKey: 'p8' },{ header: 'PENGIRIMAN', dataKey: 'p9' },
+      { header: 'PRES', dataKey: 'p4' },{ header: 'CUT FABRIC', dataKey: 'p5' },{ header: 'SEWING', dataKey: 'p6' },
+      { header: 'QC SEWING DAN STEAM', dataKey: 'p7' },{ header: 'FINISHING', dataKey: 'p8' },{ header: 'PENGIRIMAN', dataKey: 'p9' },
     ],
     body: reportOrders.map((o, i) => ({
       no: i + 1, customer: o.customer, qty: o.qty, paket: `${o.paket1} ${o.paket2}`,

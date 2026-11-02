@@ -16,7 +16,7 @@ const MONTHS_ID = [
 // Map production_stages.nama → label pendek yang tampil di kolom STATUS.
 // Same style seperti di lembar rekap manual (JAHIT, FINISHING, KIRIM, dst).
 const STATUS_SHORTHAND: Record<string, string> = {
-  'Sewing': 'JAHIT',
+  'Sewing': 'SEWING',
   'Finishing': 'FINISHING',
   'Steam Jersey': 'STEAM',
   'QC Jersey': 'QC JERSEY',
@@ -66,7 +66,7 @@ function rowStyle(status: string): { bg: string; text: string } {
   // putih) maupun gelap — warna 200 sebelumnya nyaris tak terlihat di putih.
   if (s === 'KIRIM') return { bg: 'rgba(16,185,129,0.12)', text: '#059669' };
   if (s.includes('QC PANEL') || s.includes('QC CUTTING') || s === 'CUTTING') return { bg: 'rgba(244,63,94,0.10)', text: '#e11d48' };
-  if (s === 'JAHIT' || s === 'FINISHING') return { bg: 'transparent', text: 'inherit' };
+  if (s === 'SEWING' || s === 'FINISHING') return { bg: 'transparent', text: 'inherit' };
   return { bg: 'transparent', text: 'inherit' };
 }
 
