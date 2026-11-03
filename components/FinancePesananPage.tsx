@@ -52,6 +52,20 @@ function wibDay(value: unknown): string {
   if (isNaN(d.getTime())) return '';
   try { return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); } catch { return ''; }
 }
+// Tanggal bahan keluar = tanggal pengeluaran yang dipilih gudang
+// (wo_pengeluaran.tanggal, DATE murni → format tanpa pergeseran TZ).
+// Fallback ke created_at untuk record lama yang belum punya tanggal.
+function fmtTanggalKeluar(header: { tanggal?: unknown; created_at?: unknown } | null): string {
+  const t = header?.tanggal;
+  if (t) {
+    const m = String(t).match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      if (!isNaN(d.getTime())) return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+  }
+  return fmtTglWIB(header?.created_at);
+}
 function parseChecklist(raw: unknown): ChecklistMark[] {
   try { const o = JSON.parse(String(raw || '[]')); return Array.isArray(o) ? o : []; } catch { return []; }
 }
@@ -419,7 +433,7 @@ function DetailModal({ wo, onClose }: { wo: Row; onClose: () => void }) {
             {header && (
               <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
                 <svg className="w-3.5 h-3.5 text-emerald-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg>
-                <span>Bahan keluar: <span className="text-white font-semibold">{fmtTglWIB(header.created_at)}</span></span>
+                <span>Bahan keluar: <span className="text-white font-semibold">{fmtTanggalKeluar(header)}</span></span>
                 {header.updated_at && wibDay(header.updated_at) !== wibDay(header.created_at) && (
                   <span className="text-slate-500">· diperbarui <span className="text-slate-300 font-medium">{fmtTglWIB(header.updated_at)}</span></span>
                 )}

@@ -1140,13 +1140,13 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
                           return (
                             <tr key={r.id}>
                               <td className="border border-slate-300 px-1 py-0.5 align-top">
-                                {isDefault || readOnly ? (
+                                {readOnly ? (
                                   <span className="px-1 text-slate-800 font-medium">{r.bagian || '-'}</span>
                                 ) : (
                                   <input value={r.bagian}
                                     onChange={e => setDetailBahan(prev => prev.map(p => p.id === r.id ? { ...p, bagian: e.target.value } : p))}
                                     placeholder="Nama bagian"
-                                    className="w-full px-1 py-0.5 text-xs bg-transparent border-0 focus:outline-none text-slate-800" />
+                                    className="w-full px-1 py-0.5 text-xs bg-transparent border-0 focus:outline-none text-slate-800 font-medium" />
                                 )}
                               </td>
                               <td className="border border-slate-300 px-1 py-0.5 align-top">

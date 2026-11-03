@@ -46,6 +46,12 @@ export default function RealPengeluaranBahanPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  // Filter rentang tanggal: Tgl Order (tanggal order dibuat) + Tgl Keluar
+  // (tanggal pengeluaran bahan).
+  const [ordFrom, setOrdFrom] = useState('');
+  const [ordTo, setOrdTo] = useState('');
+  const [keluarFrom, setKeluarFrom] = useState('');
+  const [keluarTo, setKeluarTo] = useState('');
   // Modal states: pickerOpen untuk pilih WO forecast → convert ke real
   // pengeluaran; editWo untuk edit existing pengeluaran; viewWo untuk
   // read-only preview.
@@ -143,13 +149,33 @@ export default function RealPengeluaranBahanPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return pengeluaranWos;
-    return pengeluaranWos.filter(w =>
-      String(w.no_wo || '').toLowerCase().includes(q)
-      || String(w.customer_nama || '').toLowerCase().includes(q)
-      || String(w.paket || '').toLowerCase().includes(q)
-    );
-  }, [pengeluaranWos, search]);
+    return pengeluaranWos.filter(w => {
+      if (q) {
+        const match = String(w.no_wo || '').toLowerCase().includes(q)
+          || String(w.customer_nama || '').toLowerCase().includes(q)
+          || String(w.paket || '').toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      // Filter Tgl Order (tanggal order dibuat).
+      if (ordFrom || ordTo) {
+        const iso = toInputDate(w.tanggal_order);
+        if (!iso) return false;
+        if (ordFrom && iso < ordFrom) return false;
+        if (ordTo && iso > ordTo) return false;
+      }
+      // Filter Tgl Keluar (tanggal pengeluaran; fallback created_at header).
+      if (keluarFrom || keluarTo) {
+        const peng = pengByWo.get(Number(w.id));
+        const iso = toInputDate(peng?.tanggal || peng?.created_at);
+        if (!iso) return false;
+        if (keluarFrom && iso < keluarFrom) return false;
+        if (keluarTo && iso > keluarTo) return false;
+      }
+      return true;
+    });
+  }, [pengeluaranWos, search, ordFrom, ordTo, keluarFrom, keluarTo, pengByWo]);
+
+  useEffect(() => { setPage(1); }, [search, ordFrom, ordTo, keluarFrom, keluarTo]);
 
   const paged = paginate(filtered, page, pageSize);
 
@@ -216,6 +242,37 @@ export default function RealPengeluaranBahanPage() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Filter rentang tanggal */}
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3 flex flex-wrap items-end gap-x-5 gap-y-3">
+        <div>
+          <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Tgl Order</label>
+          <div className="flex items-center gap-1.5">
+            <input type="date" value={ordFrom} max={ordTo || undefined} onChange={e => setOrdFrom(e.target.value)}
+              className="bg-[#0d1117] border border-white/10 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500/40 date-input" />
+            <span className="text-slate-500 text-xs">s/d</span>
+            <input type="date" value={ordTo} min={ordFrom || undefined} onChange={e => setOrdTo(e.target.value)}
+              className="bg-[#0d1117] border border-white/10 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500/40 date-input" />
+          </div>
+        </div>
+        <div>
+          <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Tgl Keluar</label>
+          <div className="flex items-center gap-1.5">
+            <input type="date" value={keluarFrom} max={keluarTo || undefined} onChange={e => setKeluarFrom(e.target.value)}
+              className="bg-[#0d1117] border border-white/10 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500/40 date-input" />
+            <span className="text-slate-500 text-xs">s/d</span>
+            <input type="date" value={keluarTo} min={keluarFrom || undefined} onChange={e => setKeluarTo(e.target.value)}
+              className="bg-[#0d1117] border border-white/10 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500/40 date-input" />
+          </div>
+        </div>
+        {(ordFrom || ordTo || keluarFrom || keluarTo) && (
+          <button onClick={() => { setOrdFrom(''); setOrdTo(''); setKeluarFrom(''); setKeluarTo(''); }}
+            className="text-xs font-medium text-slate-400 hover:text-white border border-white/10 hover:bg-white/[0.04] px-3 py-1.5 rounded-lg transition-colors">
+            Reset Filter
+          </button>
+        )}
+        <span className="ml-auto text-xs text-slate-500 self-center"><strong className="text-slate-300">{filtered.length}</strong> pengeluaran</span>
       </div>
 
       {/* Table */}
