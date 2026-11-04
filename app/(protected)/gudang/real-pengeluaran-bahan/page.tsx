@@ -59,6 +59,7 @@ export default function RealPengeluaranBahanPage() {
   const [editWo, setEditWo] = useState<Row | null>(null);
   const [viewWo, setViewWo] = useState<Row | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Row | null>(null);
+  const [tglEditWo, setTglEditWo] = useState<Row | null>(null);
 
   async function fetchData() {
     setLoading(true);
@@ -370,6 +371,15 @@ export default function RealPengeluaranBahanPage() {
                             </svg>
                           </button>
                           <button
+                            onClick={() => setTglEditWo(wo)}
+                            title="Ubah tanggal keluar (tanpa potong ulang stok)"
+                            className="text-emerald-300 hover:text-emerald-200 p-1.5 rounded-lg hover:bg-emerald-500/10 border border-transparent hover:border-emerald-500/25 transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                            </svg>
+                          </button>
+                          <button
                             onClick={() => setEditWo(wo)}
                             title="Edit"
                             className="text-amber-400 hover:text-amber-300 p-1.5 rounded-lg hover:bg-amber-500/10 border border-transparent hover:border-amber-500/25 transition-colors"
@@ -443,6 +453,78 @@ export default function RealPengeluaranBahanPage() {
           onCancel={() => setDeleteConfirm(null)}
         />
       )}
+      {tglEditWo && (
+        <UbahTanggalModal
+          wo={tglEditWo}
+          initialTanggal={toInputDate(pengByWo.get(Number(tglEditWo.id))?.tanggal) || toInputDate(pengByWo.get(Number(tglEditWo.id))?.created_at)}
+          onClose={() => setTglEditWo(null)}
+          onSaved={fetchData}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────
+   UbahTanggalModal — koreksi HANYA tanggal pengeluaran, tanpa potong
+   ulang stok (stok sudah terpotong saat pengeluaran dibuat).
+   ──────────────────────────────────────────────────────────────── */
+function UbahTanggalModal({ wo, initialTanggal, onClose, onSaved }: {
+  wo: Row;
+  initialTanggal?: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [tanggal, setTanggal] = useState(initialTanggal || todayInput());
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!tanggal) { toast.warning('Validasi', 'Pilih tanggal.'); return; }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/wo/update-pengeluaran-tanggal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wo_id: Number(wo.id), tanggal }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error || 'Gagal ubah tanggal');
+      toast.success('Tanggal Diperbarui', 'Tanggal pengeluaran diubah — stok tidak berubah.');
+      onSaved();
+      onClose();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+          <div className="min-w-0">
+            <h3 className="text-base font-bold text-white truncate">Ubah Tanggal Pengeluaran</h3>
+            <p className="text-xs text-slate-500 mt-0.5 truncate">
+              <span className="text-blue-400 font-medium">{String(wo.no_wo || '')}</span>{' · '}
+              <span className="text-slate-300">{String(wo.customer_nama || '')}</span>
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-white/[0.05] transition-colors shrink-0">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="p-6 space-y-3">
+          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Tanggal Pengeluaran</label>
+          <input type="date" value={tanggal} max={todayInput()} onChange={e => setTanggal(e.target.value)}
+            className="w-full bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-emerald-500/40 date-input" />
+          <p className="text-[11px] text-slate-500">Hanya mengubah tanggal catatan. Stok yang sudah terpotong tidak dihitung ulang.</p>
+        </div>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/10 bg-white/[0.02]">
+          <button onClick={onClose} disabled={saving} className="px-4 py-2 rounded-lg border border-white/10 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] transition-colors disabled:opacity-50">Batal</button>
+          <button onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors shadow-lg shadow-emerald-500/20">
+            {saving ? 'Menyimpan...' : 'Simpan Tanggal'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -574,6 +656,11 @@ function PengeluaranModal({ wo, mode, initialTanggal, onClose, onSaved }: {
   const [rows, setRows] = useState<GudangRow[]>([]);
   const [barangList, setBarangList] = useState<Row[]>([]);
   const [stokMap, setStokMap] = useState<Record<string, { qty: number; satuan: string }>>({});
+  // Qty pengeluaran yang SUDAH tersimpan (per bahan, uppercase). Saat edit,
+  // server mengembalikan stok ini dulu sebelum potong ulang, jadi stok efektif
+  // yang tersedia = stok sekarang + qty lama. Dipakai supaya edit (mis. ganti
+  // tanggal saja) tidak ke-blok "stok tidak cukup" padahal net-nya nol.
+  const [origByBahan, setOrigByBahan] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -596,6 +683,15 @@ function PengeluaranModal({ wo, mode, initialTanggal, onClose, onSaved }: {
           sm[nama] = { qty: Number(s.qty) || 0, satuan: String(s.satuan || '') };
         }
         setStokMap(sm);
+
+        // Qty pengeluaran tersimpan (yang akan di-restore server saat edit).
+        const orig: Record<string, number> = {};
+        for (const r of pengeluaranRows) {
+          const b = String(r.bahan || '').trim().toUpperCase();
+          if (!b) continue;
+          orig[b] = (orig[b] || 0) + (Number(r.kuantitas) || 0);
+        }
+        setOrigByBahan(orig);
 
         // Source rows: pengeluaran kalau sudah ada, else copy dari forecast.
         const source = pengeluaranRows.length > 0 ? pengeluaranRows : forecastRows;
@@ -648,14 +744,15 @@ function PengeluaranModal({ wo, mode, initialTanggal, onClose, onSaved }: {
     const out: { bahan: string; needed: number; stok: number; satuan: string }[] = [];
     for (const b in needed) {
       const stok = stokMap[b];
-      if (!stok && needed[b] > 0) {
-        out.push({ bahan: b, needed: needed[b], stok: 0, satuan: '-' });
-      } else if (stok && needed[b] > stok.qty) {
-        out.push({ bahan: b, needed: needed[b], stok: stok.qty, satuan: stok.satuan });
+      // Stok efektif = stok sekarang + qty pengeluaran lama (yang akan di-restore
+      // server saat edit). Untuk pengeluaran baru origByBahan kosong → stok apa adanya.
+      const avail = (stok ? stok.qty : 0) + (origByBahan[b] || 0);
+      if (needed[b] > avail) {
+        out.push({ bahan: b, needed: needed[b], stok: avail, satuan: stok?.satuan || '-' });
       }
     }
     return out;
-  }, [rows, stokMap]);
+  }, [rows, stokMap, origByBahan]);
 
   async function handleSave() {
     if (insufficient.length > 0) {
