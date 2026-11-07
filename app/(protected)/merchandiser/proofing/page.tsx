@@ -94,10 +94,12 @@ export default function MerchProofingPage() {
           r.data_approve, proofingMenunggu(r, today), proofingHari(r, lk.dpProduksi), fmtTgl(r.job_ticket_ppic), proofingStatus(r), r.catatan,
         ];
       });
-      const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } } };
+      const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } }, alignment: { wrapText: true, vertical: 'center', horizontal: 'center' } };
       const aoa = [[{ v: '2. Proses Proofing', s: { font: { bold: true, sz: 13 } } }], head.map(h => ({ v: h, s: headStyle })), ...body];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: head.length - 1 } }];
+      ws['!cols'] = [5, 14, 24, 14, 13, 13, 13, 13, 13, 13, 13, 13, 13, 9, 14, 12, 14, 14, 26, 28].map(w => ({ wch: w }));
+      ws['!rows'] = [{}, { hpt: 30 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Proofing');
       XLSX.writeFile(wb, `merchandiser-proofing-${today}.xlsx`);

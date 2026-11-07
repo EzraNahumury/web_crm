@@ -85,10 +85,12 @@ export default function MerchDesignPage() {
         designJumlahRevisi(r), designHari(r), designMenunggu(r, today),
         fmtTgl(r.info_dp_produksi_kirim), fmtTgl(r.dp_produksi_diterima), r.data_detail_lengkap, designStatus(r), r.catatan,
       ]);
-      const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } } };
+      const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } }, alignment: { wrapText: true, vertical: 'center', horizontal: 'center' } };
       const aoa = [[{ v: '1. Proses Design', s: { font: { bold: true, sz: 13 } } }], head.map(h => ({ v: h, s: headStyle })), ...body];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: head.length - 1 } }];
+      ws['!cols'] = [5, 14, 13, 24, 15, 14, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 9, 13, 12, 14, 15, 13, 26, 28].map(w => ({ wch: w }));
+      ws['!rows'] = [{}, { hpt: 30 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Design');
       XLSX.writeFile(wb, `merchandiser-design-${today}.xlsx`);

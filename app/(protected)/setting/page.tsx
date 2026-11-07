@@ -41,6 +41,7 @@ const MENU_ITEMS = [
   'Produksi',
   'Work Orders',
   'Work Orders View Only',
+  'Merchandiser',
   'Admin Produksi',
   'Monitoring Produksi',
   'Approval Gudang',

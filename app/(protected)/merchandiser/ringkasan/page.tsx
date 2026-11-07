@@ -99,7 +99,7 @@ export default function MerchRingkasanPage() {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const XLSX = (await import('xlsx-js-style')).default as any;
-      const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } } };
+      const headStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } }, alignment: { wrapText: true, vertical: 'center', horizontal: 'center' } };
       const titleStyle = { font: { bold: true, sz: 13 } };
       const wb = XLSX.utils.book_new();
 
@@ -117,6 +117,8 @@ export default function MerchRingkasanPage() {
       ]);
       const wsD = XLSX.utils.aoa_to_sheet([[{ v: '1. Proses Design', s: titleStyle }], dHead.map(h => ({ v: h, s: headStyle })), ...dBody]);
       wsD['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: dHead.length - 1 } }];
+      wsD['!cols'] = [5, 14, 13, 24, 15, 14, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 9, 13, 12, 14, 15, 13, 26, 28].map(w => ({ wch: w }));
+      wsD['!rows'] = [{}, { hpt: 30 }];
       XLSX.utils.book_append_sheet(wb, wsD, '1. Design');
 
       // Sheet Proofing
@@ -136,6 +138,8 @@ export default function MerchRingkasanPage() {
       });
       const wsP = XLSX.utils.aoa_to_sheet([[{ v: '2. Proses Proofing', s: titleStyle }], pHead.map(h => ({ v: h, s: headStyle })), ...pBody]);
       wsP['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: pHead.length - 1 } }];
+      wsP['!cols'] = [5, 14, 24, 14, 13, 13, 13, 13, 13, 13, 13, 13, 13, 9, 14, 12, 14, 14, 26, 28].map(w => ({ wch: w }));
+      wsP['!rows'] = [{}, { hpt: 30 }];
       XLSX.utils.book_append_sheet(wb, wsP, '2. Proofing');
 
       // Sheet Ringkasan
@@ -146,6 +150,7 @@ export default function MerchRingkasanPage() {
       for (const m of kpi.proofing) rAoa.push([m.label, m.value]);
       const wsR = XLSX.utils.aoa_to_sheet(rAoa);
       wsR['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
+      wsR['!cols'] = [{ wch: 42 }, { wch: 14 }];
       XLSX.utils.book_append_sheet(wb, wsR, '4. Ringkasan');
 
       XLSX.writeFile(wb, `tracker-merchandiser-${today}.xlsx`);
