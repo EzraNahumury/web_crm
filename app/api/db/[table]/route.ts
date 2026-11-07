@@ -69,6 +69,9 @@ const ALLOWED_TABLES: Record<string, { columns: string; searchCols?: string[]; f
   wo_finance:        { columns: '*', filterCols: ['id', 'work_order_id', 'finalized'] },
   pembelian_bahan:   { columns: '*', filterCols: ['id', 'status'] },
   pembelian_bahan_item: { columns: '*', filterCols: ['id', 'pembelian_id'] },
+  merch_design:      { columns: '*', searchCols: ['no_order', 'nama_customer', 'pic_cs'], filterCols: ['id', 'no_order'] },
+  merch_proofing:    { columns: '*', searchCols: ['no_order'], filterCols: ['id', 'no_order'] },
+  merch_job_ticket:  { columns: '*', searchCols: ['no_order'], filterCols: ['id', 'no_order'] },
 };
 
 // JOIN clauses for tables with relations

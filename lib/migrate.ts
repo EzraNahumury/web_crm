@@ -2111,6 +2111,90 @@ const MIGRATIONS: Migration[] = [
       "ALTER TABLE `stok_adjustment` MODIFY COLUMN `selisih` DECIMAL(12,2) NOT NULL DEFAULT 0",
     ],
   },
+  {
+    // Tracker Merchandiser (dari Tracker-Merchandiser-AYRES.xlsx) — 3 tabel:
+    //   merch_design     : sheet 1 Design (1 baris per customer DP Design).
+    //   merch_proofing   : sheet 2 Proofing (per No. Order).
+    //   merch_job_ticket : sheet 3 Job Ticket (1 record per No. Order).
+    // Kolom tanggal pakai VARCHAR(10) 'YYYY-MM-DD' supaya tidak kena konversi
+    // Date/zona waktu driver MySQL (semua hitungan rumus di JS). Kolom otomatis
+    // (status, jumlah revisi, hari, menunggu, KPI) TIDAK disimpan — dihitung di
+    // lib/merchandiser.ts. Sheet 4 Ringkasan murni agregasi runtime.
+    name: '109_merchandiser_tracker',
+    up: [
+      "CREATE TABLE IF NOT EXISTS `merch_design` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`no_order` VARCHAR(100) NOT NULL DEFAULT ''," +
+        "`tgl_dp_design` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`nama_customer` VARCHAR(255) NOT NULL DEFAULT ''," +
+        "`no_wa` VARCHAR(50) NOT NULL DEFAULT ''," +
+        "`pic_cs` VARCHAR(100) NOT NULL DEFAULT ''," +
+        "`desainer` VARCHAR(100) NOT NULL DEFAULT ''," +
+        "`design_awal_kirim` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`design_awal_feedback` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev1_kirim` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev1_feedback` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev2_kirim` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev2_feedback` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev3_kirim` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev3_feedback` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`design_fix` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`info_dp_produksi_kirim` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`dp_produksi_diterima` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`data_detail_lengkap` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`catatan` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_merch_design_no_order` (`no_order`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "CREATE TABLE IF NOT EXISTS `merch_proofing` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`no_order` VARCHAR(100) NOT NULL DEFAULT ''," +
+        "`proofing_kirim` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`proofing_feedback` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev1_kirim` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev1_feedback` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev2_kirim` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev2_feedback` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev3_kirim` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`rev3_feedback` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`proofing_fix` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`data_approve` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`job_ticket_ppic` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`catatan` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "KEY `idx_merch_proofing_no_order` (`no_order`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      "CREATE TABLE IF NOT EXISTS `merch_job_ticket` (" +
+        "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT," +
+        "`no_order` VARCHAR(100) NOT NULL," +
+        "`tgl_kirim_dijanjikan` VARCHAR(10) NOT NULL DEFAULT ''," +
+        "`model` VARCHAR(255) NOT NULL DEFAULT ''," +
+        "`jenis_bahan` VARCHAR(255) NOT NULL DEFAULT ''," +
+        "`kerah` VARCHAR(255) NOT NULL DEFAULT ''," +
+        "`lengan` VARCHAR(255) NOT NULL DEFAULT ''," +
+        "`warna_utama` VARCHAR(255) NOT NULL DEFAULT ''," +
+        "`logo_sponsor` TEXT NULL," +
+        "`font_nama_nomor` VARCHAR(255) NOT NULL DEFAULT ''," +
+        "`link_design_fix` TEXT NULL," +
+        "`link_proofing_fix` TEXT NULL," +
+        "`catatan_proofing` TEXT NULL," +
+        "`size_json` TEXT NULL," +
+        "`nama_nomor_json` LONGTEXT NULL," +
+        "`serah_json` TEXT NULL," +
+        "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+        "PRIMARY KEY (`id`)," +
+        "UNIQUE KEY `uk_merch_jt_no_order` (`no_order`)" +
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+      // Beri akses menu 'Merchandiser' ke role Merchandiser.
+      "INSERT IGNORE INTO `role_menu_access` (`role_id`, `menu_name`) " +
+        "SELECT `id`, 'Merchandiser' FROM `roles` WHERE `nama` = 'Merchandiser'",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

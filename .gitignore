@@ -47,3 +47,6 @@ next-env.d.ts
 # Database dumps — never commit (may contain customer data)
 /database/
 *.sql
+
+# tracker data file (user upload, not source)
+Tracker-Merchandiser-AYRES*.xlsx
