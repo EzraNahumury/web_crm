@@ -41,6 +41,8 @@ export default function MerchDesignPage() {
   const [pageSize, setPageSize] = useState(10);
   const [editing, setEditing] = useState<(MerchDesignRow & { id: number }) | null>(null);
   const [adding, setAdding] = useState(false);
+  const [syncFrom, setSyncFrom] = useState('2026-10-12');
+  const [syncing, setSyncing] = useState(false);
   const today = todayIsoWIB();
 
   const fetchAll = useCallback(async () => {
@@ -62,6 +64,21 @@ export default function MerchDesignPage() {
       || r.pic_cs.toLowerCase().includes(q) || r.desainer.toLowerCase().includes(q));
   }, [rows, search]);
   const paged = paginate(filtered, page, pageSize);
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/merchandiser/sync-design', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: syncFrom }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error || 'Gagal sinkron');
+      await fetchAll();
+      toast.success('Tarik dari Sistem Selesai', `Baru: ${j.created}, diperbarui: ${j.updated}.`);
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSyncing(false);
+  }
 
   async function handleDelete(r: MerchDesignRow & { id: number }) {
     const yes = await toast.confirm({ title: 'Hapus Baris?', message: `${r.no_order || '(tanpa no order)'} — ${r.nama_customer} akan dihapus.`, type: 'danger', confirmText: 'Ya, Hapus' });
@@ -108,7 +125,18 @@ export default function MerchDesignPage() {
             <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Merchandiser · Design</h1>
             <p className="text-[13px] text-slate-300 mt-0.5">Customer yang sudah DP Design. Status &amp; hari menunggu terhitung otomatis.</p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-end gap-2 flex-wrap">
+            <div className="flex items-end gap-1.5">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Tarik dari tgl</label>
+                <input type="date" value={syncFrom} max={today} onChange={e => setSyncFrom(e.target.value)} className="bg-[#111827] border border-white/10 text-white text-xs rounded-lg px-2.5 py-2 focus:outline-none focus:border-fuchsia-500/40 date-input" />
+              </div>
+              <button onClick={handleSync} disabled={syncing} title="Ambil identitas dari CS Selling (closing Jogja/Solo/RO, bukan revisi), tanggal desain & desainer dari Progress Design, DP Produksi dari bukti TF. Hanya mengisi kolom kosong."
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 disabled:opacity-50 px-3 py-2.5 rounded-xl transition-colors shadow-lg shadow-sky-500/20">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                {syncing ? 'Menarik...' : 'Tarik dari Sistem'}
+              </button>
+            </div>
             <button onClick={handleExport} className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-green-700 hover:bg-green-600 px-3 py-2.5 rounded-xl transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
               Excel
