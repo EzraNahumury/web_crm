@@ -24,6 +24,7 @@ const PALETTE = [
 export default function GrafikPage() {
   const [from, setFrom] = useState(daysAgo(29));
   const [to, setTo] = useState(today());
+  const [basis, setBasis] = useState<'order' | 'deadline'>('order');
   const [paket, setPaket] = useState<PaketRow[]>([]);
   const [provinsi, setProvinsi] = useState<ProvinsiRow[]>([]);
   const [totals, setTotals] = useState<Totals>({ orders: 0, qty: 0, paket_count: 0, provinsi_count: 0 });
@@ -36,6 +37,7 @@ export default function GrafikPage() {
       const qs = new URLSearchParams();
       if (from) qs.set('from', from);
       if (to) qs.set('to', to);
+      qs.set('basis', basis);
       const res = await fetch(`/api/analisa/grafik?${qs.toString()}`);
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Gagal memuat data');
@@ -48,7 +50,7 @@ export default function GrafikPage() {
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, basis]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
   useEffect(() => {
@@ -95,8 +97,27 @@ export default function GrafikPage() {
               </p>
             </div>
           </div>
-          <DateRangePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#0d1117] border border-white/[0.06]">
+              {([
+                { key: 'order' as const, label: 'Tgl Order' },
+                { key: 'deadline' as const, label: 'Deadline' },
+              ]).map(b => (
+                <button key={b.key} onClick={() => setBasis(b.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${basis === b.key ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'}`}>
+                  {b.label}
+                </button>
+              ))}
+            </div>
+            <DateRangePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
+          </div>
         </div>
+        <p className="relative mt-2 text-[11px] text-slate-400/80">
+          Basis: <strong className="text-slate-200">{basis === 'deadline' ? 'Deadline order' : 'Tanggal order masuk (penjualan)'}</strong>
+          {basis === 'deadline'
+            ? ' — order yang DEADLINE-nya di rentang ini (sama seperti pengelompokan bulan di Rincian Order).'
+            : ' — order yang TANGGAL ORDER-nya di rentang ini.'}
+        </p>
       </div>
 
       {error && (
