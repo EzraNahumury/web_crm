@@ -33,11 +33,21 @@ function norm(s: unknown): string {
   return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 // Lead termasuk closing yang di-track: Jogja/Solo/RO (repeat), BUKAN revisi.
+// Closing yang di-track = semua order yang punya lead, KECUALI lead "revisi".
+// (Jogja, Solo, Repeat Order, dll semuanya ikut; hanya revisi yang dibuang.)
 function leadIncluded(name: string): boolean {
   const n = norm(name);
-  if (!n) return false;
-  if (n.includes('revisi')) return false;
-  return n.includes('jogja') || n.includes('solo') || n.includes('repeat') || /\bro\b/.test(n);
+  if (!n) return false;              // order tanpa lead tidak ditarik
+  return !n.includes('revisi');
+}
+
+// Token nama customer untuk pencocokan yang tahan beda urutan kata & marker
+// cabang. Buang penanda cabang/umum, angka, dan token pendek.
+const NAME_STOP = new Set(['solo', 'jogja', 'sby', 'yogya', 'yogyakarta', 'surabaya', 'jakarta', 'bekasi']);
+function nameTokens(name: string): Set<string> {
+  const toks = norm(name).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/)
+    .filter(t => t.length > 2 && !NAME_STOP.has(t) && !/^\d+$/.test(t));
+  return new Set(toks);
 }
 
 export async function POST(req: NextRequest) {
@@ -66,35 +76,40 @@ export async function POST(req: NextRequest) {
       if (!cur || d < cur) payDate.set(key, d);
     }
 
-    // progress_design → per customer (ternormalisasi): tanggal per keterangan + desainer.
+    // progress_design → daftar baris {tokens nama, tanggal, keterangan, desainer}.
+    // TIDAK dikelompokkan per string; pencocokan per-order pakai overlap token
+    // supaya "PHYE (DIO ANGGARA) SOLO" dan "Dio Anggara (PHYE) SOLO" dianggap
+    // customer yang sama (beda urutan kata).
     interface Design { awal: string; rev1: string; rev2: string; rev3: string; designer: string }
-    const progByCust = new Map<string, Design>();
-    const assign = (cust: string, field: keyof Design, date: string, designer: string) => {
-      const key = norm(cust);
-      if (!key || !date) return;
-      const cur = progByCust.get(key) || { awal: '', rev1: '', rev2: '', rev3: '', designer: '' };
-      if (field !== 'designer' && (!cur[field] || date < cur[field])) cur[field] = date;
-      if (field === 'awal' && !cur.designer && designer) cur.designer = designer;
-      if (!cur.designer && designer) cur.designer = designer;
-      progByCust.set(key, cur);
-    };
-    for (const r of prog) {
-      const d = dateOnly(r.tanggal);
-      const ket = norm(r.keterangan);
-      const designer = String(r.input_by || '');
-      if (ket === 'desain awal') assign(String(r.customer), 'awal', d, designer);
-      else if (ket === 'revisi 1') assign(String(r.customer), 'rev1', d, designer);
-      else if (ket === 'revisi 2') assign(String(r.customer), 'rev2', d, designer);
-      else if (ket === 'revisi 3') assign(String(r.customer), 'rev3', d, designer);
-    }
-    // Cari data progress untuk sebuah nama customer order (cocok persis / substring).
-    const progKeys = [...progByCust.keys()];
-    const matchProg = (custOrder: string): Design | null => {
-      const n = norm(custOrder);
-      if (n.length < 3) return null;
-      if (progByCust.has(n)) return progByCust.get(n)!;
-      const hit = progKeys.find(k => k.includes(n) || n.includes(k));
-      return hit ? progByCust.get(hit)! : null;
+    const progRows = prog.map(r => ({
+      tokens: nameTokens(String(r.customer || '')),
+      date: dateOnly(r.tanggal),
+      ket: norm(r.keterangan),
+      designer: String(r.input_by || ''),
+    })).filter(r => r.date && r.tokens.size > 0);
+
+    const matchDesign = (custOrder: string): Design | null => {
+      const ot = nameTokens(custOrder);
+      if (ot.size === 0) return null;
+      const matched = progRows.filter(pr => {
+        let inter = 0;
+        for (const t of ot) if (pr.tokens.has(t)) inter++;
+        if (inter === 0) return false;
+        const union = new Set([...ot, ...pr.tokens]).size;
+        // kuat kalau mirip (Jaccard >= 0.5) atau semua token order ada di progress.
+        return inter / union >= 0.5 || inter === ot.size;
+      });
+      if (matched.length === 0) return null;
+      const out: Design = { awal: '', rev1: '', rev2: '', rev3: '', designer: '' };
+      const put = (field: keyof Design, date: string) => { if (date && (!out[field] || date < out[field])) out[field] = date; };
+      for (const pr of matched) {
+        if (!out.designer && pr.designer) out.designer = pr.designer;
+        if (pr.ket === 'desain awal') put('awal', pr.date);
+        else if (pr.ket === 'revisi 1') put('rev1', pr.date);
+        else if (pr.ket === 'revisi 2') put('rev2', pr.date);
+        else if (pr.ket === 'revisi 3') put('rev3', pr.date);
+      }
+      return out;
     };
 
     const existByNo = new Map<string, MerchRow>();
@@ -111,7 +126,7 @@ export async function POST(req: NextRequest) {
 
       const dpDesain = payDate.get(`${o.id}:dp_desain`) || '';
       const dpProduksi = payDate.get(`${o.id}:dp_produksi`) || '';
-      const dsg = matchProg(String(o.customer_nama || ''));
+      const dsg = matchDesign(String(o.customer_nama || ''));
 
       // Nilai otomatis dari sistem.
       const auto: Record<string, string> = {

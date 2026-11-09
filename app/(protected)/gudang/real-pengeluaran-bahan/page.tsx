@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { dbGet, dbDelete } from '@/lib/api-db';
+import { dbGet, dbDelete, dbUpdate } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { buildAksesorisSet } from '@/lib/qty-aksesoris';
 import { Pagination, paginate } from '@/lib/pagination';
@@ -350,8 +350,8 @@ export default function RealPengeluaranBahanPage() {
                           return tgl ? fmtDate(tgl) : <span className="text-slate-600">-</span>;
                         })()}
                       </td>
-                      <td className={`px-5 py-4 text-sm font-medium ${isOverdue ? 'text-red-400' : 'text-slate-400'}`}>
-                        {fmtDate(wo.deadline)}
+                      <td className="px-5 py-4 text-sm">
+                        <EditableDeadline wo={wo} isOverdue={isOverdue} onSaved={fetchData} />
                       </td>
                       <td className="px-5 py-4">
                         <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full border ${st.cls}`}>
@@ -1037,5 +1037,50 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }: {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────
+   EditableDeadline — klik tanggal DEADLINE untuk mengubahnya.
+   Disimpan ke orders.estimasi_deadline (dipakai juga di tempat lain).
+   ──────────────────────────────────────────────────────────────── */
+function EditableDeadline({ wo, isOverdue, onSaved }: {
+  wo: Row;
+  isOverdue: boolean;
+  onSaved: () => void | Promise<void>;
+}) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const iso = toInputDate(wo.deadline);
+  const orderId = Number(wo.order_id);
+
+  async function save(newIso: string) {
+    if (newIso === iso) { setEditing(false); return; }
+    if (!orderId) { toast.error('Gagal', 'Order tidak ditemukan untuk WO ini.'); setEditing(false); return; }
+    setSaving(true);
+    try {
+      await dbUpdate('orders', orderId, { estimasi_deadline: newIso || null });
+      toast.success('Deadline Diubah', newIso ? fmtDate(newIso) : 'dikosongkan');
+      await onSaved();
+    } catch (e) { toast.error('Gagal', String(e)); }
+    setSaving(false);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <input type="date" autoFocus defaultValue={iso} disabled={saving}
+        onBlur={e => save(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false); }}
+        className="bg-[#0d1117] border border-amber-500/40 text-white text-xs rounded-lg px-2 py-1 focus:outline-none date-input" />
+    );
+  }
+  return (
+    <button onClick={() => setEditing(true)} title="Klik untuk ubah deadline"
+      className={`inline-flex items-center gap-1 font-medium hover:underline decoration-dotted underline-offset-2 ${isOverdue ? 'text-red-400' : 'text-slate-300'}`}>
+      {fmtDate(wo.deadline) || '—'}
+      <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+    </button>
   );
 }
