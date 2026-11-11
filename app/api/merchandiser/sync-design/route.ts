@@ -29,6 +29,15 @@ function dateOnly(v: unknown): string {
   if (Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+// Tanggal WIB (Asia/Jakarta) dari sebuah TIMESTAMP (created_at disimpan UTC).
+// Dipakai untuk tanggal pembayaran/upload bukti supaya tidak geser 1 hari di
+// server yang berjalan dengan zona waktu UTC.
+function wibDateOnly(v: unknown): string {
+  if (!v) return '';
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(d.getTime())) return dateOnly(v);
+  try { return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); } catch { return dateOnly(v); }
+}
 function norm(s: unknown): string {
   return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -69,7 +78,9 @@ export async function POST(req: NextRequest) {
     // order_payments → tanggal per order per tipe (ambil yang paling awal).
     const payDate = new Map<string, string>(); // key `${order_id}:${tipe}`
     for (const p of pays) {
-      const d = dateOnly(p.tanggal) || dateOnly(p.created_at);
+      // tanggal = kolom DATE (pure, tanpa jam) → pakai apa adanya.
+      // created_at = TIMESTAMP → konversi ke tanggal WIB.
+      const d = dateOnly(p.tanggal) || wibDateOnly(p.created_at);
       if (!d) continue;
       const key = `${Number(p.order_id)}:${p.tipe}`;
       const cur = payDate.get(key);

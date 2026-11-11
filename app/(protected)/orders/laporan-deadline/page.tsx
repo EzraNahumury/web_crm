@@ -296,6 +296,14 @@ export default function LaporanDeadlineCsOrderPage() {
         merges.push({ s: { r: r0, c: 0 }, e: { r: r0, c: COLS - 1 } });
         aoa.push(['NO', 'CUSTOMER', 'QTY', 'PAKET', 'POINT', 'BONUS', 'KET'].map(h => ({ v: h, s: headStyle })));
         g.rows.forEach((o, oi) => {
+          // Pisahkan BONUS dari KET: bagian NB mulai kata "Promo" dianggap
+          // bonus/promo, sisanya (bahan, size, dll) tetap di KET. Digabung
+          // dengan bonus dari promo-picker (o.bonus) kalau ada.
+          const full = htmlToText(o.ket || '');
+          const idx = full.search(/\bpromo\b/i);
+          const ketBahan = idx >= 0 ? full.slice(0, idx).trim() : full;
+          const promoPart = idx >= 0 ? full.slice(idx).trim() : '';
+          const bonusCell = [(o.bonus || '').trim(), promoPart].filter(Boolean).join(' · ');
           o.lines.forEach((l, li) => {
             const tier = lineTier(l, o);
             aoa.push([
@@ -304,8 +312,8 @@ export default function LaporanDeadlineCsOrderPage() {
               l.qty,
               l.detected ? l.display : (o.manualTier || '-'),
               tier ? linePoint(l, o) : '',
-              li === 0 ? (o.bonus || '') : '',
-              li === 0 ? htmlToText(o.ket || '') : '',
+              li === 0 ? bonusCell : '',
+              li === 0 ? ketBahan : '',
             ]);
           });
         });

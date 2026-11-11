@@ -43,6 +43,7 @@ export default function MerchDesignPage() {
   const [adding, setAdding] = useState(false);
   const [syncFrom, setSyncFrom] = useState('2026-10-12');
   const [syncing, setSyncing] = useState(false);
+  const [sortBy, setSortBy] = useState<'tgl_asc' | 'tgl_desc' | 'input'>('tgl_asc');
   const today = todayIsoWIB();
 
   const fetchAll = useCallback(async () => {
@@ -58,11 +59,21 @@ export default function MerchDesignPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(r =>
+    const base = !q ? rows : rows.filter(r =>
       r.no_order.toLowerCase().includes(q) || r.nama_customer.toLowerCase().includes(q)
       || r.pic_cs.toLowerCase().includes(q) || r.desainer.toLowerCase().includes(q));
-  }, [rows, search]);
+    if (sortBy === 'input') return base;
+    // Urut berdasarkan Tgl DP Design ('YYYY-MM-DD' aman dibanding sebagai string);
+    // baris yang belum punya tanggal diletakkan paling bawah.
+    return [...base].sort((a, b) => {
+      const ta = a.tgl_dp_design, tb = b.tgl_dp_design;
+      if (!ta && !tb) return a.id - b.id;
+      if (!ta) return 1;
+      if (!tb) return -1;
+      return sortBy === 'tgl_asc' ? ta.localeCompare(tb) : tb.localeCompare(ta);
+    });
+  }, [rows, search, sortBy]);
+  useEffect(() => { setPage(1); }, [sortBy]);
   const paged = paginate(filtered, page, pageSize);
 
   async function handleSync() {
@@ -149,12 +160,18 @@ export default function MerchDesignPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3">
-        <div className="relative">
+      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-3 flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
           <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.2-5.2m0 0A7.5 7.5 0 105.2 5.2a7.5 7.5 0 0010.6 10.6z" /></svg>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari No. Order, customer, PIC, desainer..."
             className="w-full bg-[#0d1117] border border-white/10 text-white placeholder-slate-500 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-fuchsia-500/40" />
         </div>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}
+          className="bg-[#0d1117] border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-fuchsia-500/40 shrink-0">
+          <option value="tgl_asc">Urut: Tgl DP Design (lama → baru)</option>
+          <option value="tgl_desc">Urut: Tgl DP Design (baru → lama)</option>
+          <option value="input">Urut: Urutan input</option>
+        </select>
       </div>
 
       <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
