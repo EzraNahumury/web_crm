@@ -366,8 +366,9 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   );
   // Grand Total = Total Pembelian + Ekspedisi (auto).
   const grandTotal = totalPembelian + (Number(ekspBiaya) || 0);
-  // Diskon amount = grandTotal × diskonPct / 100.
-  const diskonAmount = Math.round((grandTotal * diskonPct) / 100);
+  // Diskon amount = Total Pembelian × diskonPct / 100 (DARI TOTAL PEMBELIAN
+  // SAJA, tanpa ongkir — ekspedisi tidak kena diskon).
+  const diskonAmount = Math.round((totalPembelian * diskonPct) / 100);
   // DP Produksi:
   //   • mode 'pct'    → (Total Pembelian × dpProdPct%) − DP Design − Diskon
   //                     Base-nya Total Pembelian (tanpa ekspedisi).
