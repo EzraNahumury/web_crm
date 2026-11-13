@@ -202,7 +202,7 @@ export default function ProgressLinePage({ table, title, accent, ops }: {
       // diambil dari order yang punya datanya.
       const seen = new Map<string, CustomerLite>();
       for (const o of ord as Row[]) {
-        const nama = String(o.customer_nama || '').trim();
+        const nama = String(o.customer_nama || '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
         if (!nama) continue;
         const key = nama.toLowerCase();
         const no_hp = String(o.customer_phone || '');
@@ -916,9 +916,21 @@ function CustomerNameInput({ value, onChange, customers, ringCls }: {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const q = value.trim().toLowerCase();
+  // Dedup saran berdasarkan nama ternormalisasi (collapse spasi) supaya satu
+  // customer tidak muncul berkali-kali.
   const matches = useMemo(() => {
     if (!q) return [];
-    return customers.filter(c => c.nama.toLowerCase().includes(q)).slice(0, 40);
+    const seen = new Set<string>();
+    const out: CustomerLite[] = [];
+    for (const c of customers) {
+      if (!c.nama.toLowerCase().includes(q)) continue;
+      const k = c.nama.replace(/\s+/g, ' ').trim().toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(c);
+      if (out.length >= 40) break;
+    }
+    return out;
   }, [q, customers]);
   useEffect(() => {
     if (!open) return;

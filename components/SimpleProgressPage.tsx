@@ -72,7 +72,8 @@ export default function SimpleProgressPage({ table, title, accent = 'sky', ketOp
       // penjelasan lengkap di ProgressLinePage.fetchAll.
       const seen = new Map<string, CustomerLite>();
       for (const o of ord as Row[]) {
-        const nama = String(o.customer_nama || '').trim();
+        // Normalisasi: non-breaking space → spasi, spasi ganda → satu, trim.
+        const nama = String(o.customer_nama || '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
         if (!nama) continue;
         const key = nama.toLowerCase();
         const no_hp = String(o.customer_phone || '');
@@ -358,7 +359,22 @@ function CustomerNameInput({ value, onChange, customers, ringCls }: {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const q = value.trim().toLowerCase();
-  const matches = useMemo(() => q ? customers.filter(c => c.nama.toLowerCase().includes(q)).slice(0, 40) : [], [q, customers]);
+  // Dedup saran berdasarkan nama ternormalisasi (collapse spasi ganda /
+  // non-breaking space) supaya satu customer tidak muncul berkali-kali.
+  const matches = useMemo(() => {
+    if (!q) return [];
+    const seen = new Set<string>();
+    const out: CustomerLite[] = [];
+    for (const c of customers) {
+      if (!c.nama.toLowerCase().includes(q)) continue;
+      const k = c.nama.replace(/\s+/g, ' ').trim().toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(c);
+      if (out.length >= 40) break;
+    }
+    return out;
+  }, [q, customers]);
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
