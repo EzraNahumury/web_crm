@@ -14,7 +14,11 @@ import { query, execute, insert } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-type OrderRow = { id: number; no_order: string; customer_nama: string | null; customer_phone: string | null; tanggal_order: unknown; lead_id: number | null };
+type OrderRow = {
+  id: number; no_order: string; customer_nama: string | null; customer_phone: string | null;
+  tanggal_order: unknown; lead_id: number | null;
+  finance_status: string | null; finance_approved_at: unknown; bukti_uploaded: number | null;
+};
 type LeadRow = { id: number; nama: string | null };
 type PayRow = { order_id: number; tipe: string; tanggal: unknown; created_at: unknown };
 type ProgRow = { tanggal: unknown; customer: string | null; keterangan: string | null; input_by: string | null };
@@ -65,7 +69,7 @@ export async function POST(req: NextRequest) {
     const from = /^\d{4}-\d{2}-\d{2}$/.test(String(body.from || '')) ? String(body.from) : '2026-10-12';
 
     const [orders, leads, pays, prog, existing] = await Promise.all([
-      query<OrderRow>('SELECT id, no_order, customer_nama, customer_phone, tanggal_order, lead_id FROM `orders`').catch(() => [] as OrderRow[]),
+      query<OrderRow>('SELECT id, no_order, customer_nama, customer_phone, tanggal_order, lead_id, finance_status, finance_approved_at, bukti_uploaded FROM `orders`').catch(() => [] as OrderRow[]),
       query<LeadRow>('SELECT id, nama FROM `leads`').catch(() => [] as LeadRow[]),
       query<PayRow>("SELECT order_id, tipe, tanggal, created_at FROM `order_payments` WHERE tipe IN ('dp_desain','dp_produksi')").catch(() => [] as PayRow[]),
       query<ProgRow>('SELECT tanggal, customer, keterangan, input_by FROM `progress_design`').catch(() => [] as ProgRow[]),
@@ -76,13 +80,20 @@ export async function POST(req: NextRequest) {
     for (const l of leads) leadName.set(Number(l.id), String(l.nama || ''));
 
     // order_payments → tanggal per order per tipe (ambil yang paling awal).
-    const payDate = new Map<string, string>(); // key `${order_id}:${tipe}`
+    // payDate (tanggal || created_at) dipakai untuk DP DESIGN (created_at ≈
+    // hari closing ≈ hari DP desain). payTanggal (kolom DATE saja) dipakai untuk
+    // DP PRODUKSI, karena created_at-nya = waktu CS Order menyimpan rincian
+    // (sebelum customer bayar) sehingga TIDAK boleh dijadikan tanggal diterima.
+    const payDate = new Map<string, string>();    // key `${order_id}:${tipe}`
+    const payTanggal = new Map<string, string>();  // kolom `tanggal` saja
     for (const p of pays) {
+      const key = `${Number(p.order_id)}:${p.tipe}`;
+      const tgl = dateOnly(p.tanggal);
+      if (tgl) { const c = payTanggal.get(key); if (!c || tgl < c) payTanggal.set(key, tgl); }
       // tanggal = kolom DATE (pure, tanpa jam) → pakai apa adanya.
       // created_at = TIMESTAMP → konversi ke tanggal WIB.
-      const d = dateOnly(p.tanggal) || wibDateOnly(p.created_at);
+      const d = tgl || wibDateOnly(p.created_at);
       if (!d) continue;
-      const key = `${Number(p.order_id)}:${p.tipe}`;
       const cur = payDate.get(key);
       if (!cur || d < cur) payDate.set(key, d);
     }
@@ -136,7 +147,14 @@ export async function POST(req: NextRequest) {
       if (!tglOrder || tglOrder < from) { skipped++; continue; }
 
       const dpDesain = payDate.get(`${o.id}:dp_desain`) || '';
-      const dpProduksi = payDate.get(`${o.id}:dp_produksi`) || '';
+      // DP Produksi DITERIMA = saat Finance ACC pembayaran DP produksi
+      // (orders.finance_approved_at, saat finance_status APPROVED & bukti sudah
+      // di-upload). Fallback: kolom `tanggal` pembayaran dp_produksi kalau diisi
+      // manual. TIDAK memakai created_at (itu waktu CS Order isi rincian,
+      // sebelum uang masuk → bisa lebih awal dari tanggal TF).
+      const financeAcc = (String(o.finance_status || '').toUpperCase() === 'APPROVED' && Number(o.bukti_uploaded) === 1)
+        ? wibDateOnly(o.finance_approved_at) : '';
+      const dpProduksi = financeAcc || payTanggal.get(`${o.id}:dp_produksi`) || '';
       const dsg = matchDesign(String(o.customer_nama || ''));
 
       // Nilai otomatis dari sistem.
@@ -162,12 +180,16 @@ export async function POST(req: NextRequest) {
         );
         created++;
       } else {
-        // FILL-IF-EMPTY: hanya kolom auto yang masih kosong di baris existing.
+        // Kolom OTOMATIS (dari sistem) di-timpa dengan nilai terbaru bila ada —
+        // supaya koreksi (mis. tanggal DP produksi yang benar dari Finance ACC)
+        // ikut terupdate saat re-sync. Nilai kosong TIDAK menimpa (tidak
+        // menghapus data). Kolom manual (PIC Sales, feedback, Design Fix, dll)
+        // tidak pernah disentuh di sini.
         const setCols: string[] = [];
         const setVals: unknown[] = [];
         for (const k of Object.keys(auto)) {
           const newV = auto[k];
-          if (newV && !String(ex[k] ?? '').trim()) { setCols.push(`\`${k}\` = ?`); setVals.push(newV); }
+          if (newV && newV !== String(ex[k] ?? '')) { setCols.push(`\`${k}\` = ?`); setVals.push(newV); }
         }
         if (setCols.length > 0) {
           setVals.push(ex.id);
