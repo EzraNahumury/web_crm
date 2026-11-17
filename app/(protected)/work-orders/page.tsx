@@ -163,8 +163,22 @@ export default function WorkOrdersPage() {
           if (!isVisibleTanggalOrder(o.tanggal_order)) return false;
           return true;
         })
-        // TERLAMA → terbaru: customer yang paling lama belum dibuatkan WO di atas.
-        .sort((a: Row, b: Row) => String(a.tanggal_order || '').localeCompare(String(b.tanggal_order || '')))
+        // Urut berdasarkan DEADLINE (paling dekat / terlewat di paling atas);
+        // order tanpa deadline diletakkan paling bawah.
+        .sort((a: Row, b: Row) => {
+          const dk = (o: Row) => {
+            const raw = String(o.estimasi_deadline || o.deadline_lock || '');
+            const m = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
+            if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+            const d = new Date(raw);
+            return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          };
+          const da = dk(a), db = dk(b);
+          if (!da && !db) return 0;
+          if (!da) return 1;
+          if (!db) return -1;
+          return da.localeCompare(db);
+        })
       );
     } catch { setPendingOrders([]); }
   }

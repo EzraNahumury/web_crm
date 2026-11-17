@@ -119,12 +119,18 @@ export default function RealPengeluaranBahanPage() {
   const pengeluaranIds = useMemo(() => new Set(pengeluaran.map(p => Number(p.work_order_id))), [pengeluaran]);
 
   // Picker: WO yang punya forecast tapi belum ada pengeluaran-nya.
-  // Diurutkan dari TERLAMA → terbaru (tanggal order naik) supaya customer yang
-  // paling lama belum diproses ada di paling atas.
+  // Diurutkan berdasarkan DEADLINE (paling dekat / terlewat di paling atas).
+  // WO tanpa deadline diletakkan paling bawah.
   const pickerCandidates = useMemo(
     () => woList
       .filter(w => forecastIds.has(Number(w.id)) && !pengeluaranIds.has(Number(w.id)))
-      .sort((a, b) => String(a.tanggal_order || '').localeCompare(String(b.tanggal_order || ''))),
+      .sort((a, b) => {
+        const da = toInputDate(a.deadline), db = toInputDate(b.deadline);
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
+        return da.localeCompare(db);
+      }),
     [woList, forecastIds, pengeluaranIds],
   );
 
