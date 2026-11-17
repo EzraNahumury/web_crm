@@ -2195,6 +2195,24 @@ const MIGRATIONS: Migration[] = [
         "SELECT `id`, 'Merchandiser' FROM `roles` WHERE `nama` = 'Merchandiser'",
     ],
   },
+  {
+    // Tanggal bukti TF DP PRODUKSI di-upload CS Order (orders.dp_produksi_bukti_at,
+    // 'YYYY-MM-DD' WIB). Dipakai sebagai "DP Produksi Diterima" di tracker
+    // Merchandiser. Sebelumnya dipakai finance_approved_at, tapi kolom itu
+    // dipakai bersama approval DP DESAIN (dan tidak berubah saat bukti DP
+    // produksi di-upload bila order sudah APPROVED), sehingga salah (ketukar
+    // tanggal DP desain). Backfill dari created_at pembayaran dp_produksi
+    // (perkiraan terbaik untuk data lama); input baru diisi akurat di
+    // halaman Bukti Pembayaran.
+    name: '110_orders_dp_produksi_bukti_at',
+    up: [
+      "ALTER TABLE `orders` ADD COLUMN `dp_produksi_bukti_at` VARCHAR(10) NOT NULL DEFAULT ''",
+      "UPDATE `orders` o " +
+        "JOIN (SELECT `order_id`, MIN(`created_at`) AS first_at FROM `order_payments` WHERE `tipe` = 'dp_produksi' GROUP BY `order_id`) p ON p.`order_id` = o.`id` " +
+        "SET o.`dp_produksi_bukti_at` = DATE_FORMAT(p.first_at, '%Y-%m-%d') " +
+        "WHERE o.`bukti_uploaded` = 1 AND o.`dp_produksi_bukti_at` = ''",
+    ],
+  },
 ];
 
 async function runMigrations(): Promise<void> {

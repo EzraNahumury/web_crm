@@ -163,6 +163,8 @@ export default function WorkOrdersPage() {
           if (!isVisibleTanggalOrder(o.tanggal_order)) return false;
           return true;
         })
+        // TERLAMA → terbaru: customer yang paling lama belum dibuatkan WO di atas.
+        .sort((a: Row, b: Row) => String(a.tanggal_order || '').localeCompare(String(b.tanggal_order || '')))
       );
     } catch { setPendingOrders([]); }
   }

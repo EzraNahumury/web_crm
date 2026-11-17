@@ -16,8 +16,7 @@ export const dynamic = 'force-dynamic';
 
 type OrderRow = {
   id: number; no_order: string; customer_nama: string | null; customer_phone: string | null;
-  tanggal_order: unknown; lead_id: number | null;
-  finance_status: string | null; finance_approved_at: unknown; bukti_uploaded: number | null;
+  tanggal_order: unknown; lead_id: number | null; dp_produksi_bukti_at: string | null;
 };
 type LeadRow = { id: number; nama: string | null };
 type PayRow = { order_id: number; tipe: string; tanggal: unknown; created_at: unknown };
@@ -69,7 +68,7 @@ export async function POST(req: NextRequest) {
     const from = /^\d{4}-\d{2}-\d{2}$/.test(String(body.from || '')) ? String(body.from) : '2026-10-12';
 
     const [orders, leads, pays, prog, existing] = await Promise.all([
-      query<OrderRow>('SELECT id, no_order, customer_nama, customer_phone, tanggal_order, lead_id, finance_status, finance_approved_at, bukti_uploaded FROM `orders`').catch(() => [] as OrderRow[]),
+      query<OrderRow>('SELECT id, no_order, customer_nama, customer_phone, tanggal_order, lead_id, dp_produksi_bukti_at FROM `orders`').catch(() => [] as OrderRow[]),
       query<LeadRow>('SELECT id, nama FROM `leads`').catch(() => [] as LeadRow[]),
       query<PayRow>("SELECT order_id, tipe, tanggal, created_at FROM `order_payments` WHERE tipe IN ('dp_desain','dp_produksi')").catch(() => [] as PayRow[]),
       query<ProgRow>('SELECT tanggal, customer, keterangan, input_by FROM `progress_design`').catch(() => [] as ProgRow[]),
@@ -147,14 +146,13 @@ export async function POST(req: NextRequest) {
       if (!tglOrder || tglOrder < from) { skipped++; continue; }
 
       const dpDesain = payDate.get(`${o.id}:dp_desain`) || '';
-      // DP Produksi DITERIMA = saat Finance ACC pembayaran DP produksi
-      // (orders.finance_approved_at, saat finance_status APPROVED & bukti sudah
-      // di-upload). Fallback: kolom `tanggal` pembayaran dp_produksi kalau diisi
-      // manual. TIDAK memakai created_at (itu waktu CS Order isi rincian,
-      // sebelum uang masuk → bisa lebih awal dari tanggal TF).
-      const financeAcc = (String(o.finance_status || '').toUpperCase() === 'APPROVED' && Number(o.bukti_uploaded) === 1)
-        ? wibDateOnly(o.finance_approved_at) : '';
-      const dpProduksi = financeAcc || payTanggal.get(`${o.id}:dp_produksi`) || '';
+      // DP Produksi DITERIMA = tanggal CS Order meng-upload bukti TF DP produksi
+      // (orders.dp_produksi_bukti_at, diisi di halaman Bukti Pembayaran). INI
+      // khusus DP produksi — tidak tertukar dengan DP desain. Fallback: kolom
+      // `tanggal` pembayaran dp_produksi kalau diisi manual. TIDAK memakai
+      // finance_approved_at (dipakai bersama approval DP desain) maupun created_at
+      // (waktu CS isi rincian, sebelum uang masuk).
+      const dpProduksi = dateOnly(o.dp_produksi_bukti_at) || payTanggal.get(`${o.id}:dp_produksi`) || '';
       const dsg = matchDesign(String(o.customer_nama || ''));
 
       // Nilai otomatis dari sistem.

@@ -346,12 +346,20 @@ export default function BuktiPembayaranPage() {
       const wasApproved = String(pickedOrder.finance_status || '').toUpperCase() === 'APPROVED';
       const financeStatusAfter = wasApproved ? 'APPROVED' : null;
       const financeNotesAfter = wasApproved ? (pickedOrder.finance_notes ?? null) : null;
+      // Tanggal upload bukti DP Produksi (WIB) — dipakai sebagai "DP Produksi
+      // Diterima" di tracker Merchandiser. Hanya diisi saat bukti memang berisi
+      // DP produksi (hasDp) dan belum pernah terisi, supaya tetap tanggal upload
+      // pertama walau CS melengkapi bukti belakangan.
+      const dpBuktiTgl = hasDp && !String(pickedOrder.dp_produksi_bukti_at || '')
+        ? new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })
+        : null;
       try {
         await dbUpdate('orders', Number(pickedOrder.id), {
           bukti_uploaded: 1,
           bukti_notes: buktiNotesFinal,
           finance_status: financeStatusAfter,
           finance_notes: financeNotesAfter,
+          ...(dpBuktiTgl ? { dp_produksi_bukti_at: dpBuktiTgl } : {}),
         });
       } catch (err) {
         console.warn('orders update with bukti_uploaded/bukti_notes failed, retrying:', err);
