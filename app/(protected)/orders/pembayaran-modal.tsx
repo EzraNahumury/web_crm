@@ -206,6 +206,12 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // saat buka; ref ini memastikan pindah-order lalu balik tetap dapat draft
   // versi terbaru, bukan yang basi dari load awal).
   const draftByOrderRef = useRef<Record<string, string>>({});
+  // Identitas customer AUTENTIK dari order yang sedang dibuka (di-capture saat
+  // prefill, BUKAN dari draft). Dipakai di handleSave supaya customer_nama /
+  // alamat / phone / lead HANYA ditulis kalau user benar-benar mengubahnya di
+  // sesi ini — mencegah nilai basi/bocor menimpa identitas (bug: nama order
+  // berubah sendiri / ketiban nama order lain).
+  const liveIdentityRef = useRef<{ nama: string; alamat: string; noWa: string; leadId: string }>({ nama: '', alamat: '', noWa: '', leadId: '' });
 
   const fetchAll = useCallback(async () => {
     try {
@@ -254,10 +260,17 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       setNoWa(''); setDpDesainTgl(''); setDpProduksiTgl('');
       setDetailBahan(seedDetailBahan());
       setPicCs('');
+      liveIdentityRef.current = { nama: '', alamat: '', noWa: '', leadId: '' };
       return;
     }
     const o = orders.find(x => String(x.id) === pickedOrderId);
-    if (!o) return;
+    if (!o) {
+      // Order tidak ketemu di array (mis. fetch gagal). JANGAN biarkan identitas
+      // order sebelumnya nyangkut — reset supaya tidak bocor/tertulis ke order lain.
+      setNama(''); setAlamat(''); setNoWa(''); setLeadId('');
+      liveIdentityRef.current = { nama: '', alamat: '', noWa: '', leadId: '' };
+      return;
+    }
     setNama(String(o.customer_nama || ''));
     const addrParts = [o.customer_alamat, o.customer_kecamatan, o.customer_kabupaten, o.customer_provinsi]
       .filter(Boolean).join(', ');
@@ -271,6 +284,14 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
     setNoOrder(String(o.no_order || ''));
     // No WA — auto dari order (editable).
     setNoWa(String(o.customer_phone || ''));
+    // Capture identitas AUTENTIK order ini (sebelum draft restore). handleSave
+    // pakai ini untuk hanya menulis field yang benar-benar diubah user.
+    liveIdentityRef.current = {
+      nama: String(o.customer_nama || ''),
+      alamat: addrParts,
+      noWa: String(o.customer_phone || ''),
+      leadId: o.lead_id ? String(o.lead_id) : '',
+    };
     // Detail Bahan (Bagian B) — dari orders.detail_bahan_json (seed default kalau kosong).
     setDetailBahan(parseDetailBahan(o.detail_bahan_json));
     // PIC CS/Sales — dari orders.job_ticket_json.
@@ -316,16 +337,17 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       try {
         const d = JSON.parse(String(rawDraft));
         if (d && typeof d === 'object') {
-          if (d.nama != null) setNama(String(d.nama));
-          if (d.alamat != null) setAlamat(String(d.alamat));
-          if (d.noWa != null) setNoWa(String(d.noWa));
+          // CATATAN: identitas customer (nama/alamat/noWa/leadId) SENGAJA TIDAK
+          // di-restore dari draft. Identitas selalu diambil dari order autentik
+          // (prefill di atas). Draft hanya memulihkan isi invoice yang sedang
+          // dikerjakan (item, detail bahan, diskon, DP, NB, ekspedisi, PIC).
+          // Ini mencegah nama order "berubah sendiri" / ketiban order lain.
           if (Array.isArray(d.detailBahan) && d.detailBahan.length > 0) {
             setDetailBahan(d.detailBahan.map((r: BahanLine, idx: number) => ({
               id: idx + 1, bagian: String(r.bagian || ''), bahan: String(r.bahan || ''),
             })));
           }
           if (d.picCs != null) setPicCs(String(d.picCs));
-          if (d.leadId != null) setLeadId(String(d.leadId));
           if (d.pembayTunai != null) setPembayTunai(String(d.pembayTunai));
           if (d.payMethod != null) setPayMethod(d.payMethod === 'cash' || d.payMethod === 'bank' ? d.payMethod : '');
           if (Array.isArray(d.itemLines) && d.itemLines.length > 0) {
@@ -390,11 +412,14 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
   // Tujuan: kalau listrik mati sebelum klik Simpan, data tidak hilang (di-
   // restore saat modal dibuka lagi). Simpan tetap yang mempromosikan order ke
   // daftar CS Order + sync WO. Draft dihapus setelah Simpan sukses.
+  // Draft HANYA berisi isi invoice yang sedang dikerjakan. Identitas customer
+  // (nama/alamat/noWa/leadId) sengaja DIKECUALIKAN supaya draft tidak pernah
+  // bisa menimpa/menukar identitas order saat di-restore.
   const draftJson = useMemo(() => JSON.stringify({
-    nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines,
+    pembayTunai, payMethod, itemLines,
     ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan,
     picCs,
-  }), [nama, alamat, noWa, leadId, pembayTunai, payMethod, itemLines, ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan, picCs]);
+  }), [pembayTunai, payMethod, itemLines, ekspNama, ekspKg, ekspBiaya, nb, diskonPct, dpProdPct, dpProdMode, dpProdManual, detailBahan, picCs]);
 
   useEffect(() => {
     if (!open || !pickedOrderId || readOnly) return;
@@ -654,11 +679,20 @@ export default function PembayaranModal({ open, onClose, onSaved, seedOrderId, r
       // Update the order shell with header fields + ekspedisi + note +
       // diskon% + scalar totals. Ekspedisi/diskon columns may not exist
       // yet on legacy DBs → try/catch layered fallback.
+      // Identitas customer HANYA ditulis kalau user benar-benar mengubahnya di
+      // sesi ini (dibanding nilai AUTENTIK order saat prefill). Kalau tidak
+      // berubah, field-nya tidak dikirim sama sekali → tidak mungkin menimpa
+      // nama/alamat/phone/lead dengan nilai basi/bocor, dan cascade ke
+      // work_orders tidak ikut ter-trigger percuma. (Fix: nama order berubah
+      // sendiri / ketiban nama order lain.)
+      const live = liveIdentityRef.current;
+      const identityPatch: Row = {};
+      if (nama.trim() !== String(live.nama || '').trim()) identityPatch.customer_nama = nama.trim();
+      if (alamat !== String(live.alamat || '')) identityPatch.customer_alamat = alamat;
+      if ((noWa.trim() || '') !== String(live.noWa || '').trim()) identityPatch.customer_phone = noWa.trim() || null;
+      if ((leadId || '') !== String(live.leadId || '')) identityPatch.lead_id = leadId ? Number(leadId) : null;
       const baseUpdate = {
-        customer_nama: nama.trim(),
-        customer_alamat: alamat,
-        customer_phone: noWa.trim() || null,
-        lead_id: leadId ? Number(leadId) : null,
+        ...identityPatch,
         keterangan: nb,
         nominal_order: grandTotal,
         dp_produksi: dpProduksi,
