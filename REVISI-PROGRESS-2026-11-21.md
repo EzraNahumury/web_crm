@@ -68,3 +68,23 @@ Permintaan: urutan menu baru + gabung beberapa menu + menu baru kosong.
 4. **A1+A2** (dashboard pcs + analisa %).
 5. **E** (restrukturisasi menu) — setelah konfirmasi #1 & #2.
 6. **D1** — setelah konfirmasi #3.
+
+---
+
+## UPDATE 1 — 21 Nov 2026 (yang sudah dikerjakan)
+
+Keputusan konfirmasi: (1) menu **grup 2-tingkat**, (2) halaman Admin Produksi **pindah ke PPIC**, (3) reseller **bukan bug** (CS belum nandai).
+
+- ✅ **C1 + C2** — Grafik CS exclude aksesoris. Commit `2080090`.
+- ✅ **D1** — ditutup, bukan bug (penjelasan di tabel D).
+- ✅ **E1** — Nav jadi **2 tingkat**. CS Selling, Antrian Design, CS Order sekarang sub-grup di dalam **Merchandiser** (tetap bisa dibuka-tutup).
+- ✅ **E2** — Menu **Admin Produksi dihapus**, halamannya pindah ke menu **PPIC** (Monitoring Produksi, History, Produksi Deadline Lock, Papan Finishing, History Finishing, Laporan Produksi, Penggunaan Bahan).
+- ✅ **E3** — Menu **Admin PPIC** baru + 2 halaman placeholder: Checklist Progress, Data Waste Proses.
+- ✅ **E4** — Menu **Quality Assurance** baru (placeholder kosong).
+- ✅ **E5** — Urutan menu disusun ulang: Dashboard · Merchandiser · PPIC · Admin PPIC · Work Orders · Gudang · Quality Assurance · Produksi · Progress Produksi · Finance · Setting · Master · Analisa · Reseller.
+
+⚠️ **Penting setelah deploy:** menu disimpan ke sesi login. Supaya **PPIC / Admin PPIC / Quality Assurance** muncul, **logout → login lagi** (hak akses menu di-refresh saat login). Role non-admin: admin bisa centang menu baru di **Setting → Users/Role**.
+
+### Masih berikutnya (belum dikerjakan)
+- ⬜ **B1** tombol Bulan · **B3** tabel paket + nominal · **B4** provinsi→kabupaten · **B5** semua grafik→tabel.
+- ⬜ **A1** dashboard total pcs · **A2** analisa % paket + kabupaten.

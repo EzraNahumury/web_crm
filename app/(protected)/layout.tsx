@@ -46,11 +46,20 @@ const NAV: Record<'cs' | 'produksi', { href: string; label: string }[]> = {
    ADMIN SIDEBAR NAV
    ═══════════════════════════════════════════════════════════ */
 
+type NavLeaf = { href: string; label: string };
+// Anak menu bisa berupa halaman langsung (NavLeaf) ATAU sub-grup yang
+// punya halaman sendiri (NavSubGroup) → mendukung menu 2 tingkat, mis.
+// Merchandiser > CS Selling > Daftar Order.
+interface NavSubGroup { label: string; children: NavLeaf[]; }
+type NavChild = NavLeaf | NavSubGroup;
+function isSubGroup(c: NavChild): c is NavSubGroup {
+  return (c as NavSubGroup).children !== undefined;
+}
 interface SideNavItem {
   href?: string;
   label: string;
   icon: React.ReactNode;
-  children?: { href: string; label: string }[];
+  children?: NavChild[];
 }
 
 const ICON_CLS = 'w-[18px] h-[18px]';
@@ -61,58 +70,6 @@ const ADMIN_NAV: SideNavItem[] = [
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
   },
   {
-    label: 'CS Selling',
-    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>,
-    children: [
-      { href: '/cs-selling', label: 'Daftar Order' },
-      { href: '/cs-selling/form-leads', label: 'Form Leads' },
-      { href: '/cs-selling/resubmit-finance', label: 'Resubmit Finance' },
-    ],
-  },
-  {
-    label: 'Antrian Design',
-    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" /></svg>,
-    children: [
-      { href: '/antrian-design', label: 'Antrian' },
-      { href: '/antrian-design/history-reject', label: 'History Reject' },
-    ],
-  },
-  {
-    label: 'Finance',
-    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" /></svg>,
-    children: [
-      { href: '/approval-finance', label: 'Approval Finance' },
-      { href: '/finance/pekerjaan-pesanan', label: 'Pekerjaan Pesanan' },
-      { href: '/finance/finalisasi-pekerjaan-pesanan', label: 'Finalisasi Pekerjaan Pesanan' },
-      { href: '/finance/laporan-produksi-harian', label: 'Laporan Produksi Harian' },
-      { href: '/finance/pembelian-gudang', label: 'Pembelian Barang Gudang' },
-      { href: '/finance/laporan', label: 'Laporan Finance' },
-    ],
-  },
-  {
-    label: 'CS Order',
-    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>,
-    children: [
-      { href: '/orders', label: 'Rincian Order' },
-      { href: '/orders/bukti-pembayaran', label: 'Bukti Pembayaran' },
-      { href: '/orders/laporan', label: 'Laporan' },
-      { href: '/orders/laporan-deadline', label: 'Laporan Deadline' },
-    ],
-  },
-  {
-    label: 'Produksi',
-    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93s.844.083 1.18-.166l.715-.533a1.125 1.125 0 011.587.141l.773.773a1.125 1.125 0 01.141 1.587l-.533.715c-.249.336-.295.784-.166 1.18.13.396.506.71.93.78l.894.15c.542.09.94.56.94 1.109v1.094c0 .55-.398 1.02-.94 1.11l-.894.149c-.424.07-.764.384-.93.78s-.083.844.166 1.18l.533.715a1.125 1.125 0 01-.141 1.587l-.773.773a1.125 1.125 0 01-1.587.141l-.715-.533a1.125 1.125 0 00-1.18-.166c-.396.13-.71.506-.78.93l-.15.894c-.09.542-.56.94-1.109.94h-1.094c-.55 0-1.02-.398-1.11-.94l-.148-.894a1.125 1.125 0 00-.93-.78 1.125 1.125 0 00-1.18.166l-.715.533a1.125 1.125 0 01-1.587-.141l-.773-.773a1.125 1.125 0 01-.141-1.587l.533-.715c.249-.336.295-.784.166-1.18a1.125 1.125 0 00-.78-.93l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.764-.383.93-.78.13-.395.083-.843-.166-1.18l-.533-.715a1.125 1.125 0 01.141-1.587l.773-.773a1.125 1.125 0 011.587-.141l.715.533c.336.249.784.295 1.18.166.396-.13.71-.506.78-.93l.149-.894zM15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
-    children: [
-      { href: '/produksi', label: 'Produksi' },
-      { href: '/produksi/history', label: 'History Produksi' },
-      { href: '/produksi/tracking-reject', label: 'Tracking Reject' },
-    ],
-  },
-  {
-    href: '/work-orders', label: 'Work Orders',
-    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
-  },
-  {
     label: 'Merchandiser',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" /></svg>,
     children: [
@@ -121,10 +78,34 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/merchandiser/proofing', label: 'Proofing' },
       { href: '/merchandiser/job-ticket', label: 'Job Ticket' },
       { href: '/merchandiser/ringkasan', label: 'Ringkasan' },
+      {
+        label: 'CS Selling',
+        children: [
+          { href: '/cs-selling', label: 'Daftar Order' },
+          { href: '/cs-selling/form-leads', label: 'Form Leads' },
+          { href: '/cs-selling/resubmit-finance', label: 'Resubmit Finance' },
+        ],
+      },
+      {
+        label: 'Antrian Design',
+        children: [
+          { href: '/antrian-design', label: 'Antrian' },
+          { href: '/antrian-design/history-reject', label: 'History Reject' },
+        ],
+      },
+      {
+        label: 'CS Order',
+        children: [
+          { href: '/orders', label: 'Rincian Order' },
+          { href: '/orders/bukti-pembayaran', label: 'Bukti Pembayaran' },
+          { href: '/orders/laporan', label: 'Laporan' },
+          { href: '/orders/laporan-deadline', label: 'Laporan Deadline' },
+        ],
+      },
     ],
   },
   {
-    label: 'Admin Produksi',
+    label: 'PPIC',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" /></svg>,
     children: [
       { href: '/monitoring-produksi', label: 'Monitoring Produksi' },
@@ -134,6 +115,42 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/crm-finishing/history', label: 'History Finishing' },
       { href: '/laporan/produksi', label: 'Laporan Produksi' },
       { href: '/laporan/penggunaan-bahan', label: 'Penggunaan Bahan' },
+    ],
+  },
+  {
+    label: 'Admin PPIC',
+    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>,
+    children: [
+      { href: '/admin-ppic/checklist-progress', label: 'Checklist Progress' },
+      { href: '/admin-ppic/data-waste-proses', label: 'Data Waste Proses' },
+    ],
+  },
+  {
+    href: '/work-orders', label: 'Work Orders',
+    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
+  },
+  {
+    label: 'Gudang',
+    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>,
+    children: [
+      { href: '/stok', label: 'Stok' },
+      { href: '/gudang/forecasting-bahan', label: 'Forecasting Bahan' },
+      { href: '/gudang/real-pengeluaran-bahan', label: 'Real Pengeluaran Bahan' },
+      { href: '/gudang/pembelian-bahan', label: 'Pembelian Bahan' },
+      { href: '/approval-gudang', label: 'Approval Gudang' },
+    ],
+  },
+  {
+    href: '/quality-assurance', label: 'Quality Assurance',
+    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>,
+  },
+  {
+    label: 'Produksi',
+    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93s.844.083 1.18-.166l.715-.533a1.125 1.125 0 011.587.141l.773.773a1.125 1.125 0 01.141 1.587l-.533.715c-.249.336-.295.784-.166 1.18.13.396.506.71.93.78l.894.15c.542.09.94.56.94 1.109v1.094c0 .55-.398 1.02-.94 1.11l-.894.149c-.424.07-.764.384-.93.78s-.083.844.166 1.18l.533.715a1.125 1.125 0 01-.141 1.587l-.773.773a1.125 1.125 0 01-1.587.141l-.715-.533a1.125 1.125 0 00-1.18-.166c-.396.13-.71.506-.78.93l-.15.894c-.09.542-.56.94-1.109.94h-1.094c-.55 0-1.02-.398-1.11-.94l-.148-.894a1.125 1.125 0 00-.93-.78 1.125 1.125 0 00-1.18.166l-.715.533a1.125 1.125 0 01-1.587-.141l-.773-.773a1.125 1.125 0 01-.141-1.587l.533-.715c.249-.336.295-.784.166-1.18a1.125 1.125 0 00-.78-.93l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.764-.383.93-.78.13-.395.083-.843-.166-1.18l-.533-.715a1.125 1.125 0 01.141-1.587l.773-.773a1.125 1.125 0 011.587-.141l.715.533c.336.249.784.295 1.18.166.396-.13.71-.506.78-.93l.149-.894zM15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+    children: [
+      { href: '/produksi', label: 'Produksi' },
+      { href: '/produksi/history', label: 'History Produksi' },
+      { href: '/produksi/tracking-reject', label: 'Tracking Reject' },
     ],
   },
   {
@@ -154,14 +171,15 @@ const ADMIN_NAV: SideNavItem[] = [
     ],
   },
   {
-    label: 'Gudang',
-    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>,
+    label: 'Finance',
+    icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" /></svg>,
     children: [
-      { href: '/stok', label: 'Stok' },
-      { href: '/gudang/forecasting-bahan', label: 'Forecasting Bahan' },
-      { href: '/gudang/real-pengeluaran-bahan', label: 'Real Pengeluaran Bahan' },
-      { href: '/gudang/pembelian-bahan', label: 'Pembelian Bahan' },
-      { href: '/approval-gudang', label: 'Approval Gudang' },
+      { href: '/approval-finance', label: 'Approval Finance' },
+      { href: '/finance/pekerjaan-pesanan', label: 'Pekerjaan Pesanan' },
+      { href: '/finance/finalisasi-pekerjaan-pesanan', label: 'Finalisasi Pekerjaan Pesanan' },
+      { href: '/finance/laporan-produksi-harian', label: 'Laporan Produksi Harian' },
+      { href: '/finance/pembelian-gudang', label: 'Pembelian Barang Gudang' },
+      { href: '/finance/laporan', label: 'Laporan Finance' },
     ],
   },
   {
@@ -228,6 +246,11 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // di atas/bawah supaya akun yang cookie session-nya belum punya 'Admin
   // Produksi' (sebelum login ulang) tetap melihat menunya.
   'Admin Produksi': ['/monitoring-produksi', '/monitoring-produksi/history', '/crm-deadline-lock', '/crm-finishing', '/crm-finishing/history', '/laporan/produksi', '/laporan/penggunaan-bahan'],
+  // PPIC = pengganti 'Admin Produksi' (rename + pindah). Href sama; key lama
+  // 'Admin Produksi' tetap dipertahankan sbg alias utk role/session lama.
+  'PPIC': ['/monitoring-produksi', '/monitoring-produksi/history', '/crm-deadline-lock', '/crm-finishing', '/crm-finishing/history', '/laporan/produksi', '/laporan/penggunaan-bahan'],
+  'Admin PPIC': ['/admin-ppic/checklist-progress', '/admin-ppic/data-waste-proses'],
+  'Quality Assurance': ['/quality-assurance'],
   // Progress hrefs dipetakan juga di bawah 'Line Jahit' supaya menu Progress
   // Produksi tampil untuk akun yang cookie session-nya belum punya key
   // 'Progress Produksi' (sebelum login ulang) — asalkan punya akses Line Jahit.
@@ -292,8 +315,15 @@ function AdminLayout({ user, logout, children }: {
       const next = { ...prev };
       for (const item of ADMIN_NAV) {
         if (!item.children) continue;
-        if (item.children.some(c => pathname.startsWith(c.href))) {
-          next[item.label] = true;
+        for (const c of item.children) {
+          if (isSubGroup(c)) {
+            if (c.children.some(l => pathname.startsWith(l.href))) {
+              next[item.label] = true;
+              next[`${item.label}>${c.label}`] = true;
+            }
+          } else if (pathname.startsWith(c.href)) {
+            next[item.label] = true;
+          }
         }
       }
       return next;
@@ -317,17 +347,23 @@ function AdminLayout({ user, logout, children }: {
       user.menuAccess!.includes(menu) && hrefs.includes(href)
     );
   };
+  // Anak menu (daun ATAU sub-grup) boleh tampil kalau ada href yang di-grant.
+  const childAccessible = (c: NavChild): boolean =>
+    isSubGroup(c) ? c.children.some(l => hasHrefAccess(l.href)) : hasHrefAccess(c.href);
   const hasMenuAccess = (item: SideNavItem): boolean => {
     if (fullAccess) return true;
     if (item.href) return hasHrefAccess(item.href);
-    if (item.children) return item.children.some(c => hasHrefAccess(c.href));
+    if (item.children) return item.children.some(childAccessible);
     return false;
   };
   // Anak menu yang boleh tampil — full access lihat semua, selain itu hanya
   // href yang di-grant. Tanpa ini, punya akses 1 halaman Analisa akan
   // menampilkan seluruh grafik Analisa.
-  const visibleChildren = (item: SideNavItem) =>
-    (fullAccess || !item.children) ? (item.children || []) : item.children.filter(c => hasHrefAccess(c.href));
+  const visibleChildren = (item: SideNavItem): NavChild[] =>
+    (fullAccess || !item.children) ? (item.children || []) : item.children.filter(childAccessible);
+  // Daun yang boleh tampil di dalam sebuah sub-grup.
+  const visibleSubLeaves = (group: NavSubGroup): NavLeaf[] =>
+    fullAccess ? group.children : group.children.filter(l => hasHrefAccess(l.href));
 
   const filteredNav = ADMIN_NAV.filter(hasMenuAccess);
 
@@ -356,7 +392,7 @@ function AdminLayout({ user, logout, children }: {
           <p className="px-3 pb-2 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Menu</p>
           {filteredNav.map((item) => {
             if (item.children) {
-              const childActive = item.children.some(c => pathname === c.href);
+              const childActive = item.children.some(c => isSubGroup(c) ? c.children.some(l => pathname === l.href) : pathname === c.href);
               const open = !!openMenus[item.label];
               return (
                 <div key={item.label}>
@@ -375,6 +411,41 @@ function AdminLayout({ user, logout, children }: {
                   {open && (
                     <div className="mt-0.5 ml-6 pl-3 border-l border-white/[0.06] space-y-0.5 py-0.5">
                       {visibleChildren(item).map(child => {
+                        // Sub-grup (mis. CS Selling di dalam Merchandiser) →
+                        // accordion bertingkat.
+                        if (isSubGroup(child)) {
+                          const subKey = `${item.label}>${child.label}`;
+                          const subOpen = !!openMenus[subKey];
+                          const subActive = child.children.some(l => pathname === l.href);
+                          return (
+                            <div key={subKey}>
+                              <button
+                                onClick={() => toggleMenu(subKey)}
+                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-[12.5px] font-medium transition-colors ${
+                                  subActive ? 'text-white bg-white/[0.04]' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
+                                }`}>
+                                <span className="flex-1 text-left">{child.label}</span>
+                                <svg className={`w-3 h-3 transition-transform duration-200 opacity-50 ${subOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                              </button>
+                              {subOpen && (
+                                <div className="mt-0.5 ml-3 pl-3 border-l border-white/[0.06] space-y-0.5 py-0.5">
+                                  {visibleSubLeaves(child).map(leaf => {
+                                    const active = isActive(leaf.href);
+                                    return (
+                                      <Link key={leaf.href} href={leaf.href}
+                                        className={`relative flex items-center gap-2.5 px-3 py-2 rounded-md text-[12px] font-medium transition-colors ${
+                                          active ? 'text-blue-300 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
+                                        }`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full transition-colors ${active ? 'bg-blue-400' : 'bg-slate-600'}`} />
+                                        {leaf.label}
+                                      </Link>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
                         const active = isActive(child.href);
                         return (
                           <Link key={child.href} href={child.href}
