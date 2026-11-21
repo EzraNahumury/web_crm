@@ -20,6 +20,9 @@ export async function GET(req: NextRequest) {
     if (to)   { dateClause.push('o.tanggal_order <= ?'); dateParams.push(to); }
     const dateWhere = dateClause.length ? ` AND ${dateClause.join(' AND ')}` : '';
 
+    // Hanya paket UTAMA (yang dihitung qty). Aksesoris dari master Barang CS
+    // (hitung_qty = 0, mis. KERAH KOMBINASI) DIKECUALIKAN supaya konsisten
+    // dengan menu Grafik Analisa dan tidak menggelembungkan total qty.
     const paket = await query<{ paket: string; total_qty: number; order_count: number }>(
       `SELECT
          oi.paket_nama AS paket,
@@ -27,7 +30,9 @@ export async function GET(req: NextRequest) {
          COUNT(DISTINCT oi.order_id) AS order_count
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
-       WHERE oi.paket_nama IS NOT NULL AND TRIM(oi.paket_nama) <> ''${dateWhere}
+       LEFT JOIN barang_cs bc ON LOWER(TRIM(bc.nama)) = LOWER(TRIM(oi.paket_nama))
+       WHERE oi.paket_nama IS NOT NULL AND TRIM(oi.paket_nama) <> ''
+         AND COALESCE(bc.hitung_qty, 1) = 1${dateWhere}
        GROUP BY oi.paket_nama
        ORDER BY total_qty DESC`,
       dateParams
@@ -47,12 +52,13 @@ export async function GET(req: NextRequest) {
          o.lead_id AS lead_id,
          l.nama AS lead_nama,
          l.jenis_cs AS jenis_cs,
-         COALESCE(SUM(oi.qty), 0) AS total_qty,
+         COALESCE(SUM(CASE WHEN COALESCE(bc.hitung_qty, 1) = 1 THEN oi.qty ELSE 0 END), 0) AS total_qty,
          COUNT(DISTINCT o.id) AS order_count,
          COUNT(DISTINCT o.customer_id) AS customer_count
        FROM orders o
        LEFT JOIN leads l ON l.id = o.lead_id
        LEFT JOIN order_items oi ON oi.order_id = o.id
+       LEFT JOIN barang_cs bc ON LOWER(TRIM(bc.nama)) = LOWER(TRIM(oi.paket_nama))
        WHERE 1=1${dateWhere}
        GROUP BY o.lead_id, l.nama, l.jenis_cs
        ORDER BY total_qty DESC`,
@@ -70,7 +76,9 @@ export async function GET(req: NextRequest) {
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        LEFT JOIN leads l ON l.id = o.lead_id
-       WHERE oi.paket_nama IS NOT NULL AND TRIM(oi.paket_nama) <> ''${dateWhere}
+       LEFT JOIN barang_cs bc ON LOWER(TRIM(bc.nama)) = LOWER(TRIM(oi.paket_nama))
+       WHERE oi.paket_nama IS NOT NULL AND TRIM(oi.paket_nama) <> ''
+         AND COALESCE(bc.hitung_qty, 1) = 1${dateWhere}
        GROUP BY oi.paket_nama, l.nama
        ORDER BY oi.paket_nama, qty DESC`,
       dateParams
