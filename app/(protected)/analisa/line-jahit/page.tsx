@@ -2,9 +2,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { dbGet, dbDelete } from '@/lib/api-db';
 import { useToast } from '@/lib/toast';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts';
 
 // Read-only view Line Jahit untuk menu Analisa.
 // Menampilkan tabel produksi + summary + kedatangan penjahit + gaji,
@@ -268,7 +265,7 @@ export default function AnalisaLineJahitPage() {
               : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
           }`}
         >
-          Grafik
+          Target vs Realisasi
         </button>
       </div>
 
@@ -712,56 +709,49 @@ function GrafikView({ month, monthLabel, rows, paketList, targetByDate }: {
           <ChipStat label="Hari Aktif" value={String(activeDays)} color="amber" />
         </div>
       </div>
-      <div className="p-4">
+      <div className="overflow-x-auto">
         {totalTarget === 0 && totalRealisasi === 0 ? (
           <div className="py-16 text-center text-sm text-slate-500">
             Belum ada data target/realisasi di bulan ini.
             <p className="text-xs text-slate-600 mt-1">Input Line Jahit + Kedatangan Penjahit di menu Line Jahit dulu.</p>
           </div>
         ) : (
-          <div style={{ width: '100%', height: 340 }}>
-            <ResponsiveContainer>
-              <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
-                <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" />
-                <XAxis dataKey="label" stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} interval="preserveStartEnd" />
-                <YAxis allowDecimals={false} stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} width={40} />
-                <Tooltip content={<TargetRealisasiTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
-                <Legend wrapperStyle={{ paddingTop: 4, fontSize: 11 }} formatter={(v) => <span style={{ color: '#cbd5e1' }}>{v}</span>} />
-                <Line type="monotone" name="Target" dataKey="target" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                <Line type="monotone" name="Realisasi" dataKey="realisasi" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <table className="w-full min-w-[520px]">
+            <thead>
+              <tr className="border-b border-white/[0.06]">
+                <th className="text-[11px] text-slate-500 font-medium text-left px-6 py-2.5 uppercase tracking-wider">Tanggal</th>
+                <th className="text-[11px] text-slate-500 font-medium text-right px-6 py-2.5 uppercase tracking-wider">Target (poin)</th>
+                <th className="text-[11px] text-slate-500 font-medium text-right px-6 py-2.5 uppercase tracking-wider">Realisasi (poin)</th>
+                <th className="text-[11px] text-slate-500 font-medium text-right px-6 py-2.5 uppercase tracking-wider">Selisih</th>
+                <th className="text-[11px] text-slate-500 font-medium text-right px-6 py-2.5 uppercase tracking-wider">Konv</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chartData.filter(p => p.target > 0 || p.realisasi > 0).map(p => {
+                const diff = p.realisasi - p.target;
+                const k = p.target > 0 ? (p.realisasi / p.target) * 100 : 0;
+                return (
+                  <tr key={p.tanggal} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                    <td className="px-6 py-2.5 text-sm text-white tabular-nums">{p.label}</td>
+                    <td className="px-6 py-2.5 text-right text-sm text-blue-300 tabular-nums">{fmtPoin(p.target)}</td>
+                    <td className="px-6 py-2.5 text-right text-sm text-emerald-400 tabular-nums">{fmtPoin(p.realisasi)}</td>
+                    <td className={`px-6 py-2.5 text-right text-sm tabular-nums ${diff >= 0 ? 'text-emerald-400' : 'text-rose-300'}`}>{diff >= 0 ? '+' : '−'}{fmtPoin(Math.abs(diff))}</td>
+                    <td className="px-6 py-2.5 text-right text-sm text-fuchsia-300 tabular-nums">{p.target > 0 ? k.toFixed(1) + '%' : '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-white/[0.02] font-semibold">
+                <td className="px-6 py-2.5 text-sm text-white">TOTAL</td>
+                <td className="px-6 py-2.5 text-right text-sm text-blue-300 tabular-nums">{fmtPoin(totalTarget)}</td>
+                <td className="px-6 py-2.5 text-right text-sm text-emerald-400 tabular-nums">{fmtPoin(totalRealisasi)}</td>
+                <td className={`px-6 py-2.5 text-right text-sm tabular-nums ${selisih >= 0 ? 'text-emerald-400' : 'text-rose-300'}`}>{selisih >= 0 ? '+' : '−'}{fmtPoin(Math.abs(selisih))}</td>
+                <td className="px-6 py-2.5 text-right text-sm text-fuchsia-300 tabular-nums">{totalTarget > 0 ? konv.toFixed(1) + '%' : '—'}</td>
+              </tr>
+            </tfoot>
+          </table>
         )}
-      </div>
-    </div>
-  );
-}
-
-function TargetRealisasiTooltip({ active, payload, label }: {
-  active?: boolean;
-  payload?: Array<{ payload: { target: number; realisasi: number }; name: string; value: number; color: string }>;
-  label?: string;
-}) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload;
-  const konv = row.target > 0 ? (row.realisasi / row.target) * 100 : 0;
-  return (
-    <div className="rounded-lg bg-[#0c1120] border border-white/[0.1] px-3 py-2 shadow-xl min-w-[180px]">
-      <p className="text-xs text-slate-400 mb-1">Tgl {label}</p>
-      <div className="space-y-0.5">
-        {payload.map(p => (
-          <div key={p.name} className="flex items-center gap-2 text-xs">
-            <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: p.color }} />
-            <span className="text-slate-300 flex-1">{p.name}</span>
-            <span className="text-white font-semibold tabular-nums">{fmtPoin(Number(p.value))}</span>
-          </div>
-        ))}
-        <div className="flex items-center gap-2 text-xs pt-1 mt-1 border-t border-white/[0.06]">
-          <span className="w-2 h-2 rounded-sm shrink-0 bg-fuchsia-400" />
-          <span className="text-slate-300 flex-1">Konv</span>
-          <span className="text-fuchsia-300 font-semibold tabular-nums">{row.target > 0 ? `${konv.toFixed(1)}%` : '—'}</span>
-        </div>
       </div>
     </div>
   );
