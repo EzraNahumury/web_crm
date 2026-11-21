@@ -1,8 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
-} from 'recharts';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import DateRangePicker, { today, formatPeriod } from '../../laporan/date-range-picker';
 
 type PaketRow = { paket: string; qty: number; cust: number; orders: number };
@@ -26,7 +23,6 @@ export default function CsOrderLaporanPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
-  const chartRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -163,9 +159,6 @@ export default function CsOrderLaporanPage() {
     setDownloading(false);
   }
 
-  const chartData = useMemo(() => paket.slice(0, 30), [paket]);
-  const chartHeight = Math.max(240, chartData.length * 34 + 40);
-
   // Rincian customer per paket — 1 tabel per paket (nama customer + qty),
   // urut mengikuti paket (qty desc).
   const breakdownByPaket = useMemo(() => {
@@ -240,79 +233,58 @@ export default function CsOrderLaporanPage() {
         <div className="rounded-xl bg-red-500/[0.06] border border-red-500/20 p-4 text-sm text-red-300">{error}</div>
       )}
 
-      {/* Chart */}
-      <div className="rounded-2xl bg-[#111827] border border-white/[0.06] p-4 sm:p-5">
-        <h2 className="text-sm font-bold text-white mb-1">Jumlah Pemesanan (Qty) per Paket</h2>
-        <p className="text-xs text-slate-500 mb-4">Barang yang dihitung qty dari master Barang CS. Aksesoris (hitung qty = 0) dikecualikan.</p>
-        {loading ? (
-          <div className="h-64 grid place-items-center">
-            <div className="w-8 h-8 rounded-full border-2 border-indigo-500/20 border-t-indigo-400 animate-spin" />
-          </div>
-        ) : chartData.length === 0 ? (
-          <div className="h-48 grid place-items-center text-sm text-slate-500">Tidak ada data pada periode ini.</div>
-        ) : (
-          <div ref={chartRef} className="bg-[#0f1626] rounded-lg p-2" style={{ height: chartHeight }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 48, left: 8, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-                <XAxis type="number" stroke="#94a3b8" tick={{ fontSize: 11, fill: '#cbd5e1' }} tickLine={{ stroke: '#475569' }} />
-                <YAxis type="category" dataKey="paket" stroke="#94a3b8" width={200} tick={{ fontSize: 11, fill: '#f1f5f9' }} tickLine={{ stroke: '#475569' }} interval={0} />
-                <Tooltip
-                  cursor={{ fill: 'rgba(255,255,255,0.06)' }}
-                  contentStyle={{ background: '#0b1220', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 8, fontSize: 12 }}
-                  labelStyle={{ color: '#ffffff', fontWeight: 700 }}
-                  itemStyle={{ color: '#e2e8f0', fontWeight: 500 }}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  formatter={((value: any, _name: any, item: any) => {
-                    const row = item?.payload as PaketRow;
-                    return [`${Number(value).toLocaleString('id-ID')} pcs · ${row?.cust ?? 0} customer`, 'Qty'];
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  }) as any}
-                />
-                <Bar dataKey="qty" radius={[0, 4, 4, 0]} barSize={20}>
-                  {chartData.map((_, i) => <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
-
-      {/* Table */}
+      {/* Tabel Rincian per Paket (qty, % kontribusi, customer) */}
       <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
         <div className="px-5 py-3 border-b border-white/[0.06] flex items-center justify-between">
-          <h2 className="text-sm font-bold text-white">Rincian per Paket</h2>
+          <div>
+            <h2 className="text-sm font-bold text-white">Jumlah Pemesanan per Paket</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">Aksesoris (hitung qty = 0) dikecualikan.</p>
+          </div>
           <span className="text-xs text-slate-500">{paket.length} paket</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px]">
+          <table className="w-full min-w-[620px]">
             <thead>
               <tr className="border-b border-white/[0.06] bg-white/[0.015]">
-                {['NO', 'PAKET', 'JUMLAH CUSTOMER', 'JUMLAH PEMESANAN (QTY)'].map(h => (
-                  <th key={h} className={`text-[10px] text-slate-500 font-semibold ${h === 'NO' || h === 'PAKET' ? 'text-left' : 'text-right'} px-5 py-3 uppercase tracking-widest`}>{h}</th>
-                ))}
+                <th className="text-[10px] text-slate-500 font-semibold text-left px-5 py-3 uppercase tracking-widest w-10">NO</th>
+                <th className="text-[10px] text-slate-500 font-semibold text-left px-5 py-3 uppercase tracking-widest">PAKET</th>
+                <th className="text-[10px] text-slate-500 font-semibold text-right px-5 py-3 uppercase tracking-widest">CUSTOMER</th>
+                <th className="text-[10px] text-slate-500 font-semibold text-right px-5 py-3 uppercase tracking-widest">QTY</th>
+                <th className="text-[10px] text-slate-500 font-semibold text-left px-5 py-3 uppercase tracking-widest w-40">% QTY</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4} className="px-5 py-10 text-center text-sm text-slate-500">Memuat…</td></tr>
+                <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-slate-500">Memuat…</td></tr>
               ) : paket.length === 0 ? (
-                <tr><td colSpan={4} className="px-5 py-10 text-center text-sm text-slate-500">Tidak ada data pada periode ini.</td></tr>
+                <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-slate-500">Tidak ada data pada periode ini.</td></tr>
               ) : (
                 <>
-                  {paket.map((p, i) => (
-                    <tr key={p.paket} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                      <td className="px-5 py-3 text-sm text-slate-500 tabular-nums">{i + 1}</td>
-                      <td className="px-5 py-3 text-sm text-white font-medium">{p.paket}</td>
-                      <td className="px-5 py-3 text-right text-sm text-emerald-300 tabular-nums">{p.cust.toLocaleString('id-ID')}</td>
-                      <td className="px-5 py-3 text-right text-sm text-sky-300 font-semibold tabular-nums">{p.qty.toLocaleString('id-ID')}</td>
-                    </tr>
-                  ))}
+                  {paket.map((p, i) => {
+                    const pct = totals.qty > 0 ? Math.round((p.qty / totals.qty) * 1000) / 10 : 0;
+                    return (
+                      <tr key={p.paket} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                        <td className="px-5 py-3 text-sm text-slate-500 tabular-nums">{i + 1}</td>
+                        <td className="px-5 py-3 text-sm text-white font-medium">{p.paket}</td>
+                        <td className="px-5 py-3 text-right text-sm text-emerald-300 tabular-nums">{p.cust.toLocaleString('id-ID')}</td>
+                        <td className="px-5 py-3 text-right text-sm text-sky-300 font-semibold tabular-nums">{p.qty.toLocaleString('id-ID')}</td>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden min-w-[60px]">
+                              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(pct, 100)}%` }} />
+                            </div>
+                            <span className="text-[11px] text-slate-400 tabular-nums w-10 text-right">{pct}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   <tr className="bg-white/[0.02] font-bold">
                     <td className="px-5 py-3" />
                     <td className="px-5 py-3 text-sm text-slate-300 uppercase">Total</td>
                     <td className="px-5 py-3 text-right text-sm text-emerald-300 tabular-nums">{totals.cust.toLocaleString('id-ID')}</td>
                     <td className="px-5 py-3 text-right text-sm text-sky-300 tabular-nums">{totals.qty.toLocaleString('id-ID')}</td>
+                    <td className="px-5 py-3 text-left text-[11px] text-slate-500">100%</td>
                   </tr>
                 </>
               )}

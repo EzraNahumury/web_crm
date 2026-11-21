@@ -19,7 +19,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { dbGet } from '@/lib/api-db';
 import { useAuth } from '@/lib/auth-context';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -234,7 +233,7 @@ export default function AnalisaProgressCombined() {
           <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#111827] border border-white/[0.06]">
             {(['tabel', 'grafik'] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors capitalize ${tab === t ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'}`}>{t}</button>
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${tab === t ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'}`}>{t === 'grafik' ? 'Harian per Bagian' : 'Rekap'}</button>
             ))}
           </div>
 
@@ -386,23 +385,63 @@ function BagianChart({ bagian, rows, paketList, month }: { bagian: Bagian; rows:
           )}
         </div>
       </div>
-      <div className="p-3">
+      <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
         {totalReal === 0 && totalTarget === 0 ? (
           <div className="py-14 text-center text-sm text-slate-500">Belum ada data bulan ini.</div>
         ) : (
-          <div style={{ width: '100%', height: 240 }}>
-            <ResponsiveContainer>
-              <LineChart data={chartData} margin={{ top: 6, right: 10, bottom: 2, left: 0 }}>
-                <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" />
-                <XAxis dataKey="label" stroke="#64748b" tick={{ fontSize: 9, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} interval="preserveStartEnd" />
-                <YAxis allowDecimals={false} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={{ stroke: '#334155' }} width={36} />
-                <Tooltip contentStyle={{ background: '#0c1120', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#94a3b8' }} itemStyle={{ color: '#e2e8f0' }} />
-                <Legend wrapperStyle={{ paddingTop: 2, fontSize: 10 }} formatter={(v) => <span style={{ color: '#cbd5e1' }}>{v}</span>} />
-                {!isQty && <Line type="monotone" name="Target" dataKey="target" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 3 }} />}
-                <Line type="monotone" name={isQty ? 'Qty' : 'Realisasi'} dataKey="realisasi" stroke={bagian.color} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <table className="w-full min-w-[360px]">
+            <thead className="sticky top-0 bg-[#111827]">
+              <tr className="border-b border-white/[0.06]">
+                <th className="text-[11px] text-slate-500 font-medium text-left px-4 py-2 uppercase tracking-wider">Tanggal</th>
+                {isQty ? (
+                  <th className="text-[11px] text-slate-500 font-medium text-right px-4 py-2 uppercase tracking-wider">Qty</th>
+                ) : (
+                  <>
+                    <th className="text-[11px] text-slate-500 font-medium text-right px-4 py-2 uppercase tracking-wider">Target</th>
+                    <th className="text-[11px] text-slate-500 font-medium text-right px-4 py-2 uppercase tracking-wider">Realisasi</th>
+                    <th className="text-[11px] text-slate-500 font-medium text-right px-4 py-2 uppercase tracking-wider">Selisih</th>
+                    <th className="text-[11px] text-slate-500 font-medium text-right px-4 py-2 uppercase tracking-wider">Konv</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {chartData.filter(p => p.target > 0 || p.realisasi > 0).map(p => {
+                const diff = p.realisasi - p.target;
+                const k = p.target > 0 ? (p.realisasi / p.target) * 100 : 0;
+                return (
+                  <tr key={p.label} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                    <td className="px-4 py-2 text-sm text-white tabular-nums">{p.label}</td>
+                    {isQty ? (
+                      <td className="px-4 py-2 text-right text-sm text-sky-300 font-semibold tabular-nums">{fmtPoin(p.realisasi)}</td>
+                    ) : (
+                      <>
+                        <td className="px-4 py-2 text-right text-sm text-blue-300 tabular-nums">{fmtPoin(p.target)}</td>
+                        <td className="px-4 py-2 text-right text-sm text-emerald-400 tabular-nums">{fmtPoin(p.realisasi)}</td>
+                        <td className={`px-4 py-2 text-right text-sm tabular-nums ${diff >= 0 ? 'text-emerald-400' : 'text-rose-300'}`}>{diff >= 0 ? '+' : '−'}{fmtPoin(Math.abs(diff))}</td>
+                        <td className="px-4 py-2 text-right text-sm text-fuchsia-300 tabular-nums">{p.target > 0 ? k.toFixed(1) + '%' : '—'}</td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-white/[0.02] font-semibold">
+                <td className="px-4 py-2 text-sm text-white">TOTAL</td>
+                {isQty ? (
+                  <td className="px-4 py-2 text-right text-sm text-sky-300 tabular-nums">{fmtPoin(totalReal)}</td>
+                ) : (
+                  <>
+                    <td className="px-4 py-2 text-right text-sm text-blue-300 tabular-nums">{fmtPoin(totalTarget)}</td>
+                    <td className="px-4 py-2 text-right text-sm text-emerald-400 tabular-nums">{fmtPoin(totalReal)}</td>
+                    <td className={`px-4 py-2 text-right text-sm tabular-nums ${selisih >= 0 ? 'text-emerald-400' : 'text-rose-300'}`}>{selisih >= 0 ? '+' : '−'}{fmtPoin(Math.abs(selisih))}</td>
+                    <td className="px-4 py-2 text-right text-sm text-fuchsia-300 tabular-nums">{totalTarget > 0 ? konv.toFixed(1) + '%' : '—'}</td>
+                  </>
+                )}
+              </tr>
+            </tfoot>
+          </table>
         )}
       </div>
     </div>

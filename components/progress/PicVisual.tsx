@@ -6,7 +6,6 @@
 // /api/public/pic?pic=<nama> (bulan ini + bulan lalu).
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -129,7 +128,7 @@ function agg(days: DayAgg[]) {
   return { real, target, selisih, pct, hari: days.length };
 }
 
-export function ProcessSection({ proc, month, monthLabel, prevMonthLabel, footer }: {
+export function ProcessSection({ proc, monthLabel, prevMonthLabel, footer }: {
   proc: Proc; month: string; monthLabel: string; prevMonthLabel: string; footer?: ReactNode;
 }) {
   // Proses qty-only (Design/Proofing): tanpa poin/target/selisih — cuma qty.
@@ -146,20 +145,6 @@ export function ProcessSection({ proc, month, monthLabel, prevMonthLabel, footer
       return { label: `Mgg ${i + 1}`, range: `${lo}–${hi === 31 ? 'akhir' : hi}`, ...a };
     }).filter(w => w.hari > 0 || w.label === 'Mgg 1');
   }, [proc.days]);
-
-  // Data grafik: semua hari di bulan ini. poin → real + target; qty → qty saja.
-  const chartData = useMemo(() => {
-    const [y, m] = month.split('-').map(Number);
-    const last = new Date(y, m, 0).getDate();
-    const byDate = new Map(proc.days.map(d => [d.date, d.real]));
-    const out: { label: string; real: number; target: number }[] = [];
-    for (let d = 1; d <= last; d++) {
-      const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const has = byDate.has(iso);
-      out.push({ label: `${d}/${m}`, real: has ? Math.round(byDate.get(iso)!) : 0, target: (!isQty && has) ? TARGET : 0 });
-    }
-    return out;
-  }, [proc.days, month, isQty]);
 
   const diffCls = (n: number) => n >= 0 ? 'text-emerald-600' : 'text-rose-600';
 
@@ -279,26 +264,8 @@ export function ProcessSection({ proc, month, monthLabel, prevMonthLabel, footer
           {footer && <div className="mt-4">{footer}</div>}
         </div>
 
-        {/* Kanan: grafik + perbandingan */}
+        {/* Kanan: perbandingan mingguan & bulanan */}
         <div className="space-y-5">
-          {/* Grafik */}
-          <div className="rounded-xl border border-slate-200 p-3">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 px-1">{isQty ? 'Grafik Harian · Qty' : 'Grafik Harian · Realisasi vs Target'}</p>
-            <div style={{ width: '100%', height: 220 }}>
-              <ResponsiveContainer>
-                <LineChart data={chartData} margin={{ top: 8, right: 10, bottom: 2, left: 0 }}>
-                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                  <XAxis dataKey="label" stroke="#94a3b8" tick={{ fontSize: 9, fill: '#64748b' }} interval="preserveStartEnd" />
-                  <YAxis allowDecimals={false} stroke="#94a3b8" tick={{ fontSize: 10, fill: '#64748b' }} width={38} />
-                  <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12, border: '1px solid #e2e8f0' }} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line type="monotone" name={isQty ? 'Qty' : 'Realisasi'} dataKey="real" stroke="#0ea5e9" strokeWidth={2.5} dot={false} />
-                  {!isQty && <Line type="monotone" name="Target" dataKey="target" stroke="#10b981" strokeWidth={2} strokeDasharray="5 4" dot={false} />}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
           {/* Perbandingan mingguan */}
           <div>
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-2">Perbandingan Mingguan</p>
