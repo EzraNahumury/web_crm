@@ -85,6 +85,14 @@ Keputusan konfirmasi: (1) menu **grup 2-tingkat**, (2) halaman Admin Produksi **
 
 ⚠️ **Penting setelah deploy:** menu disimpan ke sesi login. Supaya **PPIC / Admin PPIC / Quality Assurance** muncul, **logout → login lagi** (hak akses menu di-refresh saat login). Role non-admin: admin bisa centang menu baru di **Setting → Users/Role**.
 
-### Masih berikutnya (belum dikerjakan)
-- ⬜ **B1** tombol Bulan · **B3** tabel paket + nominal · **B4** provinsi→kabupaten · **B5** semua grafik→tabel.
-- ⬜ **A1** dashboard total pcs · **A2** analisa % paket + kabupaten.
+## UPDATE 2 — 21 Nov 2026 (B & A selesai)
+
+- ✅ **B1** Tombol **Bulan** di Grafik (+ Grafik CS): sekali pilih = rentang se-bulan. Commit `cf5f092`.
+- ✅ **B3** Grafik **Penjualan per Paket** jadi **tabel**: jumlah order, qty, **% qty**, **nominal** (Σ qty×harga, aksesoris dikecualikan). Catatan: harga per-line dari Rincian Order — order yg belum diisi rincian nominal-nya 0.
+- ✅ **B4** Grafik: **Provinsi → Kabupaten** (customer_kabupaten).
+- ✅ **B5** **Semua menu grafik → tabel** (Grafik, Grafik CS, Grafik Leads, Grafik Reseller). Chart dihapus, recharts dilepas dari halaman-halaman itu. Commit `cf5f092` + `a1ba29f`.
+- ✅ **A1** Dashboard: kartu **Qty Masuk (pcs)** + **Total Nilai Order** per periode (aksesoris dikecualikan).
+- ✅ **A2** Dashboard: tabel **Order per Paket (%)** + **Customer per Kabupaten (%)** per periode (top 10 + link ke Analisa).
+
+### Status akhir batch
+Semua item **A, B, C, E** selesai. **D1** ditutup (bukan bug). Menunggu **deploy** + (untuk menu) **logout-login**.

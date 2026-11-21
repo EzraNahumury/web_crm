@@ -15,6 +15,14 @@ function monthEndISO(y: number, m: number) {
   const last = new Date(y, m + 1, 0).getDate();
   return `${y}-${String(m + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
 }
+function fmtRp(n: number): string { return 'Rp ' + Math.round(n || 0).toLocaleString('id-ID'); }
+function pctOf(part: number, whole: number): number { return whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0; }
+
+// Analisa order periode (dari /api/analisa/grafik — qty & nominal sudah
+// mengecualikan aksesoris, distribusi per kabupaten).
+type AnalisaPaket = { paket: string; total_qty: number; order_count: number; nominal: number };
+type AnalisaKab = { kabupaten: string; total_qty: number; customer_count: number; order_count: number };
+type AnalisaData = { paket: AnalisaPaket[]; kabupaten: AnalisaKab[]; totals: { qty: number; nominal: number; orders: number } };
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -26,6 +34,7 @@ export default function DashboardPage() {
   // Periode dashboard — default bulan berjalan. from/to kosong = semua periode.
   const [from, setFrom] = useState(() => monthStartISO(new Date().getFullYear(), new Date().getMonth()));
   const [to, setTo] = useState(() => monthEndISO(new Date().getFullYear(), new Date().getMonth()));
+  const [analisa, setAnalisa] = useState<AnalisaData>({ paket: [], kabupaten: [], totals: { qty: 0, nominal: 0, orders: 0 } });
 
   useEffect(() => {
     if (user && user.role !== 'admin') {
@@ -34,6 +43,27 @@ export default function DashboardPage() {
     }
     fetchData();
   }, [user]);
+
+  // Analisa order per periode (qty pcs, nominal, % paket & kabupaten).
+  useEffect(() => {
+    const qs = new URLSearchParams();
+    if (from) qs.set('from', from);
+    if (to) qs.set('to', to);
+    qs.set('basis', 'order');
+    let cancelled = false;
+    fetch(`/api/analisa/grafik?${qs.toString()}`)
+      .then(r => r.json())
+      .then(j => {
+        if (cancelled || !j.success) return;
+        setAnalisa({
+          paket: j.data.paket || [],
+          kabupaten: j.data.kabupaten || [],
+          totals: { qty: Number(j.data.totals?.qty) || 0, nominal: Number(j.data.totals?.nominal) || 0, orders: Number(j.data.totals?.orders) || 0 },
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [from, to]);
 
   async function fetchData() {
     try {
@@ -215,6 +245,39 @@ export default function DashboardPage() {
             }
           />
         </div>
+      </div>
+
+      {/* Analisa Order periode — qty pcs masuk + nilai + distribusi paket/kabupaten */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="Qty Masuk (pcs)" value={analisa.totals.qty.toLocaleString('id-ID')} trend="Periode" accent="cyan"
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>} />
+        <StatCard label="Total Nilai Order" value={fmtRp(analisa.totals.nominal)} trend="Periode" accent="emerald"
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} />
+        <StatCard label="Jenis Paket" value={String(analisa.paket.length)} trend="Varian" accent="blue"
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>} />
+        <StatCard label="Kabupaten" value={String(analisa.kabupaten.length)} trend="Sebaran" accent="amber"
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" /></svg>} />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {/* A2: % per paket */}
+        <AnalisaTableCard
+          title="Order per Paket"
+          subtitle={`${analisa.totals.qty.toLocaleString('id-ID')} pcs · ${periodLabel}`}
+          emptyText="Belum ada order di periode ini."
+          rows={analisa.paket.slice(0, 10).map(p => ({ label: p.paket, qty: p.total_qty, pct: pctOf(p.total_qty, analisa.totals.qty), extra: p.order_count + ' order' }))}
+          barClass="bg-blue-500"
+          moreCount={Math.max(0, analisa.paket.length - 10)}
+        />
+        {/* A2: % per kabupaten */}
+        <AnalisaTableCard
+          title="Customer per Kabupaten"
+          subtitle={`${analisa.kabupaten.length} kabupaten · ${periodLabel}`}
+          emptyText="Belum ada data kabupaten di periode ini."
+          rows={analisa.kabupaten.slice(0, 10).map(k => ({ label: k.kabupaten, qty: k.total_qty, pct: pctOf(k.total_qty, analisa.totals.qty), extra: k.customer_count + ' cust' }))}
+          barClass="bg-purple-500"
+          moreCount={Math.max(0, analisa.kabupaten.length - 10)}
+        />
       </div>
 
       {/* Peringatan Deadline — glass panel dengan strip merah tipis di kiri
@@ -452,6 +515,62 @@ function StatCard({ label, value, trend, icon, accent }: {
         <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">{label}</p>
         <p className="text-xl sm:text-2xl font-bold text-white tabular-nums mt-0.5">{value}</p>
       </div>
+    </div>
+  );
+}
+
+// Tabel ringkas analisa (dipakai untuk % per paket & per kabupaten di dashboard).
+function AnalisaTableCard({ title, subtitle, emptyText, rows, barClass, moreCount }: {
+  title: string; subtitle: string; emptyText: string;
+  rows: { label: string; qty: number; pct: number; extra: string }[];
+  barClass: string; moreCount: number;
+}) {
+  return (
+    <div className="rounded-2xl bg-[#111827] border border-white/[0.06] overflow-hidden">
+      <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-bold text-white">{title}</h2>
+          <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>
+        </div>
+        <Link href="/analisa/grafik" className="text-xs font-medium text-blue-300 hover:text-blue-200 bg-blue-500/10 hover:bg-blue-500/15 border border-blue-500/20 px-3 py-1.5 rounded-lg transition-colors shrink-0">Detail</Link>
+      </div>
+      {rows.length === 0 ? (
+        <div className="px-6 py-10 text-center text-sm text-slate-500">{emptyText}</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px]">
+            <thead>
+              <tr className="border-b border-white/[0.06]">
+                <th className="text-[10px] text-slate-500 font-semibold text-left px-5 py-2.5 uppercase tracking-wider w-8">#</th>
+                <th className="text-[10px] text-slate-500 font-semibold text-left px-5 py-2.5 uppercase tracking-wider">Nama</th>
+                <th className="text-[10px] text-slate-500 font-semibold text-right px-5 py-2.5 uppercase tracking-wider">Qty</th>
+                <th className="text-[10px] text-slate-500 font-semibold text-left px-5 py-2.5 uppercase tracking-wider w-36">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.label + i} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                  <td className="px-5 py-2.5 text-xs text-slate-500 tabular-nums">{i + 1}</td>
+                  <td className="px-5 py-2.5 text-sm text-white font-medium">
+                    <span className="truncate inline-block max-w-[160px] align-middle" title={r.label}>{r.label}</span>
+                    <span className="text-[10px] text-slate-500 ml-1.5">{r.extra}</span>
+                  </td>
+                  <td className="px-5 py-2.5 text-right text-sm text-emerald-400 font-semibold tabular-nums">{r.qty.toLocaleString('id-ID')}</td>
+                  <td className="px-5 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden min-w-[50px]">
+                        <div className={`h-full rounded-full ${barClass}`} style={{ width: `${Math.min(r.pct, 100)}%` }} />
+                      </div>
+                      <span className="text-[11px] text-slate-400 tabular-nums w-9 text-right">{r.pct}%</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {moreCount > 0 && <p className="px-5 py-2.5 text-[11px] text-slate-500 border-t border-white/[0.04]">+{moreCount} lainnya — lihat semua di menu Analisa.</p>}
+        </div>
+      )}
     </div>
   );
 }
