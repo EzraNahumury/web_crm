@@ -94,5 +94,15 @@ Keputusan konfirmasi: (1) menu **grup 2-tingkat**, (2) halaman Admin Produksi **
 - ✅ **A1** Dashboard: kartu **Qty Masuk (pcs)** + **Total Nilai Order** per periode (aksesoris dikecualikan).
 - ✅ **A2** Dashboard: tabel **Order per Paket (%)** + **Customer per Kabupaten (%)** per periode (top 10 + link ke Analisa).
 
+## UPDATE 3 — 21 Nov 2026 (SEMUA menu grafik → tabel)
+
+Lanjutan "semua menu grafik jadi tabel" untuk halaman chart yang tersisa. Commits `b697847`, `7d66c12`:
+- ✅ **Analisa CS**: donut konversi → bar proporsi; grafik harian masuk-vs-rincian → tabel harian.
+- ✅ **Analisa Line Jahit**: tab Grafik (target vs realisasi) → tabel harian.
+- ✅ **CS Order → Laporan**: bar chart dihapus; tabel paket dapat kolom **% Qty** (export PDF tetap).
+- ✅ **Analisa Progress Produksi** (per-proses + gabungan): tab grafik → tabel harian target/realisasi/selisih/konversi.
+- ✅ **Lap. per proses** (Printing & Press / Cutting & Sewing / Finishing & Shipment / Design & Layouting — papan live PIC): line chart dihapus; tabel harian + rekap mingguan/bulanan tetap.
+- ✅ **recharts tidak di-import di mana pun lagi** (nol chart tersisa di seluruh aplikasi).
+
 ### Status akhir batch
-Semua item **A, B, C, E** selesai. **D1** ditutup (bukan bug). Menunggu **deploy** + (untuk menu) **logout-login**.
+Semua item **A, B, C, E** selesai + **SEMUA menu grafik dikonversi ke tabel**. **D1** ditutup (bukan bug). Menunggu **deploy** + (untuk menu) **logout-login**.
