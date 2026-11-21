@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
         ids.push(Number(o.id));
       }
       if (ids.length === 0) {
-        return NextResponse.json({ success: true, data: { paket: [], provinsi: [], totals: { orders: 0, qty: 0, paket_count: 0, provinsi_count: 0 } } });
+        return NextResponse.json({ success: true, data: { basis, paket: [], kabupaten: [], totals: { orders: 0, qty: 0, nominal: 0, paket_count: 0, kabupaten_count: 0 } } });
       }
       whereClause = ` AND oi.order_id IN (${ids.map(() => '?').join(',')})`;
       whereParams = ids;
@@ -76,11 +76,14 @@ export async function GET(req: NextRequest) {
     // Hanya paket UTAMA (yang dihitung qty) — barang aksesoris dari master
     // Barang CS (hitung_qty = 0) dikecualikan. COALESCE default 1 supaya
     // paket yang belum ada di master tetap tampil.
-    const paket = await query<{ paket: string; total_qty: number; order_count: number }>(
+    // Per paket: qty + jumlah order + NOMINAL (Σ qty × harga/line). Harga
+    // per-line diisi dari Rincian Order; line tanpa harga dihitung 0.
+    const paket = await query<{ paket: string; total_qty: number; order_count: number; nominal: number }>(
       `SELECT
          oi.paket_nama AS paket,
          COALESCE(SUM(oi.qty), 0) AS total_qty,
-         COUNT(DISTINCT oi.order_id) AS order_count
+         COUNT(DISTINCT oi.order_id) AS order_count,
+         COALESCE(SUM(oi.qty * oi.harga), 0) AS nominal
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        LEFT JOIN barang_cs bc ON LOWER(TRIM(bc.nama)) = LOWER(TRIM(oi.paket_nama))
@@ -91,25 +94,27 @@ export async function GET(req: NextRequest) {
       whereParams,
     );
 
-    // Customer per provinsi.
-    const provinsi = await query<{ provinsi: string; total_qty: number; customer_count: number; order_count: number }>(
+    // Customer per KABUPATEN/KOTA (lebih relevan utk rencana cabang; provinsi
+    // sering kosong sedangkan kabupaten hampir selalu terisi).
+    const kabupaten = await query<{ kabupaten: string; total_qty: number; customer_count: number; order_count: number }>(
       `SELECT
-         COALESCE(NULLIF(TRIM(o.customer_provinsi), ''), '(Tanpa Provinsi)') AS provinsi,
+         COALESCE(NULLIF(TRIM(o.customer_kabupaten), ''), '(Tanpa Kabupaten)') AS kabupaten,
          COALESCE(SUM(oi.qty), 0) AS total_qty,
          COUNT(DISTINCT TRIM(o.customer_nama)) AS customer_count,
          COUNT(DISTINCT o.id) AS order_count
        FROM orders o
        JOIN order_items oi ON oi.order_id = o.id
        WHERE 1=1${whereClause}
-       GROUP BY COALESCE(NULLIF(TRIM(o.customer_provinsi), ''), '(Tanpa Provinsi)')
+       GROUP BY COALESCE(NULLIF(TRIM(o.customer_kabupaten), ''), '(Tanpa Kabupaten)')
        ORDER BY total_qty DESC`,
       whereParams,
     );
 
     // Total order = jumlah order UNIK (bukan penjumlahan per-paket yang bisa
     // menghitung satu order berkali-kali kalau isinya beberapa paket).
-    const totalRow = await query<{ cnt: number; qty: number }>(
-      `SELECT COUNT(DISTINCT oi.order_id) AS cnt, COALESCE(SUM(oi.qty), 0) AS qty
+    const totalRow = await query<{ cnt: number; qty: number; nominal: number }>(
+      `SELECT COUNT(DISTINCT oi.order_id) AS cnt, COALESCE(SUM(oi.qty), 0) AS qty,
+              COALESCE(SUM(oi.qty * oi.harga), 0) AS nominal
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        LEFT JOIN barang_cs bc ON LOWER(TRIM(bc.nama)) = LOWER(TRIM(oi.paket_nama))
@@ -119,14 +124,15 @@ export async function GET(req: NextRequest) {
     );
     const totalOrders = Number(totalRow[0]?.cnt || 0);
     const totalQty = Number(totalRow[0]?.qty || 0);
+    const totalNominal = Number(totalRow[0]?.nominal || 0);
 
     return NextResponse.json({
       success: true,
       data: {
         basis,
-        paket: paket.map(p => ({ ...p, total_qty: Number(p.total_qty), order_count: Number(p.order_count) })),
-        provinsi: provinsi.map(p => ({
-          ...p,
+        paket: paket.map(p => ({ paket: p.paket, total_qty: Number(p.total_qty), order_count: Number(p.order_count), nominal: Number(p.nominal) })),
+        kabupaten: kabupaten.map(p => ({
+          kabupaten: p.kabupaten,
           total_qty: Number(p.total_qty),
           customer_count: Number(p.customer_count),
           order_count: Number(p.order_count),
@@ -134,8 +140,9 @@ export async function GET(req: NextRequest) {
         totals: {
           orders: totalOrders,
           qty: totalQty,
+          nominal: totalNominal,
           paket_count: paket.length,
-          provinsi_count: provinsi.length,
+          kabupaten_count: kabupaten.length,
         },
       },
     });
