@@ -121,6 +121,7 @@ const ADMIN_NAV: SideNavItem[] = [
     label: 'Admin PPIC',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>,
     children: [
+      { href: '/admin-ppic/jadwal-ppic', label: 'Jadwal PPIC' },
       { href: '/admin-ppic/checklist-progress', label: 'Checklist Progress' },
       { href: '/admin-ppic/data-waste-proses', label: 'Data Waste Proses' },
     ],
@@ -249,7 +250,7 @@ const MENU_HREF_MAP: Record<string, string[]> = {
   // PPIC = pengganti 'Admin Produksi' (rename + pindah). Href sama; key lama
   // 'Admin Produksi' tetap dipertahankan sbg alias utk role/session lama.
   'PPIC': ['/monitoring-produksi', '/monitoring-produksi/history', '/crm-deadline-lock', '/crm-finishing', '/crm-finishing/history', '/laporan/produksi', '/laporan/penggunaan-bahan'],
-  'Admin PPIC': ['/admin-ppic/checklist-progress', '/admin-ppic/data-waste-proses'],
+  'Admin PPIC': ['/admin-ppic/jadwal-ppic', '/admin-ppic/checklist-progress', '/admin-ppic/data-waste-proses'],
   'Quality Assurance': ['/quality-assurance'],
   // Progress hrefs dipetakan juga di bawah 'Line Jahit' supaya menu Progress
   // Produksi tampil untuk akun yang cookie session-nya belum punya key
