@@ -199,16 +199,23 @@ export async function GET(req: NextRequest) {
     // dengan Forecasting / Laporan Deadline / Monitoring yang juga mengecualikan
     // aksesoris. Fallback ke wo.jumlah hanya kalau order_items kosong (legacy).
     let jumlah = Number(wo.jumlah) || 0;
+    // Daftar paket juga dihitung ulang dari order_items supaya SELALU lengkap
+    // & terkini. work_orders.paket adalah string yang dibekukan saat WO dibuat,
+    // jadi item yang ditambahkan ke Rincian belakangan (mis. size 6XL) tidak
+    // ikut. Fallback ke wo.paket hanya kalau order_items kosong (legacy).
+    let paketList = String(wo.paket || '');
     try {
       const items = await query<{ paket_nama: string; qty: number }>(
-        'SELECT paket_nama, qty FROM order_items WHERE order_id = ?',
+        'SELECT paket_nama, qty FROM order_items WHERE order_id = ? ORDER BY id ASC',
         [wo.order_id]
       );
       if (items.length > 0) {
         const barangCs = await query<{ nama: string; hitung_qty: number }>('SELECT nama, hitung_qty FROM barang_cs');
         jumlah = sumQtyExcludingAksesoris(items, buildAksesorisSet(barangCs));
+        const names = items.map(it => String(it.paket_nama || '').trim()).filter(Boolean);
+        if (names.length > 0) paketList = names.join(', ');
       }
-    } catch { /* biarkan fallback wo.jumlah */ }
+    } catch { /* biarkan fallback wo.jumlah / wo.paket */ }
 
     return NextResponse.json({
       success: true,
@@ -218,7 +225,7 @@ export async function GET(req: NextRequest) {
         customer_nama: wo.customer_nama,
         customer_phone: order?.customer_phone || '',
         admin_whatsapp: adminWhatsapp,
-        paket: wo.paket,
+        paket: paketList,
         bahan: wo.bahan || '',
         jumlah,
         keterangan: wo.keterangan || '',
