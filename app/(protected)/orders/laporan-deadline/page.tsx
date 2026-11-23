@@ -28,6 +28,27 @@ function tierRate(tier: string): number {
   }
 }
 
+// Poin CELANA per unit — komponen bawahan (celana) dari satu set jersey.
+// Point per paket = atasan (tierRate) + celana (celanaRate). Contoh CS:
+// Paket PRO 10 pcs → atasan 10×1,7=17 + celana 10×1,2=12 = 29.
+//   • PRO = 1,2 (angka pasti dari CS/spreadsheet).
+//   • STANDAR/KLASIK/WARRIOR = proporsional dari rasio PRO (atasan×1,2/1,7),
+//     dibulatkan 1 desimal — ganti di sini kalau CS kasih angka pasti.
+//   • JAKET & BENDERA = 0 (tidak ada celana).
+//   • CELANA PRINT / CELANA NON PRINT = 0 (tier-nya memang celana, tidak
+//     ditambah komponen celana lagi supaya tidak dobel).
+const CELANA_RATIO = 1.2 / 1.7; // ≈ 0,70588 — dari contoh PRO
+function celanaRate(tier: string): number {
+  switch (tier) {
+    case 'PRO': return 1.2;      // pasti (CS)
+    case 'WARRIOR': return Math.round(1.9 * CELANA_RATIO * 10) / 10; // ≈1,3
+    case 'KLASIK': return Math.round(1.4 * CELANA_RATIO * 10) / 10;  // ≈1,0
+    case 'STANDAR': return Math.round(1 * CELANA_RATIO * 10) / 10;   // ≈0,7
+    // JAKET, BENDERA, CELANA PRINT, CELANA NON PRINT → tanpa celana
+    default: return 0;
+  }
+}
+
 // Deteksi tier + variant dari nama paket order. tier '' = tidak terdeteksi
 // (paket bukan Standar/Klasik/Pro → CS pilih manual lewat dropdown).
 function detectPaket(names: string[]): { tier: string; display: string } {
@@ -95,9 +116,12 @@ type DeadlineOrder = {
 
 // Tier efektif tiap baris: auto kalau terdeteksi, kalau tidak pakai manual.
 const lineTier = (l: PaketLine, o: DeadlineOrder) => l.detected ? l.tier : o.manualTier;
+// Poin per baris = atasan (tierRate) + celana (celanaRate), masing-masing
+// × qty. Set jersey (STANDAR/KLASIK/PRO/WARRIOR) dapat tambahan celana;
+// JAKET/BENDERA/CELANA* celanaRate=0 jadi tetap 1 komponen.
 const linePoint = (l: PaketLine, o: DeadlineOrder) => {
   const t = lineTier(l, o);
-  return t ? Math.round(l.qty * tierRate(t) * 10) / 10 : 0;
+  return t ? Math.round(l.qty * (tierRate(t) + celanaRate(t)) * 10) / 10 : 0;
 };
 const orderPoint = (o: DeadlineOrder) => Math.round(o.lines.reduce((s, l) => s + linePoint(l, o), 0) * 10) / 10;
 // Baris yang masih butuh dipilih tier-nya (undetected + manual belum diisi).
