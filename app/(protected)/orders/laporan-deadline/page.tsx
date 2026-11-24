@@ -29,24 +29,22 @@ function tierRate(tier: string): number {
 }
 
 // Poin CELANA per unit — komponen bawahan (celana) dari satu set jersey.
-// Point per paket = atasan (tierRate) + celana (celanaRate). Contoh CS:
-// Paket PRO 10 pcs → atasan 10×1,7=17 + celana 10×1,2=12 = 29.
-//   • PRO = 1,2 (angka pasti dari CS/spreadsheet).
-//   • STANDAR/KLASIK/WARRIOR = proporsional dari rasio PRO (atasan×1,2/1,7),
-//     dibulatkan 1 desimal — ganti di sini kalau CS kasih angka pasti.
-//   • JAKET & BENDERA = 0 (tidak ada celana).
-//   • CELANA PRINT / CELANA NON PRINT = 0 (tier-nya memang celana, tidak
+// Point per paket = atasan (tierRate) + celana. SUMBER celana = master
+// "beban celana" di menu SEWING (tabel line_jahit_paket.rate_celana ÷ 5000),
+// supaya ANGKANYA SAMA PERSIS dengan poin celana di Sewing — bukan tebakan.
+// Contoh (seed AYRES): PRO celana 6000/5000 = 1,2 → PRO 10 pcs =
+// 10×1,7 (atasan) + 10×1,2 (celana) = 29. STANDAR=1,0 · KLASIK=1,2.
+//   • STANDAR/KLASIK/PRO/WARRIOR + paket jersey lain yang ada di Sewing →
+//     celana diambil live dari master (ikut kalau operator ubah rate).
+//   • JAKET & BENDERA → 0 (tidak ada celana).
+//   • CELANA PRINT / CELANA NON PRINT → 0 (tier-nya memang celana, tidak
 //     ditambah komponen celana lagi supaya tidak dobel).
-const CELANA_RATIO = 1.2 / 1.7; // ≈ 0,70588 — dari contoh PRO
-function celanaRate(tier: string): number {
-  switch (tier) {
-    case 'PRO': return 1.2;      // pasti (CS)
-    case 'WARRIOR': return Math.round(1.9 * CELANA_RATIO * 10) / 10; // ≈1,3
-    case 'KLASIK': return Math.round(1.4 * CELANA_RATIO * 10) / 10;  // ≈1,0
-    case 'STANDAR': return Math.round(1 * CELANA_RATIO * 10) / 10;   // ≈0,7
-    // JAKET, BENDERA, CELANA PRINT, CELANA NON PRINT → tanpa celana
-    default: return 0;
-  }
+const LJ_BASE_RATE = 5000; // sama dengan BASE_RATE_POIN di menu Sewing
+const CELANA_EXCLUDE = new Set(['JAKET', 'BENDERA', 'CELANA PRINT', 'CELANA NON PRINT']);
+// celanaMap: nama/kolom_prefix paket (UPPERCASE) → poin celana (rate/5000).
+function celanaRate(tier: string, celanaMap: Record<string, number>): number {
+  if (!tier || CELANA_EXCLUDE.has(tier)) return 0;
+  return celanaMap[tier] || 0;
 }
 
 // Deteksi tier + variant dari nama paket order. tier '' = tidak terdeteksi
@@ -116,19 +114,23 @@ type DeadlineOrder = {
 
 // Tier efektif tiap baris: auto kalau terdeteksi, kalau tidak pakai manual.
 const lineTier = (l: PaketLine, o: DeadlineOrder) => l.detected ? l.tier : o.manualTier;
-// Poin per baris = atasan (tierRate) + celana (celanaRate), masing-masing
-// × qty. Set jersey (STANDAR/KLASIK/PRO/WARRIOR) dapat tambahan celana;
-// JAKET/BENDERA/CELANA* celanaRate=0 jadi tetap 1 komponen.
-const linePoint = (l: PaketLine, o: DeadlineOrder) => {
+// Poin per baris = atasan (tierRate) + celana (celanaRate dari master Sewing),
+// masing-masing × qty. Set jersey (STANDAR/KLASIK/PRO/WARRIOR) dapat tambahan
+// celana; JAKET/BENDERA/CELANA* celanaRate=0 jadi tetap 1 komponen.
+const linePoint = (l: PaketLine, o: DeadlineOrder, celanaMap: Record<string, number>) => {
   const t = lineTier(l, o);
-  return t ? Math.round(l.qty * (tierRate(t) + celanaRate(t)) * 10) / 10 : 0;
+  return t ? Math.round(l.qty * (tierRate(t) + celanaRate(t, celanaMap)) * 10) / 10 : 0;
 };
-const orderPoint = (o: DeadlineOrder) => Math.round(o.lines.reduce((s, l) => s + linePoint(l, o), 0) * 10) / 10;
+const orderPoint = (o: DeadlineOrder, celanaMap: Record<string, number>) =>
+  Math.round(o.lines.reduce((s, l) => s + linePoint(l, o, celanaMap), 0) * 10) / 10;
 // Baris yang masih butuh dipilih tier-nya (undetected + manual belum diisi).
 const orderNeedsPick = (o: DeadlineOrder) => o.lines.some(l => !lineTier(l, o));
 
 export default function LaporanDeadlineCsOrderPage() {
   const [rowsAll, setRowsAll] = useState<DeadlineOrder[]>([]);
+  // Poin celana per tier (nama/kolom_prefix UPPERCASE → rate_celana/5000),
+  // diambil dari master Sewing (line_jahit_paket) supaya konsisten.
+  const [celanaMap, setCelanaMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   // Baris yang di-expand (klik) untuk menampilkan KET. null = tidak ada.
@@ -141,15 +143,28 @@ export default function LaporanDeadlineCsOrderPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [orders, items, promos, promoMaster, barangCs, libur] = await Promise.all([
+      const [orders, items, promos, promoMaster, barangCs, libur, paketRates] = await Promise.all([
         dbGet('orders').catch(() => []),
         dbGet('order_items').catch(() => []),
         dbGet('order_promos').catch(() => []),
         dbGet('promo').catch(() => []),
         dbGet('barang_cs').catch(() => []),
         dbGet('libur_nasional').catch(() => []),
+        dbGet('line_jahit_paket').catch(() => []),
       ]);
       const aksesorisSet = buildAksesorisSet(barangCs as Row[]);
+
+      // Peta poin celana per paket dari master Sewing: nama & kolom_prefix
+      // (UPPERCASE) → rate_celana / 5000 (sama rumus dengan menu Sewing).
+      const cMap: Record<string, number> = {};
+      for (const p of paketRates as Row[]) {
+        const rate = (Number(p.rate_celana) || 0) / LJ_BASE_RATE;
+        const nama = String(p.nama || '').trim().toUpperCase();
+        const prefix = String(p.kolom_prefix || '').trim().toUpperCase();
+        if (nama) cMap[nama] = rate;
+        if (prefix) cMap[prefix] = rate;
+      }
+      setCelanaMap(cMap);
 
       const holidays = new Set<string>();
       for (const h of libur as Row[]) {
@@ -274,12 +289,12 @@ export default function LaporanDeadlineCsOrderPage() {
         dl,
         rows: rows.slice().sort((a, b) => a.customer.localeCompare(b.customer)),
         qty: rows.reduce((s, r) => s + r.totalQty, 0),
-        point: Math.round(rows.reduce((s, r) => s + orderPoint(r), 0) * 10) / 10,
+        point: Math.round(rows.reduce((s, r) => s + orderPoint(r, celanaMap), 0) * 10) / 10,
       }));
-  }, [monthRows]);
+  }, [monthRows, celanaMap]);
 
   const totalQty = monthRows.reduce((s, r) => s + r.totalQty, 0);
-  const totalPoint = Math.round(monthRows.reduce((s, r) => s + orderPoint(r), 0) * 10) / 10;
+  const totalPoint = Math.round(monthRows.reduce((s, r) => s + orderPoint(r, celanaMap), 0) * 10) / 10;
   const needPickCount = monthRows.filter(orderNeedsPick).length;
   const monthLabelSel = selectedMonth ? monthLabel(selectedMonth) : 'Semua Bulan';
   const thisMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
@@ -335,7 +350,7 @@ export default function LaporanDeadlineCsOrderPage() {
               li === 0 ? (o.customer || '-') : '',
               l.qty,
               l.detected ? l.display : (o.manualTier || '-'),
-              tier ? linePoint(l, o) : '',
+              tier ? linePoint(l, o, celanaMap) : '',
               li === 0 ? bonusCell : '',
               li === 0 ? ketBahan : '',
             ]);
@@ -385,7 +400,7 @@ export default function LaporanDeadlineCsOrderPage() {
               li === 0 ? (o.customer || '-') : '',
               String(l.qty),
               l.detected ? l.display : (o.manualTier || '-'),
-              tier ? linePoint(l, o).toLocaleString('id-ID') : '-',
+              tier ? linePoint(l, o, celanaMap).toLocaleString('id-ID') : '-',
             ]);
           });
         });
@@ -540,7 +555,7 @@ export default function LaporanDeadlineCsOrderPage() {
                                 )}
                               </td>
                               <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums font-bold text-slate-900">
-                                {eff ? linePoint(l, r).toLocaleString('id-ID') : <span className="text-slate-300">—</span>}
+                                {eff ? linePoint(l, r, celanaMap).toLocaleString('id-ID') : <span className="text-slate-300">—</span>}
                               </td>
                               {li === 0 && (
                                 <td rowSpan={L} className="border border-slate-300 px-0.5 py-1.5 text-center text-slate-400 align-middle">
