@@ -5,12 +5,15 @@ import { query, execute, insert } from '@/lib/db';
 //   - Identitas (No. Order, Tgl DP Design, Nama Customer, No. WA) dari CS
 //     Selling (tabel orders), untuk closing Jogja/Solo/RO (bukan Revisi),
 //     mulai tanggal `from` (default 12 Okt 2026) sampai hari ini.
-//   - Tgl DP Produksi Diterima dari order_payments (tipe dp_produksi).
 //   - Tgl Desain Awal/Revisi 1-3 + nama Desainer dari progress_design
 //     (dicocokkan per nama customer).
-// Aturan FILL-IF-EMPTY: hanya mengisi kolom otomatis yang masih kosong di
-// baris merch_design — tidak pernah menimpa data yang sudah diisi (mis. PIC
-// CS/Sales, tanggal feedback, Design Fix yang diketik manual).
+//   - "DP Produksi Diterima" TIDAK ditarik otomatis (diisi manual oleh
+//     merchandiser sesuai tanggal TF di grup customer).
+// Aturan FILL-IF-EMPTY: untuk baris yang sudah ada, hanya mengisi kolom
+// otomatis yang masih KOSONG — tidak pernah menimpa data yang sudah diisi/
+// dibenarkan (identitas, tanggal desain, PIC CS/Sales, feedback, Design Fix,
+// DP Produksi Diterima). Jadi klik "Tarik dari Sistem" aman: koreksi manual
+// tidak berubah, hanya baris/kolom baru yang kosong yang terisi.
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +46,13 @@ function wibDateOnly(v: unknown): string {
 }
 function norm(s: unknown): string {
   return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+// Kolom dianggap KOSONG bila null/''/whitespace, atau tanggal invalid
+// ('0000-00-00'). Dipakai oleh FILL-IF-EMPTY supaya nilai yang sudah diisi
+// merchandiser tidak dihitung kosong lalu ditimpa.
+function isEmpty(v: unknown): boolean {
+  const s = String(v ?? '').trim();
+  return s === '' || s.toLowerCase() === 'null' || s.startsWith('0000-00-00');
 }
 // Lead termasuk closing yang di-track: Jogja/Solo/RO (repeat), BUKAN revisi.
 // Closing yang di-track = semua order yang punya lead, KECUALI lead "revisi".
@@ -146,16 +156,14 @@ export async function POST(req: NextRequest) {
       if (!tglOrder || tglOrder < from) { skipped++; continue; }
 
       const dpDesain = payDate.get(`${o.id}:dp_desain`) || '';
-      // DP Produksi DITERIMA = tanggal CS Order meng-upload bukti TF DP produksi
-      // (orders.dp_produksi_bukti_at, diisi di halaman Bukti Pembayaran). INI
-      // khusus DP produksi — tidak tertukar dengan DP desain. Fallback: kolom
-      // `tanggal` pembayaran dp_produksi kalau diisi manual. TIDAK memakai
-      // finance_approved_at (dipakai bersama approval DP desain) maupun created_at
-      // (waktu CS isi rincian, sebelum uang masuk).
-      const dpProduksi = dateOnly(o.dp_produksi_bukti_at) || payTanggal.get(`${o.id}:dp_produksi`) || '';
       const dsg = matchDesign(String(o.customer_nama || ''));
 
-      // Nilai otomatis dari sistem.
+      // Nilai otomatis dari sistem. CATATAN PENTING: "DP Produksi Diterima"
+      // SENGAJA TIDAK diisi otomatis — sumber tanggalnya (upload bukti TF /
+      // dp_produksi_bukti_at) sering beda dengan tanggal TF sebenarnya di grup
+      // customer, jadi diisi MANUAL oleh merchandiser. Semua kolom auto di
+      // bawah pun hanya mengisi baris yang masih KOSONG (FILL-IF-EMPTY di
+      // bawah) — tidak pernah menimpa tanggal yang sudah dibenarkan manual.
       const auto: Record<string, string> = {
         tgl_dp_design: dpDesain || tglOrder,
         nama_customer: String(o.customer_nama || ''),
@@ -165,7 +173,6 @@ export async function POST(req: NextRequest) {
         rev1_kirim: dsg?.rev1 || '',
         rev2_kirim: dsg?.rev2 || '',
         rev3_kirim: dsg?.rev3 || '',
-        dp_produksi_diterima: dpProduksi,
       };
 
       const ex = existByNo.get(no);
@@ -178,16 +185,17 @@ export async function POST(req: NextRequest) {
         );
         created++;
       } else {
-        // Kolom OTOMATIS (dari sistem) di-timpa dengan nilai terbaru bila ada —
-        // supaya koreksi (mis. tanggal DP produksi yang benar dari Finance ACC)
-        // ikut terupdate saat re-sync. Nilai kosong TIDAK menimpa (tidak
-        // menghapus data). Kolom manual (PIC Sales, feedback, Design Fix, dll)
-        // tidak pernah disentuh di sini.
+        // FILL-IF-EMPTY: hanya mengisi kolom otomatis yang MASIH KOSONG di
+        // baris. Nilai yang sudah diisi / dibenarkan merchandiser (mis. tanggal
+        // sesuai grup customer) TIDAK PERNAH ditimpa oleh "Tarik dari Sistem".
+        // (Sebelumnya kolom otomatis ditimpa nilai sistem terbaru — itulah yang
+        // menghapus koreksi manual yang dikeluhkan.) Kolom manual (PIC Sales,
+        // feedback, Design Fix, DP Produksi Diterima, dll) juga tidak disentuh.
         const setCols: string[] = [];
         const setVals: unknown[] = [];
         for (const k of Object.keys(auto)) {
           const newV = auto[k];
-          if (newV && newV !== String(ex[k] ?? '')) { setCols.push(`\`${k}\` = ?`); setVals.push(newV); }
+          if (newV && isEmpty(ex[k])) { setCols.push(`\`${k}\` = ?`); setVals.push(newV); }
         }
         if (setCols.length > 0) {
           setVals.push(ex.id);
