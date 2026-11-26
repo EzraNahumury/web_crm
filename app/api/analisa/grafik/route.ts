@@ -41,7 +41,9 @@ export async function GET(req: NextRequest) {
       const [ords, items, holidayRows] = await Promise.all([
         query<OrdRow>(
           `SELECT id, pilihan_paket, tanggal_acc_proofing, deadline_lock
-             FROM orders WHERE (tanggal_order IS NULL OR tanggal_order >= ?)`, [HIDE_ORDERS_BEFORE]).catch(() => [] as OrdRow[]),
+             FROM orders
+            WHERE (tanggal_order IS NULL OR tanggal_order >= ?)
+              AND COALESCE(UPPER(status), '') <> 'SELLING'`, [HIDE_ORDERS_BEFORE]).catch(() => [] as OrdRow[]),
         query<{ order_id: number; paket_nama: string | null }>('SELECT order_id, paket_nama FROM order_items').catch(() => []),
         query<{ tanggal: unknown }>('SELECT `tanggal` FROM `libur_nasional`').catch(() => []),
       ]);

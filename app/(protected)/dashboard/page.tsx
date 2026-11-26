@@ -35,6 +35,9 @@ export default function DashboardPage() {
   const [from, setFrom] = useState(() => monthStartISO(new Date().getFullYear(), new Date().getMonth()));
   const [to, setTo] = useState(() => monthEndISO(new Date().getFullYear(), new Date().getMonth()));
   const [analisa, setAnalisa] = useState<AnalisaData>({ paket: [], kabupaten: [], totals: { qty: 0, nominal: 0, orders: 0 } });
+  // Qty pcs dihitung BASIS DEADLINE (bukan tanggal order) khusus untuk kartu
+  // "Qty Masuk", supaya ANGKANYA SAMA dengan Laporan Deadline CS Order.
+  const [deadlineQty, setDeadlineQty] = useState(0);
 
   useEffect(() => {
     if (user && user.role !== 'admin') {
@@ -46,12 +49,17 @@ export default function DashboardPage() {
 
   // Analisa order per periode (qty pcs, nominal, % paket & kabupaten).
   useEffect(() => {
-    const qs = new URLSearchParams();
-    if (from) qs.set('from', from);
-    if (to) qs.set('to', to);
-    qs.set('basis', 'order');
+    const url = (basis: string) => {
+      const qs = new URLSearchParams();
+      if (from) qs.set('from', from);
+      if (to) qs.set('to', to);
+      qs.set('basis', basis);
+      return `/api/analisa/grafik?${qs.toString()}`;
+    };
     let cancelled = false;
-    fetch(`/api/analisa/grafik?${qs.toString()}`)
+    // BASIS ORDER (tanggal order) → Total Nilai Order, Jenis Paket, Kabupaten,
+    // dan tabel % per paket/kabupaten.
+    fetch(url('order'))
       .then(r => r.json())
       .then(j => {
         if (cancelled || !j.success) return;
@@ -60,6 +68,15 @@ export default function DashboardPage() {
           kabupaten: j.data.kabupaten || [],
           totals: { qty: Number(j.data.totals?.qty) || 0, nominal: Number(j.data.totals?.nominal) || 0, orders: Number(j.data.totals?.orders) || 0 },
         });
+      })
+      .catch(() => {});
+    // BASIS DEADLINE → khusus kartu "Qty Masuk", supaya sama persis dengan
+    // total qty di Laporan Deadline CS Order (dihitung per tanggal DEADLINE).
+    fetch(url('deadline'))
+      .then(r => r.json())
+      .then(j => {
+        if (cancelled || !j.success) return;
+        setDeadlineQty(Number(j.data.totals?.qty) || 0);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -249,7 +266,7 @@ export default function DashboardPage() {
 
       {/* Analisa Order periode — qty pcs masuk + nilai + distribusi paket/kabupaten */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Qty Masuk (pcs)" value={analisa.totals.qty.toLocaleString('id-ID')} trend="Periode" accent="cyan"
+        <StatCard label="Qty Masuk (pcs)" value={deadlineQty.toLocaleString('id-ID')} trend="Deadline" accent="cyan"
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>} />
         <StatCard label="Total Nilai Order" value={fmtRp(analisa.totals.nominal)} trend="Periode" accent="emerald"
           icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} />
