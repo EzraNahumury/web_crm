@@ -104,6 +104,12 @@ const ADMIN_NAV: SideNavItem[] = [
       },
     ],
   },
+  // ── Menu "PPIC" DISEMBUNYIKAN SEMENTARA (belum dipakai) ──────────────
+  // Halaman-halamannya (Monitoring Produksi, History, Produksi Deadline Lock,
+  // Papan Finishing, History Finishing, Laporan Produksi, Penggunaan Bahan)
+  // tetap ADA & bisa diakses lewat URL langsung — hanya disembunyikan dari
+  // sidebar. Untuk memunculkan lagi, hapus komentar blok di bawah.
+  /*
   {
     label: 'PPIC',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" /></svg>,
@@ -117,6 +123,7 @@ const ADMIN_NAV: SideNavItem[] = [
       { href: '/laporan/penggunaan-bahan', label: 'Penggunaan Bahan' },
     ],
   },
+  */
   {
     label: 'Admin PPIC',
     icon: <svg className={ICON_CLS} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>,
