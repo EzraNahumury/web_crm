@@ -9,8 +9,8 @@
 // identik, semua rate + deteksi tier + rumus poin hidup di sini. Jangan
 // duplikasi di tempat lain — import dari file ini.
 //
-// Poin per paket = ATASAN (tierRate) + CELANA (celanaRate). Contoh PRO 10 pcs
-// = 10×1,7 (atasan) + 10×1,2 (celana) = 29.
+// Poin per paket = ATASAN (tierRate) [+ CELANA bila INCLUDE_CELANA=true].
+// Mode saat ini: ATASAN SAJA → PRO 10 pcs = 10×1,7 = 17.
 
 // ── Rate ATASAN per tier (patokan CS / spreadsheet manual). ──────────────
 export function tierRate(tier: string): number {
@@ -34,8 +34,15 @@ export const LJ_BASE_RATE = 5000; // = BASE_RATE_POIN di menu Sewing
 // memang celana jadi tidak ditambah komponen celana lagi (hindari dobel).
 export const CELANA_EXCLUDE = new Set(['JAKET', 'BENDERA', 'CELANA PRINT', 'CELANA NON PRINT']);
 
+// PER 2026-11-27 (keputusan Ezra, ikut Arya): poin Laporan Deadline = ATASAN
+// SAJA, TANPA komponen celana. Contoh PRO 57 pcs = 57×1,7 = 96,9 (bukan 165,3).
+// Ini satu-satunya saklar: ubah ke `true` untuk mengaktifkan lagi atasan+celana
+// — otomatis berlaku di Laporan Deadline DAN target tracker produksi.
+export const INCLUDE_CELANA = false;
+
 // celanaMap: nama/kolom_prefix paket (UPPERCASE) → poin celana (rate/5000).
 export function celanaRate(tier: string, celanaMap: Record<string, number>): number {
+  if (!INCLUDE_CELANA) return 0;          // atasan-only → celana tidak dihitung
   if (!tier || CELANA_EXCLUDE.has(tier)) return 0;
   return celanaMap[tier] || 0;
 }
