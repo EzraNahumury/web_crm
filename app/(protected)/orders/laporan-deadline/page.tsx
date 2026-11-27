@@ -4,67 +4,14 @@ import { dbGet, dbUpdate } from '@/lib/api-db';
 import { isVisibleTanggalOrder } from '@/lib/data-cutoff';
 import { computeDeadlineLock, hasJaket } from '@/lib/business-days';
 import { buildAksesorisSet } from '@/lib/qty-aksesoris';
+// Rate + deteksi tier + rumus poin hidup di lib (dipakai bersama tracker
+// produksi via /api/public/pic) supaya angka SELALU identik.
+import { tierRate, celanaRate, detectPaket, TIER_OPTIONS, buildCelanaMap } from '@/lib/deadline-poin';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
 const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-
-// Poin per unit sesuai tier/jenis paket (patokan CS, sesuai spreadsheet
-// manual "Deadline CS Order"):
-//   Standar = 1, Klasik = 1.4, Pro = 1.7, Warrior = 1.9,
-//   Jaket = 1.9, Celana Print = 1, Celana Non Print = 1, Bendera = 1.
-function tierRate(tier: string): number {
-  switch (tier) {
-    case 'WARRIOR': return 1.9;
-    case 'PRO': return 1.7;
-    case 'KLASIK': return 1.4;
-    case 'STANDAR': return 1;
-    case 'JAKET': return 1.9;
-    case 'CELANA PRINT': return 1;
-    case 'CELANA NON PRINT': return 1;
-    case 'BENDERA': return 1;
-    default: return 0;
-  }
-}
-
-// Poin CELANA per unit — komponen bawahan (celana) dari satu set jersey.
-// Point per paket = atasan (tierRate) + celana. SUMBER celana = master
-// "beban celana" di menu SEWING (tabel line_jahit_paket.rate_celana ÷ 5000),
-// supaya ANGKANYA SAMA PERSIS dengan poin celana di Sewing — bukan tebakan.
-// Contoh (seed AYRES): PRO celana 6000/5000 = 1,2 → PRO 10 pcs =
-// 10×1,7 (atasan) + 10×1,2 (celana) = 29. STANDAR=1,0 · KLASIK=1,2.
-//   • STANDAR/KLASIK/PRO/WARRIOR + paket jersey lain yang ada di Sewing →
-//     celana diambil live dari master (ikut kalau operator ubah rate).
-//   • JAKET & BENDERA → 0 (tidak ada celana).
-//   • CELANA PRINT / CELANA NON PRINT → 0 (tier-nya memang celana, tidak
-//     ditambah komponen celana lagi supaya tidak dobel).
-const LJ_BASE_RATE = 5000; // sama dengan BASE_RATE_POIN di menu Sewing
-const CELANA_EXCLUDE = new Set(['JAKET', 'BENDERA', 'CELANA PRINT', 'CELANA NON PRINT']);
-// celanaMap: nama/kolom_prefix paket (UPPERCASE) → poin celana (rate/5000).
-function celanaRate(tier: string, celanaMap: Record<string, number>): number {
-  if (!tier || CELANA_EXCLUDE.has(tier)) return 0;
-  return celanaMap[tier] || 0;
-}
-
-// Deteksi tier + variant dari nama paket order. tier '' = tidak terdeteksi
-// (paket bukan Standar/Klasik/Pro → CS pilih manual lewat dropdown).
-function detectPaket(names: string[]): { tier: string; display: string } {
-  for (const raw of names) {
-    const s = String(raw || '').toUpperCase();
-    let tier = '';
-    if (/WARRIOR|WARIOR/.test(s)) tier = 'WARRIOR';
-    else if (/\bPRO\b/.test(s)) tier = 'PRO';
-    else if (/KLASIK|CLASSIC/.test(s)) tier = 'KLASIK';
-    else if (/STANDAR|STANDARD/.test(s)) tier = 'STANDAR';
-    if (tier) {
-      const mv = s.match(/PAKET\s+([A-E])/) || s.match(/\b([A-E])\s*$/);
-      const variant = mv ? mv[1] : '';
-      return { tier, display: variant ? `${tier} ${variant}` : tier };
-    }
-  }
-  return { tier: '', display: '' };
-}
 
 function monthKeyOf(iso: string): string {
   const m = iso.match(/^(\d{4})-(\d{2})/);
@@ -99,8 +46,6 @@ function htmlToText(s: string): string {
     .replace(/[ \t]+\n/g, '\n')
     .replace(/^\s+|\s+$/g, '');
 }
-
-const TIER_OPTIONS = ['STANDAR', 'KLASIK', 'PRO', 'WARRIOR', 'JAKET', 'CELANA PRINT', 'CELANA NON PRINT', 'BENDERA'];
 
 // Satu baris paket dalam sebuah order (1 order bisa >1 paket, mis. jersey
 // Classic + Standar). detected=false → tier belum kebaca, pakai manualTier.
@@ -154,17 +99,8 @@ export default function LaporanDeadlineCsOrderPage() {
       ]);
       const aksesorisSet = buildAksesorisSet(barangCs as Row[]);
 
-      // Peta poin celana per paket dari master Sewing: nama & kolom_prefix
-      // (UPPERCASE) → rate_celana / 5000 (sama rumus dengan menu Sewing).
-      const cMap: Record<string, number> = {};
-      for (const p of paketRates as Row[]) {
-        const rate = (Number(p.rate_celana) || 0) / LJ_BASE_RATE;
-        const nama = String(p.nama || '').trim().toUpperCase();
-        const prefix = String(p.kolom_prefix || '').trim().toUpperCase();
-        if (nama) cMap[nama] = rate;
-        if (prefix) cMap[prefix] = rate;
-      }
-      setCelanaMap(cMap);
+      // Peta poin celana per paket dari master Sewing (shared dgn tracker).
+      setCelanaMap(buildCelanaMap(paketRates as Row[]));
 
       const holidays = new Set<string>();
       for (const h of libur as Row[]) {

@@ -127,7 +127,7 @@ export default function ProgressAllPage() {
         ) : (
           proc && pic ? (
             <div key={idx} className="tv-fade px-1 sm:px-2 py-1">
-              <ProcessSection proc={proc} month={pic.month} monthLabel={pic.monthLabel} prevMonthLabel={pic.prevMonthLabel}
+              <ProcessSection proc={proc} month={pic.month} prevMonth={pic.prevMonth} monthLabel={pic.monthLabel} prevMonthLabel={pic.prevMonthLabel} targetByDate={pic.targetByDate}
                 footer={board && proc.key === 'design'
                   ? <SlaCard title="SLA Design" counts={board.sla.design.counts} accent="border-indigo-200" />
                   : board && proc.key === 'proofing'

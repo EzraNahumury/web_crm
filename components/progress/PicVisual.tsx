@@ -13,6 +13,9 @@ export interface DayAgg { date: string; real: number; pcs: number }
 export interface Proc { key: string; label: string; metric?: 'poin' | 'qty'; days: DayAgg[]; prevDays: DayAgg[] }
 export interface Feed {
   success: boolean; picLabel: string; target: number;
+  // Poin DEADLINE per tanggal (YYYY-MM-DD → poin) dari Laporan Deadline CS
+  // Order. Dipakai sebagai TARGET harian menggantikan flat 340.
+  targetByDate?: Record<string, number>;
   month: string; monthLabel: string; prevMonth: string; prevMonthLabel: string;
   processes: Proc[];
 }
@@ -105,13 +108,13 @@ export default function PicVisual({ pic, slideshow = false }: { pic: string; sli
             </div>
             {feed.processes[slide] && (
               <div key={slide} className="tv-fade">
-                <ProcessSection proc={feed.processes[slide]} month={feed.month} monthLabel={feed.monthLabel} prevMonthLabel={feed.prevMonthLabel} />
+                <ProcessSection proc={feed.processes[slide]} month={feed.month} prevMonth={feed.prevMonth} monthLabel={feed.monthLabel} prevMonthLabel={feed.prevMonthLabel} targetByDate={feed.targetByDate} />
               </div>
             )}
           </>
         ) : (
           feed.processes.map(proc => (
-            <ProcessSection key={proc.key} proc={proc} month={feed.month} monthLabel={feed.monthLabel} prevMonthLabel={feed.prevMonthLabel} />
+            <ProcessSection key={proc.key} proc={proc} month={feed.month} prevMonth={feed.prevMonth} monthLabel={feed.monthLabel} prevMonthLabel={feed.prevMonthLabel} targetByDate={feed.targetByDate} />
           ))
         )}
       </main>
@@ -119,32 +122,46 @@ export default function PicVisual({ pic, slideshow = false }: { pic: string; sli
   );
 }
 
-// Ringkasan agregat dari sekumpulan hari (hari-dengan-data).
-function agg(days: DayAgg[]) {
-  const real = days.reduce((s, d) => s + d.real, 0);
-  const target = days.length * TARGET;
-  const selisih = real - target;
-  const pct = target > 0 ? Math.round((real / target) * 100) : 0;
-  return { real, target, selisih, pct, hari: days.length };
+// Ringkasan agregat: realisasi dari hari-dengan-data, target dari parameter.
+function agg(days: DayAgg[], target: number) {
+  const real = Math.round(days.reduce((s, d) => s + d.real, 0) * 10) / 10;
+  const tg = Math.round((target || 0) * 10) / 10;
+  const selisih = Math.round((real - tg) * 10) / 10;
+  const pct = tg > 0 ? Math.round((real / tg) * 100) : 0;
+  return { real, target: tg, selisih, pct, hari: days.length };
 }
 
-export function ProcessSection({ proc, monthLabel, prevMonthLabel, footer }: {
-  proc: Proc; month: string; monthLabel: string; prevMonthLabel: string; footer?: ReactNode;
+export function ProcessSection({ proc, month, prevMonth = '', monthLabel, prevMonthLabel, targetByDate, footer }: {
+  proc: Proc; month: string; prevMonth?: string; monthLabel: string; prevMonthLabel: string;
+  targetByDate?: Record<string, number>; footer?: ReactNode;
 }) {
   // Proses qty-only (Design/Proofing): tanpa poin/target/selisih — cuma qty.
   const isQty = proc.metric === 'qty';
-  const cur = useMemo(() => agg(proc.days), [proc.days]);
-  const prev = useMemo(() => agg(proc.prevDays), [proc.prevDays]);
+  // TARGET = poin DEADLINE per tanggal (dari Laporan Deadline CS Order) bila
+  // tersedia; fallback flat 340 utk kompatibilitas. dayTarget → 1 tanggal;
+  // rangeTarget → total poin deadline semua tanggal dalam periode (bulan/minggu).
+  const hasTbd = !!targetByDate;
+  const tbd = useMemo(() => targetByDate || {}, [targetByDate]);
+  const dayTarget = useCallback((date: string) => hasTbd ? (tbd[date] || 0) : TARGET, [hasTbd, tbd]);
+  const rangeTarget = useCallback((pred: (d: string) => boolean, days: DayAgg[]) =>
+    hasTbd
+      ? Object.keys(tbd).reduce((s, d) => pred(d) ? s + (tbd[d] || 0) : s, 0)
+      : days.length * TARGET,
+  [hasTbd, tbd]);
+
+  const cur = useMemo(() => agg(proc.days, rangeTarget(d => d.slice(0, 7) === month, proc.days)), [proc.days, rangeTarget, month]);
+  const prev = useMemo(() => agg(proc.prevDays, rangeTarget(d => d.slice(0, 7) === prevMonth, proc.prevDays)), [proc.prevDays, rangeTarget, prevMonth]);
 
   // Perbandingan mingguan: bucket tanggal 1-7 / 8-14 / 15-21 / 22-28 / 29-akhir.
   const weekly = useMemo(() => {
     const buckets = [[1, 7], [8, 14], [15, 21], [22, 28], [29, 31]];
     return buckets.map(([lo, hi], i) => {
       const ds = proc.days.filter(d => { const n = dayNum(d.date); return n >= lo && n <= hi; });
-      const a = agg(ds);
+      const tg = rangeTarget(d => d.slice(0, 7) === month && dayNum(d) >= lo && dayNum(d) <= hi, ds);
+      const a = agg(ds, tg);
       return { label: `Mgg ${i + 1}`, range: `${lo}–${hi === 31 ? 'akhir' : hi}`, ...a };
     }).filter(w => w.hari > 0 || w.label === 'Mgg 1');
-  }, [proc.days]);
+  }, [proc.days, rangeTarget, month]);
 
   const diffCls = (n: number) => n >= 0 ? 'text-emerald-600' : 'text-rose-600';
 
@@ -226,7 +243,8 @@ export function ProcessSection({ proc, monthLabel, prevMonthLabel, footer }: {
                 {proc.days.length === 0 ? (
                   <tr><td colSpan={isQty ? 2 : 4} className="px-3 py-8 text-center text-slate-400">Belum ada data bulan ini.</td></tr>
                 ) : proc.days.map(d => {
-                  const sel = d.real - TARGET;
+                  const tgt = dayTarget(d.date);
+                  const sel = d.real - tgt;
                   return (
                     <tr key={d.date} className="odd:bg-white even:bg-slate-50/60">
                       <td className="border-b border-slate-100 px-3 py-1.5 font-medium text-slate-700">{fmtDayShort(d.date)}</td>
@@ -234,7 +252,7 @@ export function ProcessSection({ proc, monthLabel, prevMonthLabel, footer }: {
                         <td className="border-b border-slate-100 px-3 py-1.5 text-center tabular-nums font-semibold text-sky-700">{fmt(d.real)}</td>
                       ) : (
                         <>
-                          <td className="border-b border-slate-100 px-3 py-1.5 text-center tabular-nums text-emerald-700">{fmt(TARGET)}</td>
+                          <td className="border-b border-slate-100 px-3 py-1.5 text-center tabular-nums text-emerald-700">{fmt(tgt)}</td>
                           <td className="border-b border-slate-100 px-3 py-1.5 text-center tabular-nums font-semibold text-sky-700">{fmt(d.real)}</td>
                           <td className={`border-b border-slate-100 px-3 py-1.5 text-center tabular-nums font-bold ${diffCls(sel)}`}>{sel >= 0 ? '+' : '−'}{fmt(Math.abs(sel))}</td>
                         </>
